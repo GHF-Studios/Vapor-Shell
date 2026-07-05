@@ -2,4 +2,4 @@
 /deploy
 /.idea
 *.rs.bk
-
+*.lock
