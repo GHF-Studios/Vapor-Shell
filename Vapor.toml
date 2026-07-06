@@ -1,0 +1,3 @@
+[project]
+kind = "shell"
+id = "ghf-studios.vapor-shell"
