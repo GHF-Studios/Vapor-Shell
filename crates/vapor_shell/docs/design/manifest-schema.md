@@ -11,13 +11,20 @@ capability, publication, and application policy in `Vapor.toml`.
 
 - Every manifest starts with `schema = 1`.
 - Every manifest declares exactly one primary identity section.
-- IDs use lowercase, slash-separated, kebab-case components, normally rooted
-  at the canonical GitHub owner and repository: `ghf-studios/vapor-sdk/cli`.
+- Declaration names and organization names use lowercase kebab-case.
+- Root, workspace, registry, project, content, and trait declarations use a
+  local `name`; they do not repeat their fully qualified identifier.
+- A root, workspace, or registry identifier is inferred as
+  `organization/name`.
+- A project or content identifier is inferred as
+  `organization/workspace/project`.
+- A trait identifier is inferred as
+  `organization/workspace/project/trait`.
 - Repository URLs preserve the canonical GitHub owner and repository spelling.
-- IDs are globally unique across identity kinds. A project ID extends its
-  workspace ID with the project slug, even when that repeats the repository
-  name: `ghf-studios/loo-cast/loo-cast-game`.
-- A publishable reference uses a stable ID. Relative paths are reserved for
+- Inferred identifiers are globally unique across identity kinds.
+- References use fully qualified identifiers. An `id` field therefore denotes
+  a reference, never the declaration containing that field.
+- A publishable reference uses a stable identifier. Relative paths are reserved for
   private, local, or otherwise non-publishable relationships.
 - Generated resolution, hashes, receipts, and installed state do not belong in
   a source manifest.
@@ -31,7 +38,8 @@ workspace:
 schema = 1
 
 [root]
-id = "ghf-studios/vapor-root"
+name = "vapor-root"
+organization = "ghf-studios"
 version = "0.5.0"
 repository = "https://github.com/GHF-Studios/Vapor-Root"
 default-packagepack = "ghf-studios/loo-cast/loo-cast-packagepack"
@@ -54,7 +62,8 @@ the same directory:
 schema = 1
 
 [workspace]
-id = "ghf-studios/vapor-examples"
+name = "vapor-examples"
+organization = "ghf-studios"
 version = "0.5.0"
 repository = "https://github.com/GHF-Studios/Vapor-Examples"
 ```
@@ -71,7 +80,7 @@ non-content package uses `[project]`:
 schema = 1
 
 [project]
-id = "ghf-studios/vapor-sdk/cli"
+name = "cli"
 version.workspace = true
 ```
 
@@ -81,7 +90,7 @@ A content package uses its content kind instead of `[project]`:
 schema = 1
 
 [engine]
-id = "ghf-studios/loo-cast/spacetime-engine"
+name = "spacetime-engine"
 version.workspace = true
 ```
 
@@ -113,11 +122,18 @@ Cargo dependencies remain a separate Rust build graph.
 
 ## Traits and slots
 
-Workspaces may define globally identified, zero-member marker traits:
+Projects may define zero-member marker traits. The containing project supplies
+their identity and versioning scope:
 
 ```toml
+schema = 1
+
+[engine]
+name = "spacetime-engine"
+version.workspace = true
+
 [[traits]]
-id = "ghf-studios/loo-cast/render-backend"
+name = "render-backend"
 ```
 
 Consumer content may require providers through named slots:
@@ -125,15 +141,16 @@ Consumer content may require providers through named slots:
 ```toml
 [[slots]]
 name = "renderer"
-trait = "ghf-studios/loo-cast/render-backend"
+trait = "ghf-studios/loo-cast/spacetime-engine/render-backend"
 cardinality = "one"
 ```
 
 Traits describe capabilities; content kinds describe structural roles. Slot
 resolution operates over the selected content graph and must satisfy the
-declared cardinality. Provider-declaration syntax and trait composition remain
-unset until a concrete provider example forces those fields; the schema does
-not invent them prematurely.
+declared cardinality. A generally shared trait belongs to a dedicated contracts
+project rather than floating at workspace scope. Provider-declaration syntax
+and trait composition remain unset until a concrete provider example forces
+those fields; the schema does not invent them prematurely.
 
 ## Registry authority
 
@@ -144,13 +161,15 @@ Cargo package:
 schema = 1
 
 [registry]
-id = "ghf-studios/vapor-registry"
+name = "vapor-registry"
+organization = "ghf-studios"
 repository = "https://github.com/GHF-Studios/Vapor-Registry"
 authority = "github.com/GHF-Studios/Vapor-Registry"
 ```
 
-Registry data verifies declared identity and containment. A repository cannot
-grant itself first-party authority merely by adding a manifest field.
+Registry data verifies the declared organization, inferred identity, and
+containment. Naming an organization in a source manifest is a namespace claim,
+not authorization; a repository cannot grant itself first-party authority.
 
 ## Deliberate omissions
 
