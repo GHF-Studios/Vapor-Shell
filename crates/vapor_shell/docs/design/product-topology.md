@@ -1,11 +1,11 @@
 # Vapor product topology
 
-Status: **design checkpoint; topology confirmed, names and schema unresolved**
+Status: **implemented baseline; first-party authority and publication policy still evolving**
 
-This document records the current product model before command, manifest, and
-implementation alignment. It supersedes conflicting topology assumptions in
-the existing Vapor-Shell documentation for future design work, but it does not
-claim that the current executable implements this model.
+This document records the current product model after the first command,
+manifest, and implementation alignment pass. It supersedes older conflicting
+topology assumptions and separates implemented baseline from remaining design
+work.
 
 ## Design objective
 
@@ -204,15 +204,40 @@ implementation state, not a normal user-facing lifecycle.
 The toolchain is explicit only when the user intentionally manages it. Its
 minimal conceptual lifecycle is:
 
-- install;
-- uninstall;
 - status;
+- install with preview support;
+- uninstall with preview support;
 - repair.
 
 Repair means restoring a known-good installation, conceptually equivalent to
 uninstalling and reinstalling it while preserving only state that is explicitly
 supposed to survive. Normal build, validation, and publication commands never
 silently install or repair prerequisites.
+
+Toolchain operations follow the same status, preview, and explicit repair model
+as other consequential workflows. `toolchain status` explains current state and
+next actions. Mutating commands expose a dry-run style preview before changing
+installation-owned Rust, Cargo, Git, SteamCMD, PATH registration, or app-root
+location state. Scripts may call these operations and bubble up flags, but Vapor
+must still keep the consequential action explicit and visible.
+
+## IDE integration
+
+Vapor should discover, validate, repair, and manage IDE project settings where
+that can be done safely. RustRover and other JetBrains IDEs are the first
+target because they are part of the intended authoring loop.
+
+Opening a Vapor application root or workspace should be able to configure the
+project to use the Steam-installed Vapor toolchain: bundled Rust and Cargo,
+Cargo home, rustup and toolchain paths, relevant environment variables, and
+project mappings. This must be explicit, inspectable, and repairable.
+
+IDE setup is not automatic startup behavior. It is a manual, repo-by-repo or
+workspace-by-workspace operation because changing project files can be annoying
+or destructive. Vapor should provide status and dry-run style previews before
+repairing IDE state, then apply only to the selected source root. It should
+normalize project-local configuration, but it must not silently mutate global
+IDE configuration or hide what it changed.
 
 ## Opening and targeting source
 
@@ -223,10 +248,10 @@ as an ad-hoc one-shot command. Vapor may use an invocation path as one discovery
 input, but the selected target is explicit session state rather than the
 identity of the executable.
 
-Vapor supports IDE-like opening and closing of an application or workspace
-inside the interactive session. Selecting a project or content node occurs
-within its containing workspace. Vapor owns this session without imitating an
-operating-system shell.
+Vapor should support IDE-like opening and closing of an application or
+workspace inside the interactive session. Selecting a project or content node
+occurs within its containing workspace. Vapor owns this session without
+imitating an operating-system shell.
 
 Commands should remain discoverable even when unavailable. Help and interactive
 surfaces show the operation and explain which target or prerequisite is missing
@@ -276,7 +301,8 @@ The final command name and conversion policy remain unresolved.
 
 ## Schema sequencing
 
-Schema design occurs in two passes.
+Schema design occurs in two passes. The early pass is now represented by the
+implemented baseline schema; the later pass remains open.
 
 The early pass defines only invariants required by the product model:
 
@@ -313,29 +339,26 @@ from forcing the rest of the product into an accidental model.
 
 The topology does not depend on settling these immediately:
 
-- the final name and Vapor manifest section for the application root;
-- the exact root-versus-fragment `Vapor.toml` schema;
 - the precise definition of a publishable artifact;
 - whether one Workshop artifact may combine output from several projects;
 - how content dependencies reuse or extend Cargo dependency information;
 - the cryptographic, registry, or installation evidence proving first-party
   authority;
-- the exact location-lock filename and explicit relocation-repair interaction;
 - the final open, close, create, initialize, adopt, and publish command grammar;
 - which operation metadata drives help, documentation, previews, and future GUI
   surfaces.
 
 ## Documentation consequence
 
-The documentation rebuild should use this order:
+The remaining documentation rebuild should use this order:
 
-1. retain this checkpoint as explicitly non-reference design material;
-2. define the minimal early manifest invariants;
-3. write the plain-language product model and principal user workflows;
-4. settle operation vocabulary and ownership;
-5. finish the detailed manifest and artifact schema;
-6. derive task guides and command reference from the accepted operation model;
-7. write implementation architecture only after the product contract is stable.
+1. keep this checkpoint as design material rather than command reference;
+2. keep the implemented baseline manifest invariants synchronized with code;
+3. finish the plain-language principal user workflows;
+4. settle open/create/initialize/adopt/publish vocabulary and ownership;
+5. finish the detailed artifact and publication schema;
+6. derive task guides from the accepted operation model;
+7. keep implementation architecture synchronized after each workflow pass.
 
-Existing user-facing documentation remains provisional wherever it conflicts
-with this checkpoint.
+User-facing documentation is authoritative only where it matches implemented
+and verified behavior.

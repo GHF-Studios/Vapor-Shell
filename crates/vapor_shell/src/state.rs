@@ -1,8 +1,8 @@
-//! Mutable source navigation and derived workspace context.
+//! Mutable source navigation and derived source-root context.
 //!
 //! # Lifecycle
 //!
-//! [`ShellState::new`] validates the external workspace identity, generates an
+//! [`ShellState::new`] validates the external source-root identity, generates an
 //! optional Cargo index, and starts at the source root. Navigation methods
 //! canonicalize user paths and enforce that root as a hard ceiling.
 //!
@@ -24,20 +24,35 @@ use std::{
 
 const EMPTY_CONTEXT: &str = "none";
 
-/// Validated identity of the external source workspace.
+/// Kind of source root selected for this session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceRootKind {
+    /// The Vapor application/depot source root.
+    Root,
+    /// A normal source workspace.
+    Workspace,
+}
+
+/// Validated identity of the external source root.
 #[derive(Debug, Clone)]
-pub struct WorkspaceContext {
+pub struct SourceContext {
+    kind: SourceRootKind,
     id: String,
     root: PathBuf,
 }
 
-impl WorkspaceContext {
-    /// Stable workspace identifier.
+impl SourceContext {
+    /// Source root kind.
+    pub fn kind(&self) -> SourceRootKind {
+        self.kind
+    }
+
+    /// Stable source-root identifier.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// Canonical source workspace root.
+    /// Canonical source root.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -73,7 +88,7 @@ impl ContentContext {
 pub struct ShellState {
     paths: EnvironmentPaths,
     current_dir: PathBuf,
-    workspace: WorkspaceContext,
+    source: SourceContext,
     content: Option<ContentContext>,
     cargo: CargoIndex,
 }
@@ -88,17 +103,26 @@ impl ShellState {
     pub fn new(paths: EnvironmentPaths) -> Result<Self, String> {
         let source_root = paths.source().root();
         let marker = source_root.join(manifest::FILE_NAME);
-        let workspace = match manifest::read(&marker, source_root)? {
-            VaporEntity::Workspace { id } => WorkspaceContext {
+        let source = match manifest::read(&marker, source_root)? {
+            VaporEntity::Root { id, .. } => SourceContext {
+                kind: SourceRootKind::Root,
                 id,
                 root: source_root.to_path_buf(),
             },
-            VaporEntity::Project { kind, id } => {
+            VaporEntity::Workspace { id, .. } => SourceContext {
+                kind: SourceRootKind::Workspace,
+                id,
+                root: source_root.to_path_buf(),
+            },
+            VaporEntity::Registry { id, .. } => {
                 return Err(format!(
-                    "source root unexpectedly describes {kind} project '{id}'"
+                    "source root unexpectedly describes registry '{id}'"
                 ));
             }
-            VaporEntity::Content { kind, id } => {
+            VaporEntity::Project { id, .. } => {
+                return Err(format!("source root unexpectedly describes project '{id}'"));
+            }
+            VaporEntity::Content { kind, id, .. } => {
                 return Err(format!(
                     "source root '{}' unexpectedly describes {kind} '{id}'",
                     source_root.display()
@@ -110,7 +134,7 @@ impl ShellState {
         Ok(Self {
             current_dir: source_root.to_path_buf(),
             paths,
-            workspace,
+            source,
             content: None,
             cargo,
         })
@@ -121,14 +145,14 @@ impl ShellState {
         &self.paths
     }
 
-    /// Current internal directory, always inside the source workspace.
+    /// Current internal directory, always inside the source root.
     pub fn current_dir(&self) -> &Path {
         &self.current_dir
     }
 
-    /// Validated source workspace identity.
-    pub fn workspace(&self) -> &WorkspaceContext {
-        &self.workspace
+    /// Validated source-root identity.
+    pub fn source(&self) -> &SourceContext {
+        &self.source
     }
 
     /// Nearest active content identity, if any.
@@ -160,13 +184,13 @@ impl ShellState {
             .content
             .as_ref()
             .map_or(EMPTY_CONTEXT, |item| item.id());
-        format!("[{}::{content_id}] ", self.workspace.id())
+        format!("[{}::{content_id}] ", self.source.id())
     }
 
     /// Recompute nearest-content context from the current source directory.
     ///
     /// Invalid nested markers are returned as warnings so a malformed child
-    /// cannot make the entire external workspace inaccessible.
+    /// cannot make the entire external source root inaccessible.
     pub fn refresh_context(&mut self) -> Vec<String> {
         self.content = None;
         let mut warnings = Vec::new();
@@ -181,20 +205,31 @@ impl ShellState {
             let marker = directory.join(manifest::FILE_NAME);
             if marker.is_file() {
                 match manifest::read(&marker, source.root()) {
-                    Ok(VaporEntity::Content { kind, id }) if self.content.is_none() => {
+                    Ok(VaporEntity::Content { kind, id, .. }) if self.content.is_none() => {
                         self.content = Some(ContentContext {
                             id,
                             kind,
                             root: directory.to_path_buf(),
                         });
                     }
-                    Ok(VaporEntity::Workspace { .. }) if directory != source.root() => {
+                    Ok(VaporEntity::Workspace { .. })
+                        if directory != source.root()
+                            && self.source.kind() == SourceRootKind::Workspace =>
+                    {
                         warnings.push(format!(
                             "nested workspace manifest '{}' is not allowed inside source workspace '{}'",
                             marker.display(),
                             source.root().display()
                         ));
                     }
+                    Ok(VaporEntity::Root { .. }) if directory != source.root() => {
+                        warnings.push(format!(
+                            "nested root manifest '{}' is not allowed inside source root '{}'",
+                            marker.display(),
+                            source.root().display()
+                        ));
+                    }
+                    Ok(VaporEntity::Registry { .. }) => {}
                     Ok(VaporEntity::Project { .. }) => {}
                     Ok(_) => {}
                     Err(error) => warnings.push(error),
@@ -215,7 +250,7 @@ impl ShellState {
     /// # Errors
     ///
     /// Fails for nonexistent paths, non-directories, and canonical paths outside
-    /// the source workspace (including symlink escapes).
+    /// the source root (including symlink escapes).
     pub fn resolve_directory(&self, target: &Path) -> Result<PathBuf, String> {
         let candidate = if target.is_absolute() {
             target.to_path_buf()
@@ -250,7 +285,7 @@ impl ShellState {
     ///
     /// # Errors
     ///
-    /// Fails when `target` is outside the source workspace.
+    /// Fails when `target` is outside the source root.
     pub fn change_directory_to(&mut self, target: PathBuf) -> Result<Vec<String>, String> {
         ensure_contained(self.paths.source().root(), &target)?;
         self.current_dir = target;
@@ -269,15 +304,12 @@ impl ShellState {
         for _ in 0..levels {
             if target == source_root {
                 return Err(format!(
-                    "source workspace boundary reached at {}",
+                    "source root boundary reached at {}",
                     source_root.display()
                 ));
             }
             target = target.parent().map(Path::to_path_buf).ok_or_else(|| {
-                format!(
-                    "source workspace boundary reached at {}",
-                    source_root.display()
-                )
+                format!("source root boundary reached at {}", source_root.display())
             })?;
         }
 

@@ -1,107 +1,127 @@
-//! Umbrella-workspace policy loaded from the root `Vapor.toml`.
+//! Source-root policy loaded from `Vapor.toml` and adjacent source structure.
+//!
+//! `[root]` repositories are pure Vapor super-repositories; their direct Git
+//! submodules provide Cargo workspaces. `[workspace]` repositories are normal
+//! Vapor/Cargo workspaces rooted in the same directory.
 
-use crate::{discovery::EnvironmentPaths, manifest};
-use serde::Deserialize;
+use crate::{
+    discovery::EnvironmentPaths,
+    manifest::{self, VaporEntity},
+};
+use serde::Serialize;
 use std::{
     collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
 };
 
-/// Root workspace configuration and its governed Cargo projects.
-#[derive(Debug, Clone, Deserialize)]
+/// Source root kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceRootKind {
+    /// Vapor application/depot source root.
+    Root,
+    /// Normal source workspace.
+    Workspace,
+}
+
+/// Source-root configuration and its governed Cargo workspaces.
+#[derive(Debug, Clone)]
 pub struct WorkspaceManifest {
+    kind: SourceRootKind,
     id: String,
-    #[serde(default)]
+    name: String,
+    organization: String,
     cargo: Vec<CargoProject>,
 }
 
-/// One project repository containing an independently valid Cargo workspace.
-#[derive(Debug, Clone, Deserialize)]
+/// One Cargo workspace that Vapor can route workflows through.
+#[derive(Debug, Clone)]
 pub struct CargoProject {
     name: String,
     manifest: PathBuf,
-    #[serde(default)]
     documentation: bool,
-    #[serde(default)]
     binaries: Vec<String>,
 }
 
 impl WorkspaceManifest {
-    /// Load and validate `[workspace]` policy from the external source root.
+    /// Load and validate source-root policy.
     ///
     /// # Errors
     ///
-    /// Fails for malformed TOML, unsafe or missing Cargo manifest paths,
-    /// duplicate names, or an identity mismatch with discovery.
+    /// Fails for malformed Vapor identity, unsafe submodule paths, missing
+    /// required Cargo manifests, duplicate project names, or an identity
+    /// mismatch with startup discovery.
     pub fn load(paths: &EnvironmentPaths) -> Result<Self, String> {
-        let path = paths.source().root().join(manifest::FILE_NAME);
-        let text = fs::read_to_string(&path)
-            .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
-        #[derive(Deserialize)]
-        struct Root {
-            workspace: WorkspaceManifest,
-        }
-        let manifest = toml::from_str::<Root>(&text)
-            .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?
-            .workspace;
+        let source_root = paths.source().root();
+        let marker = source_root.join(manifest::FILE_NAME);
+        let entity = manifest::read(&marker, source_root)?;
+        let (kind, id, name, organization) = match entity {
+            VaporEntity::Root {
+                id,
+                name,
+                organization,
+            } => (SourceRootKind::Root, id, name, organization),
+            VaporEntity::Workspace {
+                id,
+                name,
+                organization,
+            } => (SourceRootKind::Workspace, id, name, organization),
+            VaporEntity::Registry { id, .. } => {
+                return Err(format!("registry '{id}' is not a buildable source root"));
+            }
+            VaporEntity::Project { id, .. } => {
+                return Err(format!("project '{id}' is not a source root"));
+            }
+            VaporEntity::Content { kind, id, .. } => {
+                return Err(format!("{kind} '{id}' is not a source root"));
+            }
+        };
 
-        if manifest.id.trim().is_empty() {
-            return Err("workspace id cannot be empty".to_owned());
-        }
-        if manifest.id != paths.source().workspace_id() {
+        if id != paths.source().identity_id() {
             return Err(format!(
-                "workspace identity changed during startup: discovered '{}' but loaded '{}'",
-                paths.source().workspace_id(),
-                manifest.id
+                "source identity changed during startup: discovered '{}' but loaded '{}'",
+                paths.source().identity_id(),
+                id
             ));
         }
 
-        let mut names = HashSet::new();
-        for project in &manifest.cargo {
-            if project.name.is_empty()
-                || project
-                    .name
-                    .chars()
-                    .any(|character| !character.is_ascii_alphanumeric() && character != '-')
-            {
-                return Err(format!("invalid Cargo project name: {}", project.name));
-            }
-            if !names.insert(&project.name) {
-                return Err(format!("duplicate Cargo project name: {}", project.name));
-            }
-            validate_relative(&project.manifest)?;
-            let absolute = paths.source().root().join(&project.manifest);
-            if !absolute.is_file() {
-                return Err(format!(
-                    "Cargo project '{}' has no manifest at '{}'",
-                    project.name,
-                    absolute.display()
-                ));
-            }
-            for binary in &project.binaries {
-                if binary.is_empty()
-                    || binary
-                        .chars()
-                        .any(|character| !character.is_ascii_alphanumeric() && character != '_')
-                {
-                    return Err(format!(
-                        "invalid deployed binary '{}' for project '{}'",
-                        binary, project.name
-                    ));
-                }
-            }
-        }
+        let cargo = match kind {
+            SourceRootKind::Root => discover_root_cargo_workspaces(source_root)?,
+            SourceRootKind::Workspace => discover_workspace_cargo(source_root, &name)?,
+        };
+        validate_projects(&cargo)?;
 
-        Ok(manifest)
+        Ok(Self {
+            kind,
+            id,
+            name,
+            organization,
+            cargo,
+        })
     }
 
-    /// Stable workspace identifier.
+    /// Source root kind.
+    pub fn kind(&self) -> SourceRootKind {
+        self.kind
+    }
+
+    /// Inferred source-root identifier.
     pub fn id(&self) -> &str {
         &self.id
     }
 
-    /// Cargo projects governed by this workspace.
+    /// Local source-root name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Owning organization namespace.
+    pub fn organization(&self) -> &str {
+        &self.organization
+    }
+
+    /// Cargo workspaces governed by this source root.
     pub fn cargo_projects(&self) -> &[CargoProject] {
         &self.cargo
     }
@@ -113,7 +133,7 @@ impl CargoProject {
         &self.name
     }
 
-    /// Cargo manifest path relative to the source workspace.
+    /// Cargo manifest path relative to the source root.
     pub fn manifest(&self) -> &Path {
         &self.manifest
     }
@@ -129,6 +149,118 @@ impl CargoProject {
     }
 }
 
+fn discover_workspace_cargo(root: &Path, name: &str) -> Result<Vec<CargoProject>, String> {
+    let manifest = PathBuf::from("Cargo.toml");
+    let absolute = root.join(&manifest);
+    if !absolute.is_file() {
+        return Err(format!(
+            "Vapor workspace '{}' must also be a Cargo workspace with '{}'",
+            root.display(),
+            absolute.display()
+        ));
+    }
+    Ok(vec![CargoProject {
+        name: name.to_owned(),
+        manifest,
+        documentation: true,
+        binaries: Vec::new(),
+    }])
+}
+
+fn discover_root_cargo_workspaces(root: &Path) -> Result<Vec<CargoProject>, String> {
+    submodule_paths(root)?
+        .into_iter()
+        .filter_map(|path| {
+            let cargo_manifest = root.join(&path).join("Cargo.toml");
+            cargo_manifest.is_file().then_some(path)
+        })
+        .map(|path| {
+            let marker = root.join(&path).join(manifest::FILE_NAME);
+            let name = if marker.is_file() {
+                match manifest::read(&marker, root)? {
+                    VaporEntity::Workspace { name, .. } => name,
+                    VaporEntity::Root { id, .. } => {
+                        return Err(format!(
+                            "root submodule '{}' declares nested root '{id}'; direct app children must be [workspace]",
+                            path.display()
+                        ));
+                    }
+                    VaporEntity::Registry { id, .. } => {
+                        return Err(format!(
+                            "root submodule '{}' declares registry '{id}'; direct app children must be [workspace]",
+                            path.display()
+                        ));
+                    }
+                    VaporEntity::Project { id, .. } => {
+                        return Err(format!(
+                            "root submodule '{}' declares project '{id}'; direct app children must be [workspace]",
+                            path.display()
+                        ));
+                    }
+                    VaporEntity::Content { kind, id, .. } => {
+                        return Err(format!(
+                            "root submodule '{}' declares {kind} '{id}'; direct app children must be [workspace]",
+                            path.display()
+                        ));
+                    }
+                }
+            } else {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| format!("invalid submodule path '{}'", path.display()))?
+                    .to_ascii_lowercase()
+            };
+
+            Ok(CargoProject {
+                name,
+                manifest: path.join("Cargo.toml"),
+                documentation: true,
+                binaries: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+fn submodule_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let path = root.join(".gitmodules");
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
+    text.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            line.strip_prefix("path")
+                .and_then(|tail| tail.trim_start().strip_prefix('='))
+                .map(str::trim)
+        })
+        .map(PathBuf::from)
+        .map(|path| {
+            validate_relative(&path)?;
+            Ok(path)
+        })
+        .collect()
+}
+
+fn validate_projects(projects: &[CargoProject]) -> Result<(), String> {
+    let mut names = HashSet::new();
+    for project in projects {
+        if project.name.is_empty()
+            || project.name.chars().any(|character| {
+                !character.is_ascii_lowercase() && !character.is_ascii_digit() && character != '-'
+            })
+        {
+            return Err(format!("invalid Cargo workspace name: {}", project.name));
+        }
+        if !names.insert(&project.name) {
+            return Err(format!("duplicate Cargo workspace name: {}", project.name));
+        }
+        validate_relative(&project.manifest)?;
+    }
+    Ok(())
+}
+
 fn validate_relative(path: &Path) -> Result<(), String> {
     if path.as_os_str().is_empty()
         || path.is_absolute()
@@ -140,7 +272,7 @@ fn validate_relative(path: &Path) -> Result<(), String> {
         })
     {
         Err(format!(
-            "Cargo manifest path must be safe and relative: {}",
+            "source path must be safe and relative: {}",
             path.display()
         ))
     } else {

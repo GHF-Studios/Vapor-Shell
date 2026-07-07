@@ -7,7 +7,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-/// Distribution manifest filename at the umbrella source root.
+/// Distribution manifest filename at the source root.
 pub const FILE_NAME: &str = "Vapor.toml";
 
 /// Parsed application and payload policy.
@@ -16,11 +16,13 @@ pub struct DistributionManifest {
     #[serde(skip)]
     _private: (),
     application: Application,
+    #[serde(default = "default_payload")]
     payload: Vec<Payload>,
 }
 
 /// Steam application identifiers and development branch.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Application {
     app_id: u32,
     depot_id: u32,
@@ -58,15 +60,15 @@ impl DistributionManifest {
     pub fn load(paths: &EnvironmentPaths) -> Result<Self, String> {
         Self::load_optional(paths)?.ok_or_else(|| {
             format!(
-                "source workspace '{}' does not declare [distribution]",
+                "source root '{}' does not declare [root.steam]",
                 paths.source().root().display()
             )
         })
     }
 
-    /// Load the umbrella distribution manifest when one is declared.
+    /// Load the root Steam policy when one is declared.
     ///
-    /// A source workspace does not need to be a self-hosting Steam application,
+    /// A source root does not need to be a self-hosting Steam application,
     /// so absence is distinct from malformed distribution policy.
     pub fn load_optional(paths: &EnvironmentPaths) -> Result<Option<Self>, String> {
         let path = paths.source().root().join(FILE_NAME);
@@ -74,12 +76,24 @@ impl DistributionManifest {
             .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
         #[derive(Deserialize)]
         struct Root {
-            distribution: Option<DistributionManifest>,
+            root: Option<RootPolicy>,
+        }
+        #[derive(Deserialize)]
+        struct RootPolicy {
+            steam: Option<Application>,
         }
         let manifest = toml::from_str::<Root>(&text)
             .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
-        let Some(manifest) = manifest.distribution else {
+        let Some(root) = manifest.root else {
             return Ok(None);
+        };
+        let Some(application) = root.steam else {
+            return Ok(None);
+        };
+        let manifest = DistributionManifest {
+            _private: (),
+            application,
+            payload: default_payload(),
         };
         if manifest.application.app_id == 0 || manifest.application.depot_id == 0 {
             return Err("Steam AppID and DepotID must be non-zero".to_owned());
@@ -102,6 +116,31 @@ impl DistributionManifest {
     /// Steam application policy.
     pub fn application(&self) -> &Application {
         &self.application
+    }
+}
+
+fn default_payload() -> Vec<Payload> {
+    vec![
+        Payload::required(PayloadRoot::Installation, "Vapor.toml", "Vapor.toml"),
+        Payload::required(PayloadRoot::Installation, "bin", "bin"),
+        Payload::required(PayloadRoot::Installation, "docs", "docs"),
+        Payload::required(
+            PayloadRoot::Installation,
+            "packages/toolchain",
+            "packages/toolchain",
+        ),
+    ]
+}
+
+impl Payload {
+    fn required(root: PayloadRoot, from: &str, to: &str) -> Self {
+        Self {
+            root,
+            from: PathBuf::from(from),
+            to: PathBuf::from(to),
+            required: true,
+            exclude: Vec::new(),
+        }
     }
 }
 

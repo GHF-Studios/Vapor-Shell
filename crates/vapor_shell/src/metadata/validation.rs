@@ -6,7 +6,7 @@ use crate::toolchain::Requirement;
 #[derive(Debug, Clone)]
 pub struct ValidationPlan<'a> {
     pub(super) action: &'a str,
-    pub(super) finalized_location: bool,
+    pub(super) registered_location: bool,
     pub(super) tools: Vec<Requirement>,
     pub(super) workspace: bool,
     pub(super) distribution: bool,
@@ -18,7 +18,7 @@ impl<'a> ValidationPlan<'a> {
     pub fn new(action: &'a str) -> Self {
         Self {
             action,
-            finalized_location: false,
+            registered_location: false,
             tools: Vec::new(),
             workspace: false,
             distribution: false,
@@ -28,8 +28,8 @@ impl<'a> ValidationPlan<'a> {
 
     /// Require the executable-derived VAPOR_HOME to match its accepted path.
     #[must_use]
-    pub fn finalized_location(mut self) -> Self {
-        self.finalized_location = true;
+    pub fn registered_location(mut self) -> Self {
+        self.registered_location = true;
         self
     }
 

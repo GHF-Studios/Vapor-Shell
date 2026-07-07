@@ -1,147 +1,161 @@
 # Interactive commands
 
-Run `help` for the command list or `help <COMMAND>` for argument details. Clap
-also supplies contextual completion candidates and validation errors.
+Run `help` for the command list or `help <COMMAND>` for argument details.
+`vapor` without arguments opens the interactive shell. Ad-hoc one-shot commands
+are intentionally disabled; the direct CLI facade is reserved for
+`vapor script run NAME`.
 
 ## Source navigation
 
-### `cd [WORKSPACE_PATH]`
+### `cd [SOURCE_PATH]`
 
 Change the internal source directory. Relative paths start at the current
-internal directory; absolute paths are accepted only inside the source root.
-Omitting the argument returns to the source root.
+internal directory; absolute paths are accepted only inside the active source
+root. Omitting the argument returns to the source root.
 
 ### `up [LEVELS]`
 
 Move toward the source root. `LEVELS` defaults to `1` and must be a positive
-integer. Reaching above the source root is an error.
+integer. Moving above the source root is an error.
 
 ### `pwd`
 
-Print the internal source directory. This does not depend on the process working
-directory after startup.
+Print the internal source directory.
 
-### `ls [WORKSPACE_PATH]`
+### `ls [SOURCE_PATH]`
 
 List a source directory after the same canonical containment checks used by
-`cd`. The default is the internal current directory.
+`cd`.
 
 ### `root`
 
-Return to the external source workspace root.
+Return to the active source root.
 
 ## Installation resources
 
-These commands report replaceable Steam paths and never change the source
-cursor.
-
 ### `installation`
 
-Print the Steam application root discovered from the shell executable.
+Print the Steam application root discovered from the running `bin/vapor`
+executable.
 
 ### `binaries`
 
-Print the directory containing the running shell executable.
+Print the app-local `bin` directory.
 
 ### `libraries`
 
-Print the installation `lib` directory. Absence is reported as an error because
-there is no path to display.
+Print the app-local `lib` directory when it exists.
 
 ## Derived context
 
 ### `metadata [--format human|json]`
 
-Resolve the active source workspace, nearest content, VAPOR_HOME, app-local
-tools, root workspace policy, optional Steam distribution policy, and Cargo
-index into one report. Human-readable output is the default. JSON is the stable
-machine interface for scripts and agents.
+Resolve the active source root, nearest content, app-root registration state,
+app-local tools, root/workspace policy, optional `[root.steam]` policy, and
+Cargo metadata into one report. Human-readable output is the default. JSON is
+the stable machine interface for scripts and agents.
 
 Metadata reporting is best-effort: missing tools, failed Cargo projection, an
-unfinalized VAPOR_HOME, or absent optional distribution policy are reported as
-diagnostics instead of hiding the rest of the environment. This does not make a
-Cargo manifest optional. Commands use the same resolved model and reject
-missing required source structure or unmet command prerequisites before acting.
+unregistered app root, or absent optional Steam policy are reported as
+diagnostics instead of hiding the rest of the environment. Commands use the same
+resolved model and reject unmet prerequisites before acting.
 
-### `toolchain status|finalize|install [--repair]|unlock`
+## Toolchain
 
-`status` reports both the executable-derived VAPOR_HOME and its persisted
-fixpoint, followed by Rust/Cargo, Git, SteamCMD, and vendored-package health.
+### `toolchain status`
 
-`finalize` explicitly accepts the current app location. It writes
-`$VAPOR_HOME/state/vapor-home.toml` and updates the marked shell-profile PATH
-entry to the app's own `bin` directory. No launch option performs this action.
-After a Steam move, the lock moves with the app but retains the previous absolute
-path, so status reports both locations until the user finalizes or moves it back.
+Report the executable-derived app root, persisted app-root registration, active
+Rust/Cargo, Git, SteamCMD, and vendored package health.
 
-`install` is allowed only after finalization. It installs app-local Rust/Cargo,
-Git, and SteamCMD from `$VAPOR_HOME/packages/toolchain`; `--repair` reapplies all
-package files. `unlock` removes the fixpoint and marked PATH entry. Open a new
-terminal after finalize or unlock because a child cannot alter its parent shell.
+### `toolchain install`
+
+Accept the current app root, register its `bin` directory for PATH setup, and
+install missing Rust/Cargo, Git, and SteamCMD from
+`packages/toolchain`. This command is explicit; other commands do not install
+or repair prerequisites automatically.
+
+### `toolchain repair`
+
+Accept the current app root and reapply all vendored Rust/Cargo, Git, and
+SteamCMD packages. Use this after an intentional Steam app move or suspected
+toolchain damage.
+
+### `toolchain uninstall`
+
+Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and app-root
+location state.
+
+Planned alignment: mutating toolchain commands should gain `--dry-run` preview
+support before this command surface is considered final. The current baseline is
+still explicit and manual, but does not yet preview the exact filesystem and
+PATH changes.
+
+## Cargo workflows
 
 ### `fmt|check|test|build [--project PROJECT]`
 
-Run the selected operation through Cargo inside the Steam installation. The
-default is every project declared by `[workspace].members`; `--project` accepts
-the exhaustive set `all`, `core`, `sdk`, `launcher`, `shell`, and `examples`.
-Artifacts go to `$VAPOR_HOME/output/dev/<project>` instead of source trees.
-Rust and Git must already pass `toolchain status`.
+Run the selected Cargo operation through the Steam-installed toolchain.
+`PROJECT` is `all` or a Cargo workspace name discovered from the active source
+root. `[workspace]` sources expose their root Cargo workspace. `[root]` sources
+expose direct submodules that contain `Cargo.toml`.
+
+Artifacts go to `output/dev/<project>` inside the app root instead of source
+trees. Rust and Git must already pass `toolchain status`.
 
 ### `validate [--project PROJECT]`
 
-For each selected project, run formatting verification, `cargo check`, tests,
-strict Clippy, and strict Rustdoc. This is the normal local and agent validation
-entrypoint.
+For each selected Cargo workspace, run formatting verification, `cargo check`,
+tests, strict Clippy, and strict Rustdoc.
+
+## Source selection
 
 ### `workspace remember|forget`
 
-Persist the current external source root at
-`$VAPOR_HOME/state/source-workspace`, or clear it. Steam GUI launches use this
-selection because they normally start from the installation rather than a source
-terminal.
+Persist or clear the current external source root under app-local state. Steam
+GUI launches use this remembered path because they normally start from the app
+directory rather than a source terminal.
+
+## Documentation
 
 ### `docs build|path|open [TOPIC]`
 
-Build every project Cargo workspace declared by the root Vapor manifest into
-the installed `docs/` tree, print a generated document path, or open it
-asynchronously.
+Build Rustdoc for discovered Cargo workspaces into the installed `docs/` tree,
+print a generated document path, or open it asynchronously.
+
+## Self-hosting app workflows
 
 ### `self rebuild|stage|smoke`
 
-`rebuild` builds every root project into Steam-owned output and promotes only
-the binaries explicitly selected by the final project/distribution policy into
-the installation.
+`rebuild` builds discovered Cargo workspaces and promotes selected app binaries.
 `stage` builds docs and reconstructs the clean depot content tree from the
-distribution allowlist. `smoke` verifies its marker, binaries, docs, and pinned
-toolchain.
+current app payload policy. `smoke` verifies the staged marker, binaries, docs,
+and pinned toolchain package.
 
-### `script run NAME [--plan]`
+## Scripts
+
+### `script run NAME [--dry-run]`
 
 Read `.vapor/scripts/NAME.vapor` and execute each non-comment line through this
-same command parser. Scripts stop on error and cannot recursively invoke scripts
-or terminate the host REPL.
+same command parser. `--dry-run` prints the commands without executing them.
+Scripts stop on error and cannot recursively invoke scripts, exit the host REPL,
+authenticate Steam, or perform real publishes.
+
+## Steam
 
 ### `steam login --account ACCOUNT`
 
 Temporarily hand the terminal to installation-owned SteamCMD. SteamCMD exits
 after authentication and the REPL resumes.
 
-### `steam publish --account ACCOUNT [--branch BRANCH] [--plan] [--yes]`
+### `steam publish --account ACCOUNT [--branch BRANCH] [--dry-run] [--yes]`
 
-Build docs, reconstruct and smoke-test staging, generate a SteamPipe VDF, then
-publish to a non-default beta. Before staging, publishing validates every
-project, rebuilds through installed Cargo, and promotes declared binaries.
-`--plan` writes a SteamPipe preview build. A real upload requires `--yes`.
-
-## One-shot facade
-
-No arguments starts the REPL. Supplying a command executes that exact REPL
-command once and exits, for example `vapor self smoke`. Humans, scripts,
-and agents therefore share one parser and implementation.
+Validate, build, stage, smoke-test, generate a SteamPipe VDF, then publish to a
+non-default beta branch. `--dry-run` writes a SteamPipe preview build. A real
+upload requires `--yes` and must be typed manually in the interactive shell.
 
 ## Session control
 
 ### `exit`
 
-Exit the shell. `quit` is an alias. Ctrl-D also exits; Ctrl-C cancels the current
-input line.
+Exit the shell. `quit` is an alias. Ctrl-D also exits; Ctrl-C cancels the
+current input line.

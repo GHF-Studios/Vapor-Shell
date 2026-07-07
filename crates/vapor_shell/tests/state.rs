@@ -13,19 +13,16 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
     let installation = TestTree::new("state-installation");
     installation.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.installation\"\n",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("state-source");
     source.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.source\"\n",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
-    source.write(
-        "games/example/Vapor.toml",
-        "[game]\nid = \"example.game\"\n",
-    );
+    source.write("games/example/Vapor.toml", "[game]\nname = \"game\"\n");
     fs::create_dir_all(source.root().join("games/example/src")).unwrap();
 
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
@@ -43,7 +40,7 @@ fn navigation_activates_the_nearest_content_marker() {
 
     assert!(warnings.is_empty());
     let content = state.content().expect("game context should be active");
-    assert_eq!(content.id(), "example.game");
+    assert_eq!(content.id(), "example/source/game");
     assert_eq!(content.kind(), ContentKind::Game);
     assert!(matches!(state.cargo_index(), CargoIndex::NotPresent));
 }
@@ -59,5 +56,5 @@ fn navigation_cannot_enter_the_installation_or_cross_source_root() {
     assert!(error.contains("boundary violation"), "{error}");
 
     let error = state.move_up(1).unwrap_err();
-    assert!(error.contains("source workspace boundary"), "{error}");
+    assert!(error.contains("source root boundary"), "{error}");
 }

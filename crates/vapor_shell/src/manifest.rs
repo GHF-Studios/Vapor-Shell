@@ -1,42 +1,14 @@
 //! Parsing for identity-bearing `Vapor.toml` files.
 //!
-//! A marker describes exactly one workspace, project, or content root. Tables such as
-//! `[toolchain]` and `[[content]]` may coexist with that identity and are ignored
-//! here because they belong to other Vapor subsystems.
+//! A source manifest declares one local identity with `name`. Fully-qualified
+//! identifiers are inferred from the nearest source root identity and are used
+//! only by references to other Vapor artifacts.
 
 use serde::Deserialize;
 use std::{fmt, fs, path::Path};
 
-/// Canonical filename for Vapor workspace and content markers.
+/// Canonical filename for Vapor source markers.
 pub const FILE_NAME: &str = "Vapor.toml";
-
-/// Exhaustive project roles understood by Vapor tooling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ProjectKind {
-    /// Foundational Vapor runtime and shared contracts.
-    Core,
-    /// Authoring SDK workspace.
-    Sdk,
-    /// Player-facing launcher workspace.
-    Launcher,
-    /// User-authored engines, games, mods, and packs.
-    CustomContent,
-    /// Vapor shell installation or development workspace.
-    Shell,
-}
-
-impl fmt::Display for ProjectKind {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Core => "core",
-            Self::Sdk => "sdk",
-            Self::Launcher => "launcher",
-            Self::CustomContent => "custom-content",
-            Self::Shell => "shell",
-        })
-    }
-}
 
 /// Canonical content kinds shared by Vapor manifests and shell context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,11 +19,11 @@ pub enum ContentKind {
     Game,
     /// Root playable composition pack.
     Packagepack,
-    /// Pack containing engines, engine mods, and nested engine packs.
+    /// Pack containing one engine and compatible engine mods.
     Enginepack,
-    /// Pack containing games, game mods, and nested game packs.
+    /// Pack containing one game and compatible game mods.
     Gamepack,
-    /// Pack containing compatible mods and nested mod packs.
+    /// Pack containing compatible mods.
     Modpack,
     /// Mod that targets an engine.
     EngineMod,
@@ -70,52 +42,90 @@ impl fmt::Display for ContentKind {
             Self::Enginepack => "enginepack",
             Self::Gamepack => "gamepack",
             Self::Modpack => "modpack",
-            Self::EngineMod => "engine_mod",
-            Self::GameMod => "game_mod",
-            Self::ExtensionMod => "extension_mod",
+            Self::EngineMod => "engine-mod",
+            Self::GameMod => "game-mod",
+            Self::ExtensionMod => "extension-mod",
         })
     }
 }
 
 /// The single identity declared by one marker file.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VaporEntity {
-    /// A source workspace or replaceable installation root.
+    /// The source and Steam-depot root of the Vapor application itself.
+    Root {
+        /// Inferred identifier, `organization/name`.
+        id: String,
+        /// Local source-root name.
+        name: String,
+        /// Owning organization namespace.
+        organization: String,
+    },
+    /// Registry authority root.
+    Registry {
+        /// Inferred identifier, `organization/name`.
+        id: String,
+        /// Local registry name.
+        name: String,
+        /// Owning organization namespace.
+        organization: String,
+    },
+    /// A normal source workspace.
     Workspace {
-        /// Stable workspace identifier.
+        /// Inferred identifier, `organization/name`.
         id: String,
+        /// Local workspace name.
+        name: String,
+        /// Owning organization namespace.
+        organization: String,
     },
-    /// A component repository contained by a workspace.
+    /// One non-content Cargo package inside a source root.
     Project {
-        /// Validated project role.
-        kind: ProjectKind,
-        /// Stable project identifier.
+        /// Inferred identifier, `organization/workspace/project`.
         id: String,
+        /// Local project name.
+        name: String,
     },
-    /// One authored content root.
+    /// One content Cargo package inside a source root.
     Content {
         /// Canonical content category.
         kind: ContentKind,
-        /// Stable content identifier.
+        /// Inferred identifier, `organization/workspace/content`.
         id: String,
+        /// Local content name.
+        name: String,
     },
 }
 
-/// Read one marker while rejecting manifest symlinks that escape `workspace_root`.
+impl VaporEntity {
+    /// Inferred fully-qualified identifier.
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Root { id, .. }
+            | Self::Registry { id, .. }
+            | Self::Workspace { id, .. }
+            | Self::Project { id, .. }
+            | Self::Content { id, .. } => id,
+        }
+    }
+}
+
+/// Read one marker while rejecting manifest symlinks that escape `source_root`.
 ///
 /// # Errors
 ///
-/// Fails when the marker cannot be resolved, escapes `workspace_root`, contains
-/// invalid TOML, or declares zero or multiple identity sections.
-pub fn read(path: &Path, workspace_root: &Path) -> Result<VaporEntity, String> {
+/// Fails when the marker cannot be resolved, escapes `source_root`, contains
+/// invalid TOML, declares zero or multiple identity sections, or uses removed
+/// declaration-side `id` fields.
+pub fn read(path: &Path, source_root: &Path) -> Result<VaporEntity, String> {
     let canonical_path = fs::canonicalize(path)
         .map_err(|error| format!("failed to resolve '{}': {error}", path.display()))?;
 
-    if !canonical_path.starts_with(workspace_root) {
+    if !canonical_path.starts_with(source_root) {
         return Err(format!(
-            "Vapor workspace boundary violation: '{}' is outside '{}'",
+            "Vapor source boundary violation: '{}' is outside '{}'",
             canonical_path.display(),
-            workspace_root.display()
+            source_root.display()
         ));
     }
     if !canonical_path.is_file() {
@@ -125,78 +135,187 @@ pub fn read(path: &Path, workspace_root: &Path) -> Result<VaporEntity, String> {
         ));
     }
 
+    let canonical_root_marker = fs::canonicalize(source_root.join(FILE_NAME)).ok();
+    let is_root_marker = canonical_root_marker
+        .as_ref()
+        .is_some_and(|root_marker| root_marker == &canonical_path);
+    let prefix = if is_root_marker {
+        None
+    } else {
+        Some(read_source_prefix(source_root)?)
+    };
+
     let source = fs::read_to_string(&canonical_path)
         .map_err(|error| format!("failed to read '{}': {error}", canonical_path.display()))?;
     let document: VaporToml = toml::from_str(&source)
         .map_err(|error| format!("failed to parse '{}': {error}", canonical_path.display()))?;
 
-    document.into_entity(path)
+    document.into_entity(path, prefix.as_deref())
+}
+
+fn read_source_prefix(source_root: &Path) -> Result<String, String> {
+    let path = source_root.join(FILE_NAME);
+    let source = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "failed to read source root manifest '{}': {error}",
+            path.display()
+        )
+    })?;
+    let document: VaporToml = toml::from_str(&source).map_err(|error| {
+        format!(
+            "failed to parse source root manifest '{}': {error}",
+            path.display()
+        )
+    })?;
+    document.source_identity(&path)?.ok_or_else(|| {
+        format!(
+            "source root manifest '{}' must declare [root], [workspace], or [registry]",
+            path.display()
+        )
+    })
 }
 
 #[derive(Debug, Deserialize)]
 struct VaporToml {
-    workspace: Option<WorkspaceMetadata>,
-    project: Option<ProjectMetadata>,
-    engine: Option<ContentMetadata>,
-    game: Option<ContentMetadata>,
-    packagepack: Option<ContentMetadata>,
-    enginepack: Option<ContentMetadata>,
-    gamepack: Option<ContentMetadata>,
-    modpack: Option<ContentMetadata>,
-    engine_mod: Option<ContentMetadata>,
-    game_mod: Option<ContentMetadata>,
-    extension_mod: Option<ContentMetadata>,
+    root: Option<GlobalMetadata>,
+    registry: Option<GlobalMetadata>,
+    workspace: Option<GlobalMetadata>,
+    project: Option<LocalMetadata>,
+    engine: Option<LocalMetadata>,
+    game: Option<LocalMetadata>,
+    packagepack: Option<LocalMetadata>,
+    enginepack: Option<LocalMetadata>,
+    gamepack: Option<LocalMetadata>,
+    modpack: Option<LocalMetadata>,
+    #[serde(rename = "engine-mod")]
+    engine_mod: Option<LocalMetadata>,
+    #[serde(rename = "game-mod")]
+    game_mod: Option<LocalMetadata>,
+    #[serde(rename = "extension-mod")]
+    extension_mod: Option<LocalMetadata>,
 }
 
 impl VaporToml {
-    fn into_entity(self, path: &Path) -> Result<VaporEntity, String> {
+    fn source_identity(&self, path: &Path) -> Result<Option<String>, String> {
+        let mut identities = Vec::new();
+        if let Some(metadata) = &self.root {
+            let (name, organization) = validate_global(metadata, "[root]", path)?;
+            identities.push(format!("{organization}/{name}"));
+        }
+        if let Some(metadata) = &self.registry {
+            let (name, organization) = validate_global(metadata, "[registry]", path)?;
+            identities.push(format!("{organization}/{name}"));
+        }
+        if let Some(metadata) = &self.workspace {
+            let (name, organization) = validate_global(metadata, "[workspace]", path)?;
+            identities.push(format!("{organization}/{name}"));
+        }
+
+        match identities.len() {
+            0 => Ok(None),
+            1 => Ok(identities.pop()),
+            _ => Err(format!(
+                "'{}' declares multiple source-root identities; choose exactly one of [root], [workspace], or [registry]",
+                path.display()
+            )),
+        }
+    }
+
+    fn into_entity(self, path: &Path, prefix: Option<&str>) -> Result<VaporEntity, String> {
         let mut entities = Vec::new();
 
-        if let Some(workspace) = self.workspace {
-            entities.push(VaporEntity::Workspace {
-                id: validate(workspace.id, "workspace id", path)?,
+        if let Some(metadata) = self.root {
+            let (name, organization) = validate_global(&metadata, "[root]", path)?;
+            entities.push(VaporEntity::Root {
+                id: format!("{organization}/{name}"),
+                name,
+                organization,
             });
         }
-        if let Some(project) = self.project {
-            entities.push(VaporEntity::Project {
-                kind: project.kind,
-                id: validate(project.id, "project id", path)?,
+        if let Some(metadata) = self.registry {
+            let (name, organization) = validate_global(&metadata, "[registry]", path)?;
+            entities.push(VaporEntity::Registry {
+                id: format!("{organization}/{name}"),
+                name,
+                organization,
+            });
+        }
+        if let Some(metadata) = self.workspace {
+            let (name, organization) = validate_global(&metadata, "[workspace]", path)?;
+            entities.push(VaporEntity::Workspace {
+                id: format!("{organization}/{name}"),
+                name,
+                organization,
             });
         }
 
-        collect_content(&mut entities, self.engine, ContentKind::Engine, path)?;
-        collect_content(&mut entities, self.game, ContentKind::Game, path)?;
+        collect_project(&mut entities, self.project, prefix, path)?;
+        collect_content(
+            &mut entities,
+            self.engine,
+            ContentKind::Engine,
+            prefix,
+            path,
+        )?;
+        collect_content(&mut entities, self.game, ContentKind::Game, prefix, path)?;
         collect_content(
             &mut entities,
             self.packagepack,
             ContentKind::Packagepack,
+            prefix,
             path,
         )?;
         collect_content(
             &mut entities,
             self.enginepack,
             ContentKind::Enginepack,
+            prefix,
             path,
         )?;
-        collect_content(&mut entities, self.gamepack, ContentKind::Gamepack, path)?;
-        collect_content(&mut entities, self.modpack, ContentKind::Modpack, path)?;
-        collect_content(&mut entities, self.engine_mod, ContentKind::EngineMod, path)?;
-        collect_content(&mut entities, self.game_mod, ContentKind::GameMod, path)?;
+        collect_content(
+            &mut entities,
+            self.gamepack,
+            ContentKind::Gamepack,
+            prefix,
+            path,
+        )?;
+        collect_content(
+            &mut entities,
+            self.modpack,
+            ContentKind::Modpack,
+            prefix,
+            path,
+        )?;
+        collect_content(
+            &mut entities,
+            self.engine_mod,
+            ContentKind::EngineMod,
+            prefix,
+            path,
+        )?;
+        collect_content(
+            &mut entities,
+            self.game_mod,
+            ContentKind::GameMod,
+            prefix,
+            path,
+        )?;
         collect_content(
             &mut entities,
             self.extension_mod,
             ContentKind::ExtensionMod,
+            prefix,
             path,
         )?;
 
         match entities.len() {
             1 => Ok(entities.pop().expect("length was checked")),
             0 => Err(format!(
-                "'{}' has no Vapor identity section; expected [workspace], [project], or a content section",
+                "'{}' has no Vapor identity section; expected [root], [registry], [workspace], [project], or a content section",
                 path.display()
             )),
             _ => Err(format!(
-                "'{}' declares multiple Vapor identities; each {FILE_NAME} must describe exactly one workspace, project, or content root",
+                "'{}' declares multiple Vapor identities; each {FILE_NAME} must describe exactly one source root, project, or content root",
                 path.display()
             )),
         }
@@ -204,41 +323,124 @@ impl VaporToml {
 }
 
 #[derive(Debug, Deserialize)]
-struct WorkspaceMetadata {
-    id: String,
+#[serde(rename_all = "kebab-case")]
+struct GlobalMetadata {
+    name: String,
+    organization: String,
+    id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ProjectMetadata {
-    kind: ProjectKind,
-    id: String,
+#[serde(rename_all = "kebab-case")]
+struct LocalMetadata {
+    name: String,
+    id: Option<String>,
+    kind: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct ContentMetadata {
-    id: String,
-}
-
-fn collect_content(
+fn collect_project(
     entities: &mut Vec<VaporEntity>,
-    metadata: Option<ContentMetadata>,
-    kind: ContentKind,
+    metadata: Option<LocalMetadata>,
+    prefix: Option<&str>,
     path: &Path,
 ) -> Result<(), String> {
     if let Some(metadata) = metadata {
-        entities.push(VaporEntity::Content {
-            kind,
-            id: validate(metadata.id, "content id", path)?,
+        let name = validate_local(&metadata, "[project]", path)?;
+        let prefix = require_prefix(prefix, "[project]", path)?;
+        entities.push(VaporEntity::Project {
+            id: format!("{prefix}/{name}"),
+            name,
         });
     }
     Ok(())
 }
 
-fn validate(value: String, label: &str, path: &Path) -> Result<String, String> {
+fn collect_content(
+    entities: &mut Vec<VaporEntity>,
+    metadata: Option<LocalMetadata>,
+    kind: ContentKind,
+    prefix: Option<&str>,
+    path: &Path,
+) -> Result<(), String> {
+    if let Some(metadata) = metadata {
+        let section = format!("[{kind}]");
+        let name = validate_local(&metadata, &section, path)?;
+        let prefix = require_prefix(prefix, &section, path)?;
+        entities.push(VaporEntity::Content {
+            kind,
+            id: format!("{prefix}/{name}"),
+            name,
+        });
+    }
+    Ok(())
+}
+
+fn require_prefix<'a>(
+    prefix: Option<&'a str>,
+    section: &str,
+    path: &Path,
+) -> Result<&'a str, String> {
+    prefix.ok_or_else(|| {
+        format!(
+            "{section} in '{}' cannot be the source root identity; declare [root] or [workspace] at the source root and move {section} into a Cargo package directory",
+            path.display()
+        )
+    })
+}
+
+fn validate_global(
+    metadata: &GlobalMetadata,
+    section: &str,
+    path: &Path,
+) -> Result<(String, String), String> {
+    reject_id(metadata.id.as_deref(), section, path)?;
+    Ok((
+        validate_name(&metadata.name, &format!("{section} name"), path)?,
+        validate_name(
+            &metadata.organization,
+            &format!("{section} organization"),
+            path,
+        )?,
+    ))
+}
+
+fn validate_local(metadata: &LocalMetadata, section: &str, path: &Path) -> Result<String, String> {
+    reject_id(metadata.id.as_deref(), section, path)?;
+    if metadata.kind.is_some() {
+        return Err(format!(
+            "{section} in '{}' uses removed field `kind`; project/content role is selected by the table name",
+            path.display()
+        ));
+    }
+    validate_name(&metadata.name, &format!("{section} name"), path)
+}
+
+fn reject_id(id: Option<&str>, section: &str, path: &Path) -> Result<(), String> {
+    if id.is_some() {
+        Err(format!(
+            "{section} in '{}' uses removed field `id`; declarations use `name`, and full IDs are inferred",
+            path.display()
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_name(value: &str, label: &str, path: &Path) -> Result<String, String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        Err(format!("{label} in '{}' cannot be empty", path.display()))
-    } else {
-        Ok(trimmed.to_owned())
+        return Err(format!("{label} in '{}' cannot be empty", path.display()));
     }
+    if trimmed.starts_with('-')
+        || trimmed.ends_with('-')
+        || trimmed.chars().any(|character| {
+            !character.is_ascii_lowercase() && !character.is_ascii_digit() && character != '-'
+        })
+    {
+        return Err(format!(
+            "{label} in '{}' must be lowercase kebab-case: {trimmed}",
+            path.display()
+        ));
+    }
+    Ok(trimmed.to_owned())
 }

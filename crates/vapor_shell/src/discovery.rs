@@ -1,4 +1,4 @@
-//! Discovery of the replaceable Steam installation and external source workspace.
+//! Discovery of the replaceable Steam installation and external source root.
 //!
 //! # Two-root model
 //!
@@ -10,7 +10,7 @@
 //!   critical authored source and must be outside the installation.
 //!
 //! [`EnvironmentPaths`] discovers both roots and rejects overlapping layouts.
-//! User navigation is confined to the source workspace; installation paths are
+//! User navigation is confined to the source root; installation paths are
 //! resources that commands may inspect or execute explicitly.
 
 use crate::manifest::{self, VaporEntity};
@@ -106,19 +106,19 @@ pub struct InstallationPaths {
     binaries: PathBuf,
     libraries: Option<PathBuf>,
     cargo: Option<PathBuf>,
-    workspace_id: String,
+    identity_id: String,
 }
 
 impl InstallationPaths {
     /// Discover an installation from the canonical executable location.
     ///
-    /// The highest ancestor `Vapor.toml` must declare `[workspace]` and becomes
+    /// The highest ancestor `Vapor.toml` must declare `[root]` and becomes
     /// the installation root.
     ///
     /// # Errors
     ///
     /// Fails for a missing executable, missing marker, invalid marker, or a
-    /// highest marker that describes content instead of a workspace.
+    /// highest marker that describes anything except the application root.
     pub fn from_executable(executable: &Path) -> Result<Self, String> {
         let executable = canonical_file(executable, "Vapor shell executable")?;
         let binaries = executable
@@ -144,13 +144,13 @@ impl InstallationPaths {
                 .is_none_or(|name| name != expected_name.as_str())
         {
             return Err(format!(
-                "the running executable is not laid out as an installed Vapor application\n  executable: {}\n  candidate VAPOR_HOME: {}\n  expected command: {}\nnote: this usually means a source-built target/debug/vapor was run directly\nhelp: place the bootstrap application outside every source workspace and run its bin/vapor command",
+                "the running executable is not laid out as an installed Vapor application\n  executable: {}\n  candidate app root: {}\n  expected command: {}\nnote: this usually means a source-built target/debug/vapor was run directly\nhelp: place the bootstrap application outside every source root and run its bin/vapor command",
                 executable.display(),
                 root.display(),
                 expected_binaries.join(expected_name).display()
             ));
         }
-        let workspace_id = require_workspace_marker(&marker, &root, "Steam installation root")?;
+        let identity_id = require_installation_marker(&marker, &root)?;
 
         let libraries = optional_directory(&root, LIBRARY_DIR)?;
         let cargo = bundled_cargo_candidates(&root)
@@ -163,7 +163,7 @@ impl InstallationPaths {
             binaries,
             libraries,
             cargo,
-            workspace_id,
+            identity_id,
         })
     }
 
@@ -200,8 +200,8 @@ impl InstallationPaths {
     }
 
     /// Stable identity declared by the installation marker.
-    pub fn workspace_id(&self) -> &str {
-        &self.workspace_id
+    pub fn identity_id(&self) -> &str {
+        &self.identity_id
     }
 }
 
@@ -210,16 +210,16 @@ impl InstallationPaths {
 pub struct SourceWorkspace {
     invocation: PathBuf,
     root: PathBuf,
-    workspace_id: String,
+    identity_id: String,
 }
 
 impl SourceWorkspace {
-    /// Discover the highest workspace marker above `invocation`.
+    /// Discover the highest source marker above `invocation`.
     ///
     /// # Errors
     ///
     /// Fails when the invocation directory is invalid, no marker exists, the
-    /// highest marker is not a workspace, or the workspace overlaps the Steam
+    /// highest marker is not a source root, or the source root overlaps the Steam
     /// installation.
     pub fn from_invocation(
         invocation: &Path,
@@ -228,7 +228,7 @@ impl SourceWorkspace {
         let invocation = canonical_directory(invocation, "invocation directory")?;
         let marker = highest_marker(&invocation).ok_or_else(|| {
             format!(
-                "'{}' is not inside an external Vapor source workspace: no {} exists in any ancestor\nhelp: invoke Vapor from a separate repository root such as Vapor-Root",
+                    "'{}' is not inside an external Vapor source root: no {} exists in any ancestor\nhelp: invoke Vapor from a source repository, not from the Steam app directory",
                 invocation.display(),
                 manifest::FILE_NAME
             )
@@ -237,17 +237,17 @@ impl SourceWorkspace {
             .parent()
             .expect("an ancestor marker always has a parent")
             .to_path_buf();
-        let workspace_id = require_workspace_marker(&marker, &root, "source workspace root")?;
+        let identity_id = require_source_marker(&marker, &root)?;
 
         if roots_overlap(&root, installation.root()) {
             if root == installation.root() {
                 return Err(format!(
-                    "no external source workspace is selected: invocation resolved VAPOR_HOME itself\n  VAPOR_HOME: {}\nhelp: invoke Vapor from a separate source workspace such as Vapor-Root\nhelp: after it is discovered, persist it with `vapor workspace remember`",
+                    "no external source root is selected: invocation resolved the Steam app root itself\n  app root: {}\nhelp: invoke Vapor from a separate source repository, or open the shell and select a remembered source root",
                     root.display()
                 ));
             }
             return Err(format!(
-                "the selected source workspace and VAPOR_HOME are not disjoint\n  source workspace: {}\n  VAPOR_HOME:       {}\nhelp: keep authored repositories outside the replaceable Steam application tree",
+                "the selected source root and Steam app root are not disjoint\n  source root: {}\n  app root:    {}\nhelp: keep authored repositories outside the replaceable Steam application tree",
                 root.display(),
                 installation.root().display()
             ));
@@ -256,7 +256,7 @@ impl SourceWorkspace {
         Ok(Self {
             invocation,
             root,
-            workspace_id,
+            identity_id,
         })
     }
 
@@ -265,14 +265,14 @@ impl SourceWorkspace {
         &self.invocation
     }
 
-    /// Highest external Vapor workspace containing authored source.
+    /// Highest external Vapor source root containing authored source.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    /// Stable identity declared by the source workspace marker.
-    pub fn workspace_id(&self) -> &str {
-        &self.workspace_id
+    /// Stable identity declared by the source marker.
+    pub fn identity_id(&self) -> &str {
+        &self.identity_id
     }
 
     /// Whether a canonical path belongs to this source workspace.
@@ -291,7 +291,7 @@ pub fn ensure_contained(root: &Path, candidate: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "Vapor workspace boundary violation: '{}' is outside '{}'",
+            "Vapor source boundary violation: '{}' is outside '{}'",
             candidate.display(),
             root.display()
         ))
@@ -308,15 +308,41 @@ fn highest_marker(start: &Path) -> Option<PathBuf> {
         .last()
 }
 
-fn require_workspace_marker(marker: &Path, root: &Path, label: &str) -> Result<String, String> {
+fn require_installation_marker(marker: &Path, root: &Path) -> Result<String, String> {
     match manifest::read(marker, root)? {
-        VaporEntity::Workspace { id } => Ok(id),
-        VaporEntity::Project { kind, id } => Err(format!(
-            "highest Vapor manifest '{}' describes {kind} project '{id}', not a workspace; the {label} must contain [workspace]",
+        VaporEntity::Root { id, .. } => Ok(id),
+        VaporEntity::Registry { id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes registry '{id}', not the Steam application root; the installation must contain [root]",
             marker.display()
         )),
-        VaporEntity::Content { kind, id } => Err(format!(
-            "highest Vapor manifest '{}' describes {kind} '{id}', not a workspace; the {label} must contain [workspace]",
+        VaporEntity::Workspace { id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes workspace '{id}', not the Steam application root; the installation must contain [root]",
+            marker.display()
+        )),
+        VaporEntity::Project { id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes project '{id}', not the Steam application root; the installation must contain [root]",
+            marker.display()
+        )),
+        VaporEntity::Content { kind, id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes {kind} '{id}', not the Steam application root; the installation must contain [root]",
+            marker.display()
+        )),
+    }
+}
+
+fn require_source_marker(marker: &Path, root: &Path) -> Result<String, String> {
+    match manifest::read(marker, root)? {
+        VaporEntity::Root { id, .. } | VaporEntity::Workspace { id, .. } => Ok(id),
+        VaporEntity::Registry { id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes registry '{id}', not a source root; open a [root] or [workspace] repository",
+            marker.display()
+        )),
+        VaporEntity::Project { id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes project '{id}', not a source root; projects must live inside a [workspace] repository",
+            marker.display()
+        )),
+        VaporEntity::Content { kind, id, .. } => Err(format!(
+            "highest Vapor manifest '{}' describes {kind} '{id}', not a source root; content must live inside a [workspace] repository",
             marker.display()
         )),
     }

@@ -14,7 +14,10 @@ use vapor_shell::{
 #[test]
 fn test_workflow_uses_installed_cargo_and_replaceable_output() {
     let installation = TestTree::new("workflow-installation");
-    installation.write("Vapor.toml", "[workspace]\nid = \"example.installation\"\n");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
     let executable = installation.write("bin/vapor", "binary");
     let cargo = installation.write(
         "rustup-home/toolchains/test-host/bin/cargo",
@@ -27,27 +30,16 @@ fn test_workflow_uses_installed_cargo_and_replaceable_output() {
     let source = TestTree::new("workflow-source");
     source.write(
         "Vapor.toml",
-        r#"[workspace]
-id = "example.source"
-
-[[workspace.cargo]]
-name = "shell"
-manifest = "Vapor-Shell/Cargo.toml"
-binaries = ["vapor"]
-"#,
+        "[workspace]\nname = \"workflow-source\"\norganization = \"example\"\n",
     );
-    source.write(
-        "Vapor-Shell/Vapor.toml",
-        "[project]\nkind = \"shell\"\nid = \"example.shell\"\n",
-    );
-    let cargo_manifest = source.write("Vapor-Shell/Cargo.toml", "[workspace]\nresolver = \"3\"\n");
+    let cargo_manifest = source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
 
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
     let manifest = WorkspaceManifest::load(&paths).unwrap();
     workflow::run(
         &paths,
         &manifest,
-        ProjectSelection::Shell,
+        ProjectSelection::One("workflow-source".to_owned()),
         CargoWorkflow::Test,
     )
     .unwrap();
@@ -66,14 +58,10 @@ binaries = ["vapor"]
         fs::read_to_string(installation.root().join("workflow-target")).unwrap(),
         format!(
             "{}\n",
-            installation.root().join("output/dev/shell").display()
+            installation
+                .root()
+                .join("output/dev/workflow-source")
+                .display()
         )
-    );
-
-    installation.write("output/dev/shell/debug/vapor", "rebuilt binary");
-    assert_eq!(workflow::promote(&paths, &manifest).unwrap(), 1);
-    assert_eq!(
-        fs::read_to_string(installation.root().join("bin/vapor")).unwrap(),
-        "rebuilt binary"
     );
 }

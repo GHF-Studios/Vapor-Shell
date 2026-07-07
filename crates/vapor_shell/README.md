@@ -9,7 +9,7 @@ It intentionally has two roots:
 Steam app root (replaceable)          Source workspace (critical)
 ├── bin/vapor                         ├── Vapor.toml
 ├── packages/toolchain/               ├── Cargo.toml      (required)
-├── rustup-home / cargo-home          └── project repositories/
+├── rustup-home / cargo-home          └── Cargo packages and Vapor content
 ├── tools/git / tools/steamcmd
 ├── lib / state / output
 └── installed custom content
@@ -38,17 +38,17 @@ filesystem navigation is confined to the source workspace.
 - [Steam development](docs/steam-development.md): authentication handoff,
   preview builds, confirmation, beta publishing, and persistent cache state.
 - [Command scripts](docs/scripts.md): reusable REPL command sequences exposed
-  through the same one-shot CLI facade.
+  through the supported direct CLI facade.
 - [Development](docs/development.md): source layout, extension checklists, tests,
   and documentation policy.
 - [Design checkpoints](docs/design/README.md): owner-reviewed direction that is
-  explicitly not yet an implemented user contract.
+  authoritative only where it matches implemented and verified behavior.
 
 ## Core guarantees
 
 - Authored source never needs to live in the Steam application directory.
-- Every source workspace and project has both a Vapor manifest and Cargo
-  workspace manifest at the same root.
+- Every source workspace has a Vapor manifest and Cargo workspace manifest at
+  the same root; every Vapor project is represented by a Cargo package.
 - Deleting or rebuilding `cargo metadata` output does not lose authored source;
   deleting either source manifest invalidates the workspace or project.
 - Missing app-local Cargo remains diagnosable and explicitly repairable, but
@@ -62,13 +62,14 @@ filesystem navigation is confined to the source workspace.
 
 ## Bootstrap and validate
 
+Inside the interactive shell:
+
 ```text
-vapor toolchain status
-vapor toolchain finalize
-vapor toolchain install
-vapor fmt
-vapor test
-vapor validate
+toolchain status
+toolchain install
+fmt
+test
+validate
 ```
 
 The initial bootstrap may use host Cargo once to construct the first Steam app.

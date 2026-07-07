@@ -4,7 +4,6 @@ use crate::{
     discovery::{EnvironmentPaths, ensure_contained},
     workspace::{CargoProject, WorkspaceManifest},
 };
-use clap::ValueEnum;
 use std::{
     env,
     ffi::OsString,
@@ -13,33 +12,33 @@ use std::{
     process::Command,
 };
 
-/// Exhaustive first-party project selection for root workflows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+/// Dynamic Cargo workspace selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProjectSelection {
-    /// Every Cargo project declared by Vapor-Root.
+    /// Every Cargo workspace discovered for this source root.
     All,
-    /// Foundational Vapor runtime and contracts.
-    Core,
-    /// Vapor SDK.
-    Sdk,
-    /// Vapor Launcher.
-    Launcher,
-    /// Vapor Shell.
-    Shell,
-    /// First-party examples and custom content.
-    Examples,
+    /// One named Cargo workspace discovered from the active source root.
+    One(String),
 }
 
-impl ProjectSelection {
-    fn name(self) -> Option<&'static str> {
-        match self {
-            Self::All => None,
-            Self::Core => Some("core"),
-            Self::Sdk => Some("sdk"),
-            Self::Launcher => Some("launcher"),
-            Self::Shell => Some("shell"),
-            Self::Examples => Some("examples"),
+impl std::str::FromStr for ProjectSelection {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let value = value.trim();
+        if value == "all" {
+            return Ok(Self::All);
         }
+        if value.is_empty()
+            || value.chars().any(|character| {
+                !character.is_ascii_lowercase() && !character.is_ascii_digit() && character != '-'
+            })
+        {
+            return Err(
+                "project must be `all` or a lowercase kebab-case Cargo workspace name".to_owned(),
+            );
+        }
+        Ok(Self::One(value.to_owned()))
     }
 }
 
@@ -80,7 +79,7 @@ impl CargoWorkflow {
     }
 }
 
-/// Execute a workflow for the selected root project or all projects.
+/// Execute a workflow for the selected Cargo workspace or all workspaces.
 ///
 /// Build artifacts are written beneath the replaceable installation at
 /// `output/dev/<project>`. The host `PATH` is retained only for non-Rust host
@@ -192,14 +191,23 @@ fn selected_projects(
     manifest: &WorkspaceManifest,
     selection: ProjectSelection,
 ) -> Result<Vec<&CargoProject>, String> {
-    match selection.name() {
-        None => Ok(manifest.cargo_projects().iter().collect()),
-        Some(name) => manifest
+    match selection {
+        ProjectSelection::All => {
+            if manifest.cargo_projects().is_empty() {
+                Err(format!(
+                    "source root '{}' declares no Cargo workspaces",
+                    manifest.id()
+                ))
+            } else {
+                Ok(manifest.cargo_projects().iter().collect())
+            }
+        }
+        ProjectSelection::One(name) => manifest
             .cargo_projects()
             .iter()
-            .find(|project| project.name() == name)
+            .find(|project| project.name() == name.as_str())
             .map(|project| vec![project])
-            .ok_or_else(|| format!("workspace does not declare Cargo project '{name}'")),
+            .ok_or_else(|| format!("source root does not declare Cargo workspace '{name}'")),
     }
 }
 

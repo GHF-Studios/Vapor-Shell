@@ -81,16 +81,16 @@ impl ResolvedMetadata {
     /// Validate the capabilities required by one command.
     ///
     /// Checks stop at the first actionable prerequisite. No missing resource is
-    /// installed, repaired, finalized, or otherwise changed implicitly.
+    /// installed, repaired, accepted, or otherwise changed implicitly.
     ///
     /// # Errors
     ///
     /// Returns a diagnostic explaining the first unmet requirement and the
     /// explicit command that can address it.
     pub fn validate(&self, plan: &ValidationPlan<'_>) -> Result<(), String> {
-        if plan.finalized_location {
+        if plan.registered_location {
             let status = self.location.as_ref().map_err(Clone::clone)?;
-            toolchain::require_finalized_status(status, plan.action)?;
+            toolchain::require_registered_status(status, plan.action)?;
         }
         if !plan.tools.is_empty() {
             toolchain::require_status(&self.toolchain, &plan.tools, plan.action)?;
@@ -134,7 +134,7 @@ impl ResolvedMetadata {
             .as_ref()
             .ok_or_else(|| {
                 format!(
-                    "source workspace '{}' does not declare [distribution]",
+                    "source root '{}' does not declare [root.steam]",
                     self.source_root.display()
                 )
             })

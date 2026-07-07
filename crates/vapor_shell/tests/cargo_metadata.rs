@@ -7,14 +7,14 @@ fn roots(with_cargo_manifest: bool) -> (TestTree, TestTree, std::path::PathBuf) 
     let installation = TestTree::new("cargo-installation");
     installation.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.installation\"\n",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("cargo-source");
     source.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.source\"\n",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     if with_cargo_manifest {
         source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");

@@ -52,7 +52,7 @@ impl MetadataReport {
 
 #[derive(Debug, Clone, Serialize)]
 struct SourceReport {
-    workspace_id: String,
+    source_id: String,
     root: PathBuf,
     current_directory: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,8 +62,8 @@ struct SourceReport {
 impl SourceReport {
     fn new(state: &ShellState) -> Self {
         Self {
-            workspace_id: state.workspace().id().to_owned(),
-            root: state.workspace().root().to_path_buf(),
+            source_id: state.source().id().to_owned(),
+            root: state.source().root().to_path_buf(),
             current_directory: state.current_dir().to_path_buf(),
             content: state.content().map(|content| ContentReport {
                 id: content.id().to_owned(),
@@ -112,7 +112,7 @@ struct LocationReport {
     status: LocationState,
     current: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
-    finalized: Option<PathBuf>,
+    registered: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -120,28 +120,28 @@ struct LocationReport {
 impl LocationReport {
     fn new(location: &Result<LocationStatus, String>) -> Self {
         match location {
-            Ok(LocationStatus::Unfinalized { current }) => Self {
-                status: LocationState::Unfinalized,
+            Ok(LocationStatus::Unregistered { current }) => Self {
+                status: LocationState::Unregistered,
                 current: current.clone(),
-                finalized: None,
+                registered: None,
                 error: None,
             },
-            Ok(LocationStatus::Finalized { path }) => Self {
-                status: LocationState::Finalized,
+            Ok(LocationStatus::Registered { path }) => Self {
+                status: LocationState::Registered,
                 current: path.clone(),
-                finalized: Some(path.clone()),
+                registered: Some(path.clone()),
                 error: None,
             },
             Ok(LocationStatus::Moved { locked, current }) => Self {
                 status: LocationState::Moved,
                 current: current.clone(),
-                finalized: Some(locked.clone()),
+                registered: Some(locked.clone()),
                 error: None,
             },
             Err(error) => Self {
                 status: LocationState::Invalid,
                 current: PathBuf::new(),
-                finalized: None,
+                registered: None,
                 error: Some(error.clone()),
             },
         }
@@ -151,8 +151,8 @@ impl LocationReport {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum LocationState {
-    Unfinalized,
-    Finalized,
+    Unregistered,
+    Registered,
     Moved,
     Invalid,
 }
@@ -425,11 +425,11 @@ fn diagnostics(
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     match location {
-        Ok(LocationStatus::Unfinalized { current }) => diagnostics.push(Diagnostic {
+        Ok(LocationStatus::Unregistered { current }) => diagnostics.push(Diagnostic {
             level: DiagnosticLevel::Warning,
             scope: "vapor_home",
             message: format!(
-                "'{}' has not been accepted; review `vapor toolchain status`, then run `vapor toolchain finalize`",
+                "'{}' has not been accepted; review `vapor toolchain status`, then run `vapor toolchain install`",
                 current.display()
             ),
         }),
@@ -437,7 +437,7 @@ fn diagnostics(
             level: DiagnosticLevel::Warning,
             scope: "vapor_home",
             message: format!(
-                "finalized location '{}' differs from current location '{}'; explicitly finalize the move or restore the app",
+                "accepted location '{}' differs from current location '{}'; run `vapor toolchain repair` if the move was intentional, or restore the app",
                 locked.display(),
                 current.display()
             ),
@@ -447,7 +447,7 @@ fn diagnostics(
             scope: "vapor_home",
             message: error.clone(),
         }),
-        Ok(LocationStatus::Finalized { .. }) => {}
+        Ok(LocationStatus::Registered { .. }) => {}
     }
     for status in [toolchain.rust(), toolchain.git(), toolchain.steamcmd()] {
         if !status.installed() {

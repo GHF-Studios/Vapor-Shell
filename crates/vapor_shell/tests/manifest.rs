@@ -1,29 +1,43 @@
 mod common;
 
 use common::TestTree;
-use vapor_shell::manifest::{self, ContentKind, ProjectKind, VaporEntity};
+use vapor_shell::manifest::{self, ContentKind, VaporEntity};
 
 #[test]
-fn accepts_every_project_kind() {
+fn infers_source_root_identities_from_name_and_organization() {
     let cases = [
-        ("core", ProjectKind::Core),
-        ("sdk", ProjectKind::Sdk),
-        ("launcher", ProjectKind::Launcher),
-        ("custom-content", ProjectKind::CustomContent),
-        ("shell", ProjectKind::Shell),
+        ("root", "vapor-root"),
+        ("workspace", "loo-cast"),
+        ("registry", "vapor-registry"),
     ];
 
-    for (value, expected_kind) in cases {
-        let tree = TestTree::new(value);
+    for (section, name) in cases {
+        let tree = TestTree::new(section);
         let marker = tree.write(
             manifest::FILE_NAME,
-            &format!("[project]\nkind = \"{value}\"\nid = \"example.{value}\"\n"),
+            &format!("[{section}]\nname = \"{name}\"\norganization = \"ghf-studios\"\n"),
         );
 
-        match manifest::read(&marker, tree.root()).expect("workspace should parse") {
-            VaporEntity::Project { kind, .. } => assert_eq!(kind, expected_kind),
-            _ => panic!("expected project manifest"),
+        let entity = manifest::read(&marker, tree.root()).expect("source root should parse");
+        assert_eq!(entity.id(), format!("ghf-studios/{name}"));
+    }
+}
+
+#[test]
+fn infers_project_identity_from_source_root() {
+    let tree = TestTree::new("project");
+    tree.write(
+        manifest::FILE_NAME,
+        "[workspace]\nname = \"loo-cast\"\norganization = \"ghf-studios\"\n",
+    );
+    let marker = tree.write("crates/cli/Vapor.toml", "[project]\nname = \"cli\"\n");
+
+    match manifest::read(&marker, tree.root()).expect("project should parse") {
+        VaporEntity::Project { id, name } => {
+            assert_eq!(id, "ghf-studios/loo-cast/cli");
+            assert_eq!(name, "cli");
         }
+        other => panic!("expected project manifest, got {other:?}"),
     }
 }
 
@@ -36,25 +50,30 @@ fn accepts_every_canonical_content_kind() {
         ("enginepack", ContentKind::Enginepack),
         ("gamepack", ContentKind::Gamepack),
         ("modpack", ContentKind::Modpack),
-        ("engine_mod", ContentKind::EngineMod),
-        ("game_mod", ContentKind::GameMod),
-        ("extension_mod", ContentKind::ExtensionMod),
+        ("engine-mod", ContentKind::EngineMod),
+        ("game-mod", ContentKind::GameMod),
+        ("extension-mod", ContentKind::ExtensionMod),
     ];
 
     for (section, expected_kind) in cases {
         let tree = TestTree::new(section);
-        let marker = tree.write(
+        tree.write(
             manifest::FILE_NAME,
-            &format!("[{section}]\nid = \"example.{section}\"\n"),
+            "[workspace]\nname = \"examples\"\norganization = \"ghf-studios\"\n",
+        );
+        let relative = format!("content/{section}/Vapor.toml");
+        let marker = tree.write(
+            &relative,
+            &format!("[{section}]\nname = \"example-{section}\"\n"),
         );
 
-        match manifest::read(&marker, tree.root()).expect("manifest should parse") {
-            VaporEntity::Content { kind, id } => {
+        match manifest::read(&marker, tree.root()).expect("content manifest should parse") {
+            VaporEntity::Content { kind, id, name } => {
                 assert_eq!(kind, expected_kind);
-                assert_eq!(id, format!("example.{section}"));
+                assert_eq!(id, format!("ghf-studios/examples/example-{section}"));
+                assert_eq!(name, format!("example-{section}"));
             }
-            VaporEntity::Workspace { .. } => panic!("expected content manifest"),
-            VaporEntity::Project { .. } => panic!("expected content manifest"),
+            other => panic!("expected content manifest, got {other:?}"),
         }
     }
 }
@@ -62,9 +81,13 @@ fn accepts_every_canonical_content_kind() {
 #[test]
 fn rejects_multiple_identity_sections() {
     let tree = TestTree::new("multiple-identities");
-    let marker = tree.write(
+    tree.write(
         manifest::FILE_NAME,
-        "[engine]\nid = \"example.engine\"\n[game]\nid = \"example.game\"\n",
+        "[workspace]\nname = \"examples\"\norganization = \"ghf-studios\"\n",
+    );
+    let marker = tree.write(
+        "content/broken/Vapor.toml",
+        "[engine]\nname = \"example-engine\"\n[game]\nname = \"example-game\"\n",
     );
 
     let error = manifest::read(&marker, tree.root()).unwrap_err();
@@ -72,14 +95,29 @@ fn rejects_multiple_identity_sections() {
 }
 
 #[test]
-fn rejects_unknown_project_kind_with_allowed_values() {
-    let tree = TestTree::new("unknown-project-kind");
+fn rejects_declaration_side_ids() {
+    let tree = TestTree::new("legacy-id");
     let marker = tree.write(
         manifest::FILE_NAME,
-        "[project]\nkind = \"whatever\"\nid = \"example.unknown\"\n",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\nid = \"example.source\"\n",
     );
 
     let error = manifest::read(&marker, tree.root()).unwrap_err();
-    assert!(error.contains("unknown variant `whatever`"), "{error}");
-    assert!(error.contains("custom-content"), "{error}");
+    assert!(error.contains("removed field `id`"), "{error}");
+}
+
+#[test]
+fn rejects_project_kind_field() {
+    let tree = TestTree::new("legacy-kind");
+    tree.write(
+        manifest::FILE_NAME,
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
+    );
+    let marker = tree.write(
+        "crates/shell/Vapor.toml",
+        "[project]\nname = \"shell\"\nkind = \"shell\"\n",
+    );
+
+    let error = manifest::read(&marker, tree.root()).unwrap_err();
+    assert!(error.contains("removed field `kind`"), "{error}");
 }

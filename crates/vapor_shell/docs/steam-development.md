@@ -5,41 +5,44 @@
 Steam does not provide Linux/SteamOS install-script execution. Vapor therefore
 does not attach location mutation to any Steam launch option. The Shell, SDK,
 Launcher, and future game launch entries only launch their configured programs.
-After installation or movement, invoke Vapor from an external source workspace,
-review `vapor toolchain status`, and explicitly run `vapor toolchain finalize`.
-No executable is copied into a user-data directory.
 
-The one permitted bootstrap sequence is:
+After installation or movement, open Vapor from an external source root, review
+`toolchain status`, and explicitly choose `toolchain install` or
+`toolchain repair`. No executable is copied into a user-data directory.
 
-1. build the initial app and its complete `packages/toolchain` payload with the
-   host environment;
-2. place that build in Steam's app directory and, from external Vapor-Root, run
-   `/path/to/app/bin/vapor toolchain status`;
-3. explicitly run `/path/to/app/bin/vapor toolchain finalize`;
-4. open a new terminal and run `vapor toolchain install`;
-5. run `vapor workspace remember` from Vapor-Root if it is not remembered;
-6. run `vapor validate` using the installed toolchain;
-7. run `vapor self rebuild`, `vapor self stage`, `vapor self smoke`, and a
-   preview publish;
-8. upload the rebuilt app with `vapor steam publish ... --yes`.
+The bootstrap sequence is:
 
-From step 6 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
+1. build the initial app and complete `packages/toolchain` payload with the host
+   environment;
+2. place that build in Steam's app directory;
+3. from external Vapor-Root, run `/path/to/app/bin/vapor` to enter the shell;
+4. run `toolchain status`;
+5. run `toolchain install`;
+6. open a new terminal so PATH changes are visible;
+7. run `vapor`, then `workspace remember` from Vapor-Root if needed;
+8. run `validate` using the installed toolchain;
+9. run `self rebuild`, `self stage`, `self smoke`, and a dry-run publish;
+10. upload the rebuilt app with `steam publish ... --yes` from the interactive
+    shell.
+
+From step 8 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
 application. Publishing never installs missing tools; it reports the failed
 precondition and leaves that decision to the operator.
-`steam publish` repeats validation, rebuilding, binary promotion, documentation,
-staging, and smoke checks before invoking SteamCMD, preventing stale installed
-binaries from entering a depot.
 
 ## Authentication
 
-`steam login --account NAME` starts the installation-owned SteamCMD with inherited
-stdin/stdout. It waits while SteamCMD owns authentication prompts, then returns
-to the REPL. Vapor never accepts a password argument and never copies SteamCMD's
-`config/` into staging.
+`steam login --account NAME` starts the installation-owned SteamCMD with
+inherited stdin/stdout. It waits while SteamCMD owns authentication prompts,
+then returns to the REPL. Vapor never accepts a password argument and never
+copies SteamCMD's `config/` into staging.
+
+Steam authentication is session-scoped by policy. Commands that publish must be
+typed manually in the interactive shell; scripts may stage and dry-run but may
+not authenticate or perform real uploads.
 
 ## Preview and publish
 
-Use `steam publish --account NAME --plan` first. It builds docs, stages and
+Use `steam publish --account NAME --dry-run` first. It builds docs, stages and
 smoke-tests the complete app, and writes an app-build VDF with `Preview = 1` and
 `SetLive = vapor-dev`; it performs no upload.
 
@@ -50,9 +53,9 @@ steam publish --account NAME --branch vapor-dev --yes
 ```
 
 SteamCMD runs in the foreground so progress, prompts, exit status, and failure
-remain attached to the operation. `$VAPOR_HOME/output/root/steam-build` is never
-cleared by staging; it contains SteamPipe manifests and chunk cache that improve
-subsequent uploads.
+remain attached to the operation. `output/root/steam-build` is not cleared by
+staging; it contains SteamPipe manifests and chunk cache that improve subsequent
+uploads.
 
 The VDF maps only the already-clean staging root. Inclusion and credential
 exclusion are therefore decided before SteamPipe sees any files.

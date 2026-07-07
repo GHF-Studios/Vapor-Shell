@@ -48,20 +48,20 @@ pub fn publish(
     account: &str,
     branch: Option<&str>,
     description: &str,
-    plan: bool,
+    dry_run: bool,
     confirmed: bool,
 ) -> Result<PathBuf, String> {
     let branch = branch.unwrap_or(manifest.application().development_branch());
     if branch == "default" || branch.trim().is_empty() {
         return Err("automatic publishing requires a non-default beta branch".to_owned());
     }
-    if !plan && !confirmed {
-        return Err("publishing requires --yes after reviewing --plan".to_owned());
+    if !dry_run && !confirmed {
+        return Err("publishing requires --yes after reviewing --dry-run".to_owned());
     }
     let stage = distribution::stage(paths, manifest)?;
     smoke(stage.root())?;
-    let script = write_build_script(paths, manifest, stage.root(), branch, description, plan)?;
-    if plan {
+    let script = write_build_script(paths, manifest, stage.root(), branch, description, dry_run)?;
+    if dry_run {
         return Ok(script);
     }
     let steamcmd = executable(paths)?;

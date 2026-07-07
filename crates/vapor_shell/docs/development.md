@@ -54,8 +54,8 @@ contracts as downstream code would.
 A direct `cargo run` places the executable under the same repository that acts
 as authored source, intentionally violating the disjoint-root invariant. For a
 manual session, build the binary, copy it beneath a staging installation with a
-`[workspace]` `Vapor.toml` and bundled Cargo layout, then invoke that staged
-binary while the process directory is a separate Vapor source workspace. The
+`[root]` `Vapor.toml` and bundled Cargo layout, then invoke that staged
+binary while the process directory is a separate Vapor source root. The
 integration fixtures automate this topology for tests.
 
 After the staged or installed binary works from Vapor-Root, run `workspace
@@ -80,7 +80,7 @@ README links provide the entry path instead of duplicating every detail.
 ## Adding a command
 
 1. Add a documented `ShellCommand` variant.
-2. Use a Clap `ValueEnum` for every finite argument domain.
+2. Use a Clap `ValueEnum` for static finite argument domains.
 3. Describe unrestricted paths or numeric domains with semantic value names.
 4. Implement the effect in `command::execute`. Reuse `ResolvedMetadata` and a
    targeted `ValidationPlan` when the command depends on environment state.
@@ -91,27 +91,27 @@ README links provide the entry path instead of duplicating every detail.
 
 ## Adding a manifest identity
 
-1. Extend `ProjectKind` or `ContentKind`; `[workspace]` itself has no kind.
+1. Extend `ContentKind` or add a new source-root/project identity deliberately.
 2. Add the deserialization field and mapping in `manifest.rs`.
 3. Add exhaustive integration coverage in `tests/manifest.rs`.
 4. Document syntax, semantics, and composition role in `docs/manifests.md`.
 5. Update shared Vapor vocabulary rather than introducing a shell-only spelling.
 
-## Adding a workspace project
+## Adding a workspace package
 
-1. Give the project root a `[project]` Vapor manifest.
-2. Give the same root a Cargo manifest declaring a Cargo workspace.
-3. Add the project path to `[workspace].members` in Vapor-Root's Vapor manifest.
-4. Keep the project out of the root Cargo workspace; it owns its own packages.
-5. Declare only binaries that belong in the Steam installation once the final
-   project/distribution policy schema is settled.
-6. Extend workspace, Cargo-metadata, and workflow integration tests.
+1. Add the Cargo package to its containing Cargo workspace.
+2. Add a colocated `[project]` or content `Vapor.toml` with `name`.
+3. Do not add declaration-side `id`; references use full IDs, declarations infer
+   them.
+4. For Vapor-Root app membership, add or update a direct Git submodule that is a
+   `[workspace]` repository with its own `Cargo.toml`.
+5. Extend workspace, Cargo-metadata, and workflow integration tests.
 
 ## Changing discovery
 
 Discovery changes require tests for both roots, overlap rejection, canonical
 containment, behavior below nested content, and escalation from the shell
-component to its containing umbrella workspace. Do not introduce a fallback that
+component to its containing `[root]`. Do not introduce a fallback that
 places authored source inside installation state or permits self-targeting.
 
 ## Validation

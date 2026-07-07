@@ -1,7 +1,8 @@
 # Vapor Shell design checkpoints
 
-These documents preserve owner-reviewed product direction that is not yet an
-implemented or stable user contract.
+These documents preserve owner-reviewed product direction. Some sections are an
+implemented baseline; others remain design constraints for upcoming workflow
+alignment.
 
 - [Product topology](product-topology.md) — source hierarchy, Cargo and Git
   correspondence, first-party authority, publishing, installation, and open
@@ -10,5 +11,5 @@ implemented or stable user contract.
   by the first-party application, workspaces, Cargo packages, content, and
   registry authority.
 
-User guides and reference documentation must not claim these checkpoints are
-implemented until the corresponding behavior has been aligned and verified.
+User guides and reference documentation should cite a checkpoint only when the
+corresponding behavior is either implemented or explicitly labeled as planned.

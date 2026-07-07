@@ -14,7 +14,10 @@ use vapor_shell::{
 #[test]
 fn explicit_install_applies_all_vendored_tools_inside_the_app() {
     let installation = TestTree::new("toolchain-installation");
-    installation.write("Vapor.toml", "[workspace]\nid = \"example.installation\"\n");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
     let vapor_executable = write_executable(&installation, "bin/vapor");
     for path in [
         "packages/toolchain/rustup/bin/rustup",
@@ -31,7 +34,10 @@ fn explicit_install_applies_all_vendored_tools_inside_the_app() {
     installation.write("packages/toolchain/cargo-home/registry/.keep", "");
 
     let source = TestTree::new("toolchain-source");
-    source.write("Vapor.toml", "[workspace]\nid = \"example.source\"\n");
+    source.write(
+        "Vapor.toml",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
+    );
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
 
     let home = TestTree::new("toolchain-home");
@@ -40,8 +46,8 @@ fn explicit_install_applies_all_vendored_tools_inside_the_app() {
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    let finalized = toolchain::finalize_location_with_setup(paths.installation(), &setup).unwrap();
-    assert!(finalized.status().finalized());
+    let registered = toolchain::register_location_with_setup(paths.installation(), &setup).unwrap();
+    assert!(registered.status().registered());
 
     let before = toolchain::inspect(paths.installation());
     assert!(!before.complete());
@@ -53,7 +59,7 @@ fn explicit_install_applies_all_vendored_tools_inside_the_app() {
         "{error}"
     );
 
-    let report = toolchain::install(paths.installation(), false).unwrap();
+    let report = toolchain::install(paths.installation()).unwrap();
     assert_eq!(
         report.installed_groups(),
         ["Rust toolchain", "Git", "SteamCMD"]
@@ -68,7 +74,7 @@ fn explicit_install_applies_all_vendored_tools_inside_the_app() {
             .is_file()
     );
     assert!(
-        toolchain::install(paths.installation(), false)
+        toolchain::install(paths.installation())
             .unwrap()
             .installed_groups()
             .is_empty()
@@ -76,28 +82,34 @@ fn explicit_install_applies_all_vendored_tools_inside_the_app() {
 }
 
 #[test]
-fn moved_location_requires_explicit_refinalization() {
+fn moved_location_requires_explicit_repair() {
     let installation = TestTree::new("moved-installation");
-    installation.write("Vapor.toml", "[workspace]\nid = \"example.installation\"\n");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
     let executable = installation.write("bin/vapor", "binary");
     installation.write(
         "state/vapor-home.toml",
         "version = 1\npath = \"/previous/steam/library/Vapor\"\n",
     );
     let source = TestTree::new("moved-source");
-    source.write("Vapor.toml", "[workspace]\nid = \"example.source\"\n");
+    source.write(
+        "Vapor.toml",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
+    );
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
 
     let status = toolchain::location_status(paths.installation()).unwrap();
     assert!(matches!(status, toolchain::LocationStatus::Moved { .. }));
     let error =
-        toolchain::require_finalized_location(paths.installation(), "run a workspace build")
+        toolchain::require_registered_location(paths.installation(), "run a workspace build")
             .unwrap_err();
     assert!(
         error.contains("no location or PATH state was changed"),
         "{error}"
     );
-    assert!(error.contains("toolchain finalize"), "{error}");
+    assert!(error.contains("toolchain repair"), "{error}");
 }
 
 #[cfg(unix)]

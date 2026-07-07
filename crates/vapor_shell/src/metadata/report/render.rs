@@ -11,7 +11,7 @@ impl MetadataReport {
         let mut output = String::new();
         writeln!(output, "Vapor metadata (schema {})", self.schema_version).unwrap();
         writeln!(output, "source:").unwrap();
-        writeln!(output, "  workspace: {}", self.source.workspace_id).unwrap();
+        writeln!(output, "  source:    {}", self.source.source_id).unwrap();
         writeln!(output, "  root:      {}", self.source.root.display()).unwrap();
         writeln!(
             output,
@@ -99,18 +99,18 @@ fn status_word(ready: bool) -> &'static str {
 
 fn write_location(output: &mut String, location: &LocationReport) {
     match location.status {
-        LocationState::Finalized => {
+        LocationState::Registered => {
             writeln!(
                 output,
-                "  location:   finalized ({})",
+                "  location:   registered ({})",
                 location.current.display()
             )
             .unwrap();
         }
-        LocationState::Unfinalized => {
+        LocationState::Unregistered => {
             writeln!(
                 output,
-                "  location:   unfinalized ({})",
+                "  location:   unregistered ({})",
                 location.current.display()
             )
             .unwrap();
@@ -119,8 +119,8 @@ fn write_location(output: &mut String, location: &LocationReport) {
             writeln!(output, "  location:   moved").unwrap();
             writeln!(
                 output,
-                "    finalized: {}",
-                optional_path(location.finalized.as_ref())
+                "    previous: {}",
+                optional_path(location.registered.as_ref())
             )
             .unwrap();
             writeln!(output, "    current:   {}", location.current.display()).unwrap();

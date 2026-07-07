@@ -50,24 +50,30 @@ pub fn run() -> Result<(), String> {
     command::print_warnings(state.refresh_context());
 
     if let Some(command) = one_shot {
+        if !matches!(command, ShellCommand::Script { .. }) {
+            return Err(
+                "one-shot commands are disabled; run `vapor` for the interactive shell or use `vapor script run NAME`"
+                    .to_owned(),
+            );
+        }
         command::execute(command, &mut state)?;
         return Ok(());
     }
 
     let toolchain = toolchain::inspect(state.paths().installation());
     match toolchain::location_status(state.paths().installation()) {
-        Ok(toolchain::LocationStatus::Finalized { .. }) => {}
-        Ok(toolchain::LocationStatus::Unfinalized { current }) => {
-            eprintln!("notice: VAPOR_HOME is not finalized: {}", current.display());
-            eprintln!("hint: review `toolchain status`, then choose `toolchain finalize`");
+        Ok(toolchain::LocationStatus::Registered { .. }) => {}
+        Ok(toolchain::LocationStatus::Unregistered { current }) => {
+            eprintln!("notice: app root is not registered: {}", current.display());
+            eprintln!("hint: review `toolchain status`, then choose `toolchain install`");
         }
         Ok(toolchain::LocationStatus::Moved { locked, current }) => {
-            eprintln!("notice: VAPOR_HOME moved and requires explicit confirmation");
-            eprintln!("  finalized: {}", locked.display());
+            eprintln!("notice: app root moved and requires explicit confirmation");
+            eprintln!("  previous: {}", locked.display());
             eprintln!("  current:   {}", current.display());
-            eprintln!("hint: review `toolchain status`, then choose `toolchain finalize`");
+            eprintln!("hint: review `toolchain status`, then choose `toolchain repair`");
         }
-        Err(error) => eprintln!("warning: VAPOR_HOME lock is invalid: {error}"),
+        Err(error) => eprintln!("warning: app-root location state is invalid: {error}"),
     }
     if !toolchain.complete() {
         eprintln!("notice: the app-local Rust, Git, and SteamCMD toolchain is not complete");

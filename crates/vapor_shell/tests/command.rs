@@ -30,7 +30,7 @@ fn help_uses_defined_argument_domains() {
     let toolchain_help = ShellCommand::try_parse_from(["", "toolchain", "--help"])
         .expect_err("toolchain help should exit through Clap")
         .to_string();
-    for command in ["status", "finalize", "install", "unlock"] {
+    for command in ["status", "install", "uninstall", "repair"] {
         assert!(
             toolchain_help.contains(command),
             "missing {command}: {toolchain_help}"
@@ -40,17 +40,13 @@ fn help_uses_defined_argument_domains() {
     let test_help = ShellCommand::try_parse_from(["", "test", "--help"])
         .expect_err("test help should exit through Clap")
         .to_string();
-    for project in ["all", "core", "sdk", "launcher", "shell", "examples"] {
-        assert!(
-            test_help.contains(project),
-            "missing {project}: {test_help}"
-        );
-    }
+    assert!(test_help.contains("PROJECT"), "{test_help}");
+    assert!(test_help.contains("Cargo workspace name"), "{test_help}");
 
     let cd_help = ShellCommand::try_parse_from(["", "cd", "--help"])
         .expect_err("cd help should exit through Clap")
         .to_string();
-    assert!(cd_help.contains("WORKSPACE_PATH"), "{cd_help}");
+    assert!(cd_help.contains("SOURCE_PATH"), "{cd_help}");
 
     let error = ShellCommand::try_parse_from(["", "up", "0"])
         .expect_err("zero is not a valid number of levels")

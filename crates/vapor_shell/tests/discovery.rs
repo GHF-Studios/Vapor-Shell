@@ -11,7 +11,7 @@ fn installation_fixture() -> (TestTree, std::path::PathBuf) {
     let tree = TestTree::new("installation");
     tree.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.installation\"\n",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     fs::create_dir_all(tree.root().join("lib")).expect("lib should be created");
     tree.write("cargo-home/bin/cargo", "fake cargo");
@@ -25,12 +25,9 @@ fn discovers_disjoint_installation_and_source_roots() {
     let source = TestTree::new("source");
     source.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.source\"\n",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
-    source.write(
-        "games/example/Vapor.toml",
-        "[game]\nid = \"example.game\"\n",
-    );
+    source.write("games/example/Vapor.toml", "[game]\nname = \"game\"\n");
     fs::create_dir_all(source.root().join("games/example/src")).unwrap();
 
     let paths = EnvironmentPaths::from_paths(&executable, &source.root().join("games/example/src"))
@@ -46,12 +43,12 @@ fn discovers_disjoint_installation_and_source_roots() {
 }
 
 #[test]
-fn permits_same_workspace_identity_when_home_and_source_are_disjoint() {
+fn permits_same_identity_when_installation_and_source_are_disjoint() {
     let (installation, executable) = installation_fixture();
     let source = TestTree::new("same-identity-source");
     source.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.installation\"\n",
+        "[workspace]\nname = \"installation\"\norganization = \"example\"\n",
     );
 
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
@@ -59,8 +56,8 @@ fn permits_same_workspace_identity_when_home_and_source_are_disjoint() {
     assert_eq!(paths.installation().root(), installation.root());
     assert_eq!(paths.source().root(), source.root());
     assert_eq!(
-        paths.installation().workspace_id(),
-        paths.source().workspace_id()
+        paths.installation().identity_id(),
+        paths.source().identity_id()
     );
 }
 
@@ -69,7 +66,7 @@ fn discovers_cargo_inside_the_managed_rustup_toolchain() {
     let installation = TestTree::new("toolchain-installation");
     installation.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.installation\"\n",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let cargo = installation.write(
         "rustup-home/toolchains/nightly-test-host/bin/cargo",
@@ -91,17 +88,17 @@ fn rejects_source_inside_the_installation() {
         EnvironmentPaths::from_paths(&executable, &installation.root().join("source")).unwrap_err();
 
     assert!(
-        error.contains("no external source workspace is selected"),
+        error.contains("no external source root is selected"),
         "{error}"
     );
 }
 
 #[test]
-fn rejects_source_build_as_a_candidate_vapor_home() {
+fn rejects_source_build_as_a_candidate_app_root() {
     let tree = TestTree::new("source-build");
     tree.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.source\"\n",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     let executable = tree.write("target/debug/vapor", "binary");
 
@@ -114,16 +111,16 @@ fn rejects_source_build_as_a_candidate_vapor_home() {
 }
 
 #[test]
-fn escalates_from_shell_repo_to_containing_vapor_workspace() {
+fn escalates_from_shell_repo_to_containing_vapor_root() {
     let (_installation, executable) = installation_fixture();
     let source = TestTree::new("superproject-source");
     source.write(
         manifest::FILE_NAME,
-        "[workspace]\nid = \"example.vapor-root\"\n",
+        "[root]\nname = \"vapor-root\"\norganization = \"example\"\n",
     );
     source.write(
         "Vapor-Shell/Vapor.toml",
-        "[project]\nkind = \"shell\"\nid = \"example.vapor-shell\"\n",
+        "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\n",
     );
     fs::create_dir_all(source.root().join("Vapor-Shell/crates/vapor_shell")).unwrap();
 
@@ -131,45 +128,48 @@ fn escalates_from_shell_repo_to_containing_vapor_workspace() {
         &executable,
         &source.root().join("Vapor-Shell/crates/vapor_shell"),
     )
-    .expect("containing workspace should be selected");
+    .expect("containing root should be selected");
 
     assert_eq!(paths.source().root(), source.root());
 }
 
 #[test]
-fn rejects_shell_repo_when_no_containing_workspace_exists() {
+fn rejects_standalone_project_repo() {
     let (_installation, executable) = installation_fixture();
     let installation = InstallationPaths::from_executable(&executable).unwrap();
     let source = TestTree::new("standalone-shell-source");
-    source.write(
-        manifest::FILE_NAME,
-        "[project]\nkind = \"shell\"\nid = \"other.vapor-shell\"\n",
-    );
+    source.write(manifest::FILE_NAME, "[project]\nname = \"vapor-shell\"\n");
 
     let error = SourceWorkspace::from_invocation(source.root(), &installation).unwrap_err();
 
-    assert!(error.contains("not a workspace"), "{error}");
+    assert!(
+        error.contains("cannot be the source root identity"),
+        "{error}"
+    );
 }
 
 #[test]
 fn rejects_installation_whose_highest_marker_is_content() {
     let tree = TestTree::new("content-installation");
-    tree.write(manifest::FILE_NAME, "[engine]\nid = \"example.engine\"\n");
+    tree.write(manifest::FILE_NAME, "[engine]\nname = \"engine\"\n");
     let executable = tree.write("bin/vapor", "binary");
 
     let error = InstallationPaths::from_executable(&executable).unwrap_err();
-    assert!(error.contains("not a workspace"), "{error}");
+    assert!(
+        error.contains("cannot be the source root identity"),
+        "{error}"
+    );
 }
 
 #[test]
-fn rejects_invocation_outside_a_source_workspace() {
+fn rejects_invocation_outside_a_source_root() {
     let (_installation, executable) = installation_fixture();
     let installation = InstallationPaths::from_executable(&executable).unwrap();
     let source = TestTree::new("no-source-workspace");
 
     let error = SourceWorkspace::from_invocation(source.root(), &installation).unwrap_err();
     assert!(
-        error.contains("not inside an external Vapor source workspace"),
+        error.contains("not inside an external Vapor source root"),
         "{error}"
     );
 }

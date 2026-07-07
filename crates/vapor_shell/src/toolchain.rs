@@ -1,6 +1,6 @@
 //! Explicit installation and inspection of app-local development tools.
 //!
-//! Tool packages are delivered under `$VAPOR_HOME/packages/toolchain`. Nothing
+//! Tool packages are delivered under the app root's `packages/toolchain`. Nothing
 //! is acquired from the host operating system, and normal workflow commands
 //! never invoke installation implicitly.
 
@@ -21,12 +21,12 @@ const LOCATION_LOCK: &str = "state/vapor-home.toml";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocationStatus {
     /// No app location has been accepted yet.
-    Unfinalized {
+    Unregistered {
         /// Canonical root inferred from the running executable.
         current: PathBuf,
     },
     /// The lock and running executable agree.
-    Finalized {
+    Registered {
         /// Canonical accepted app root.
         path: PathBuf,
     },
@@ -43,27 +43,27 @@ impl LocationStatus {
     /// Current app root inferred from the running executable.
     pub fn current(&self) -> &Path {
         match self {
-            Self::Unfinalized { current } | Self::Moved { current, .. } => current,
-            Self::Finalized { path } => path,
+            Self::Unregistered { current } | Self::Moved { current, .. } => current,
+            Self::Registered { path } => path,
         }
     }
 
-    /// Previously finalized path, when one exists.
+    /// Previously accepted path, when one exists.
     pub fn locked(&self) -> Option<&Path> {
         match self {
-            Self::Finalized { path } => Some(path),
+            Self::Registered { path } => Some(path),
             Self::Moved { locked, .. } => Some(locked),
-            Self::Unfinalized { .. } => None,
+            Self::Unregistered { .. } => None,
         }
     }
 
-    /// Whether current and explicitly finalized paths agree.
-    pub fn finalized(&self) -> bool {
-        matches!(self, Self::Finalized { .. })
+    /// Whether current and explicitly accepted paths agree.
+    pub fn registered(&self) -> bool {
+        matches!(self, Self::Registered { .. })
     }
 }
 
-/// Result of finalizing or unlocking the app location.
+/// Result of changing app-root location registration.
 #[derive(Debug, Clone)]
 pub struct LocationChange {
     status: LocationStatus,
@@ -209,6 +209,25 @@ pub struct InstallReport {
     status: ToolchainStatus,
 }
 
+/// Result of explicit toolchain removal.
+#[derive(Debug, Clone)]
+pub struct UninstallReport {
+    removed_paths: usize,
+    location: LocationChange,
+}
+
+impl UninstallReport {
+    /// Number of app-local tool directories removed.
+    pub fn removed_paths(&self) -> usize {
+        self.removed_paths
+    }
+
+    /// PATH and location-lock changes made during removal.
+    pub fn location(&self) -> &LocationChange {
+        &self.location
+    }
+}
+
 impl InstallReport {
     /// Tool groups whose package files were applied.
     pub fn installed_groups(&self) -> &[&'static str] {
@@ -221,7 +240,7 @@ impl InstallReport {
     }
 }
 
-/// Compare the executable-derived VAPOR_HOME with its persisted fixpoint.
+/// Compare the executable-derived app root with its persisted fixpoint.
 ///
 /// # Errors
 ///
@@ -230,29 +249,25 @@ pub fn location_status(installation: &InstallationPaths) -> Result<LocationStatu
     let current = installation.root().to_path_buf();
     let path = installation.root().join(LOCATION_LOCK);
     if !path.is_file() {
-        return Ok(LocationStatus::Unfinalized { current });
+        return Ok(LocationStatus::Unregistered { current });
     }
-    let source = fs::read_to_string(&path).map_err(|error| {
-        format!(
-            "failed to read VAPOR_HOME lock '{}': {error}",
-            path.display()
-        )
-    })?;
+    let source = fs::read_to_string(&path)
+        .map_err(|error| format!("failed to read app-root lock '{}': {error}", path.display()))?;
     let lock: LocationLock = toml::from_str(&source).map_err(|error| {
         format!(
-            "failed to parse VAPOR_HOME lock '{}': {error}",
+            "failed to parse app-root lock '{}': {error}",
             path.display()
         )
     })?;
     if lock.version != 1 {
         return Err(format!(
-            "unsupported VAPOR_HOME lock version {} in '{}'",
+            "unsupported app-root lock version {} in '{}'",
             lock.version,
             path.display()
         ));
     }
     if lock.path == current {
-        Ok(LocationStatus::Finalized { path: current })
+        Ok(LocationStatus::Registered { path: current })
     } else {
         Ok(LocationStatus::Moved {
             locked: lock.path,
@@ -261,17 +276,17 @@ pub fn location_status(installation: &InstallationPaths) -> Result<LocationStatu
     }
 }
 
-/// Explicitly accept the executable-derived VAPOR_HOME and register its `bin`.
+/// Explicitly accept the executable-derived app root and register its `bin`.
 ///
 /// # Errors
 ///
 /// Fails when PATH registration or lock persistence fails.
-pub fn finalize_location(installation: &InstallationPaths) -> Result<LocationChange, String> {
+pub fn register_location(installation: &InstallationPaths) -> Result<LocationChange, String> {
     let setup = PathSetup::from_installation(installation)?;
-    finalize_location_with_setup(installation, &setup)
+    register_location_with_setup(installation, &setup)
 }
 
-/// Explicitly accept VAPOR_HOME using a caller-provided PATH registration plan.
+/// Explicitly accept the app root using a caller-provided PATH registration plan.
 ///
 /// This supports controlled hosts and tests without changing the location-lock
 /// semantics.
@@ -279,7 +294,7 @@ pub fn finalize_location(installation: &InstallationPaths) -> Result<LocationCha
 /// # Errors
 ///
 /// Fails when PATH registration or lock persistence fails.
-pub fn finalize_location_with_setup(
+pub fn register_location_with_setup(
     installation: &InstallationPaths,
     setup: &PathSetup,
 ) -> Result<LocationChange, String> {
@@ -288,7 +303,7 @@ pub fn finalize_location_with_setup(
     if let Some(parent) = lock_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
-                "failed to create VAPOR_HOME state directory '{}': {error}",
+                "failed to create app-root state directory '{}': {error}",
                 parent.display()
             )
         })?;
@@ -298,73 +313,75 @@ pub fn finalize_location_with_setup(
         path: installation.root().to_path_buf(),
     };
     let source = toml::to_string_pretty(&lock)
-        .map_err(|error| format!("failed to encode VAPOR_HOME lock: {error}"))?;
+        .map_err(|error| format!("failed to encode app-root lock: {error}"))?;
     fs::write(&lock_path, source).map_err(|error| {
         format!(
-            "failed to persist VAPOR_HOME lock '{}': {error}",
+            "failed to persist app-root lock '{}': {error}",
             lock_path.display()
         )
     })?;
     Ok(LocationChange {
-        status: LocationStatus::Finalized {
+        status: LocationStatus::Registered {
             path: installation.root().to_path_buf(),
         },
         path_setup,
     })
 }
 
-/// Explicitly remove the VAPOR_HOME fixpoint and marked PATH registration.
+/// Explicitly remove the app-root fixpoint and marked PATH registration.
 ///
 /// # Errors
 ///
 /// Fails when the lock or PATH registration cannot be removed.
-pub fn unlock_location(installation: &InstallationPaths) -> Result<LocationChange, String> {
+pub fn clear_location_registration(
+    installation: &InstallationPaths,
+) -> Result<LocationChange, String> {
     let setup = PathSetup::from_installation(installation)?;
     let path_setup = setup.uninstall()?;
     let lock_path = installation.root().join(LOCATION_LOCK);
     if lock_path.exists() {
         fs::remove_file(&lock_path).map_err(|error| {
             format!(
-                "failed to remove VAPOR_HOME lock '{}': {error}",
+                "failed to remove app-root lock '{}': {error}",
                 lock_path.display()
             )
         })?;
     }
     Ok(LocationChange {
-        status: LocationStatus::Unfinalized {
+        status: LocationStatus::Unregistered {
             current: installation.root().to_path_buf(),
         },
         path_setup,
     })
 }
 
-/// Require explicit acceptance of the current VAPOR_HOME.
+/// Require explicit acceptance of the current app root.
 ///
 /// # Errors
 ///
-/// Explains an unfinalized or moved location without changing it.
-pub fn require_finalized_location(
+/// Explains an unregistered or moved location without changing it.
+pub fn require_registered_location(
     installation: &InstallationPaths,
     action: &str,
 ) -> Result<(), String> {
     let status = location_status(installation)?;
-    require_finalized_status(&status, action)
+    require_registered_status(&status, action)
 }
 
-/// Require an already-resolved VAPOR_HOME status to be finalized.
+/// Require an already-resolved app-root status to be accepted.
 ///
 /// # Errors
 ///
-/// Explains an unfinalized or moved location without changing it.
-pub fn require_finalized_status(status: &LocationStatus, action: &str) -> Result<(), String> {
+/// Explains an unregistered or moved location without changing it.
+pub fn require_registered_status(status: &LocationStatus, action: &str) -> Result<(), String> {
     match status {
-        LocationStatus::Finalized { .. } => Ok(()),
-        LocationStatus::Unfinalized { current } => Err(format!(
-            "cannot {action}: VAPOR_HOME has not been finalized\n  current: {}\nhelp: review this location with `vapor toolchain status`\nhelp: accept it explicitly with `vapor toolchain finalize`\nnote: no location or PATH state was changed",
+        LocationStatus::Registered { .. } => Ok(()),
+        LocationStatus::Unregistered { current } => Err(format!(
+            "cannot {action}: the app root has not been accepted\n  current: {}\nhelp: review this location with `vapor toolchain status`\nhelp: accept it explicitly with `vapor toolchain install`\nnote: no location or PATH state was changed",
             current.display()
         )),
         LocationStatus::Moved { locked, current } => Err(format!(
-            "cannot {action}: VAPOR_HOME no longer matches its finalized location\n  finalized: {}\n  current:   {}\nhelp: if this move was intentional, accept it with `vapor toolchain finalize`\nhelp: otherwise move the Steam app back or verify its library location\nnote: no location or PATH state was changed",
+            "cannot {action}: the app root no longer matches its accepted location\n  previous: {}\n  current:  {}\nhelp: if this move was intentional, run `vapor toolchain repair`\nhelp: otherwise move the Steam app back or verify its library location\nnote: no location or PATH state was changed",
             locked.display(),
             current.display()
         )),
@@ -376,6 +393,55 @@ pub fn inspect(installation: &InstallationPaths) -> ToolchainStatus {
     inspect_root(installation.root())
 }
 
+/// Install missing tools.
+///
+/// # Errors
+///
+/// Fails when the app location is not accepted, packages are incomplete, a path
+/// escapes the installation, copying fails, or verification remains incomplete.
+pub fn install(installation: &InstallationPaths) -> Result<InstallReport, String> {
+    apply_packages(installation, false)
+}
+
+/// Reapply every vendored tool package.
+///
+/// # Errors
+///
+/// Fails under the same conditions as [`install`].
+pub fn repair(installation: &InstallationPaths) -> Result<InstallReport, String> {
+    apply_packages(installation, true)
+}
+
+/// Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and location lock.
+///
+/// # Errors
+///
+/// Fails when a managed path escapes the app root or removal cannot complete.
+pub fn uninstall(installation: &InstallationPaths) -> Result<UninstallReport, String> {
+    let root = installation.root();
+    let mut removed_paths = 0;
+    for relative in [
+        "rustup",
+        "rustup-home",
+        "cargo-home",
+        "tools/git",
+        "tools/steamcmd",
+    ] {
+        let path = root.join(relative);
+        ensure_contained(root, &path)?;
+        if path.exists() {
+            fs::remove_dir_all(&path)
+                .map_err(|error| format!("failed to remove '{}': {error}", path.display()))?;
+            removed_paths += 1;
+        }
+    }
+    let location = clear_location_registration(installation)?;
+    Ok(UninstallReport {
+        removed_paths,
+        location,
+    })
+}
+
 /// Install missing tools, or reapply every package when `repair` is true.
 ///
 /// Packages are copied only within the Steam application root. Existing extra
@@ -385,8 +451,8 @@ pub fn inspect(installation: &InstallationPaths) -> ToolchainStatus {
 ///
 /// Fails when a vendored package is incomplete, a path escapes the installation,
 /// copying fails, or post-install verification remains incomplete.
-pub fn install(installation: &InstallationPaths, repair: bool) -> Result<InstallReport, String> {
-    require_finalized_location(installation, "install the toolchain")?;
+fn apply_packages(installation: &InstallationPaths, repair: bool) -> Result<InstallReport, String> {
+    require_registered_location(installation, "install the toolchain")?;
     let before = inspect(installation);
     if !before.packages_complete() {
         return Err(format!(

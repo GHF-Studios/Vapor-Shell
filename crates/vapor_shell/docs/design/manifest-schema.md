@@ -1,7 +1,6 @@
 # Vapor manifest schema
 
-Status: **design checkpoint; represented by the bootstrap manifests, not yet
-implemented by Vapor Shell**
+Status: **implemented baseline; subject to extension as workflows harden**
 
 This is the minimal schema that the implementation refactor targets. It keeps
 Cargo facts in `Cargo.toml` and records only Vapor-owned identity, composition,
@@ -42,7 +41,6 @@ name = "vapor-root"
 organization = "ghf-studios"
 version = "0.5.0"
 repository = "https://github.com/GHF-Studios/Vapor-Root"
-default-packagepack = "ghf-studios/loo-cast/loo-cast-packagepack"
 
 [root.steam]
 app-id = 2122620
@@ -50,8 +48,9 @@ depot-id = 2122621
 development-branch = "vapor-dev"
 ```
 
-Direct Git submodules define its workspace membership. The manifest does not
-duplicate `.gitmodules`.
+Direct Git submodules define its app/depot workspace membership. Workshop
+compositions such as Loo-Cast live in separate `[workspace]` repositories and
+are not submodules of Vapor-Root.
 
 ## Workspace
 
@@ -133,24 +132,27 @@ name = "spacetime-engine"
 version.workspace = true
 
 [[traits]]
-name = "render-backend"
+name = "replacement-render-backend"
+cardinality = "zero-or-one"
 ```
 
 Consumer content may require providers through named slots:
 
 ```toml
 [[slots]]
-name = "renderer"
-trait = "ghf-studios/loo-cast/spacetime-engine/render-backend"
-cardinality = "one"
+name = "replacement-render-backend"
+trait = "ghf-studios/loo-cast/spacetime-engine/replacement-render-backend"
 ```
 
-Traits describe capabilities; content kinds describe structural roles. Slot
-resolution operates over the selected content graph and must satisfy the
-declared cardinality. A generally shared trait belongs to a dedicated contracts
-project rather than floating at workspace scope. Provider-declaration syntax
-and trait composition remain unset until a concrete provider example forces
-those fields; the schema does not invent them prematurely.
+Traits describe capabilities; content kinds describe structural roles.
+Cardinality belongs to the trait because it is part of the capability contract:
+a `replacement-render-backend` permits zero or one selected provider wherever
+that trait is accepted. Slots name extension points and reference traits; they
+do not redefine trait cardinality. A generally shared trait belongs to a
+dedicated contracts project rather than floating at workspace scope.
+Provider-declaration syntax and trait composition remain unset until a concrete
+provider example forces those fields; the schema does not invent them
+prematurely.
 
 ## Registry authority
 
