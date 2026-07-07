@@ -41,6 +41,8 @@ filesystem navigation is confined to the source workspace.
   through the same one-shot CLI facade.
 - [Development](docs/development.md): source layout, extension checklists, tests,
   and documentation policy.
+- [Design checkpoints](docs/design/README.md): owner-reviewed direction that is
+  explicitly not yet an implemented user contract.
 
 ## Core guarantees
 

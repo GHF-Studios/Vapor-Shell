@@ -1,3 +1,6 @@
-[project]
-kind = "shell"
-id = "ghf-studios.vapor-shell"
+schema = 1
+
+[workspace]
+id = "ghf-studios/vapor-shell"
+version = "0.5.0"
+repository = "https://github.com/GHF-Studios/Vapor-Shell"
