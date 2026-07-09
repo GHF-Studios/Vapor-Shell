@@ -114,7 +114,7 @@ authenticate Steam, perform real uploads, or apply project-local IDE changes.
 - `workflow`: app-local Rust/Cargo formatting, checking, testing, and validation.
 - `path_setup`: marked registration of the app-owned `bin` directory in PATH.
 - `setup`: explicit app-local Rust/Cargo, Git, and SteamCMD lifecycle.
-- `setup_packages`: distributable setup package payload inspection and copying.
+- `setup_self_packages`: distributable self-setup payload inspection and copying.
 - `state`: source navigation and current content context.
 - `prompt`: Reedline presentation adapter.
 

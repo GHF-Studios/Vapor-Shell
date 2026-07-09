@@ -24,9 +24,9 @@ Source repositories, Cargo build targets, Cargo registries, Git checkouts,
 Steam authentication, logs, and SteamPipe cache state are not staged.
 
 The publish preflight requires installed app-local Rust/Cargo, Git, and
-SteamCMD setup plus complete distributable package payloads. Staging copies
-`packages/setup`; populate it explicitly with `setup package install` or
-refresh it with `setup package repair`. Active tool directories such as
+SteamCMD setup plus complete distributable self-setup payloads. Staging copies
+`packages/setup`; populate it explicitly with `setup self package install` or
+refresh it with `setup self package repair`. Active tool directories such as
 `rustup-home/`, `cargo-home/`, `tools/git/`, and `tools/steamcmd/` are not
 staged directly.
 

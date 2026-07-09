@@ -7,8 +7,8 @@ does not attach location mutation to any Steam launch option. The Shell, SDK,
 Launcher, and future game launch entries only launch their configured programs.
 
 After installation or movement, run Vapor from the Steam app directory, review
-`setup status`, and explicitly choose `setup install` or
-`setup repair`. No executable is copied into a user-data directory, and the
+`setup self status`, and explicitly choose `setup self install` or
+`setup self repair`. No executable is copied into a user-data directory, and the
 source checkout must stay outside the Steam app directory.
 
 The bootstrap sequence is:
@@ -26,8 +26,8 @@ The bootstrap sequence is:
    This writes only `Vapor.toml` and `bin/vapor`.
 3. run `/path/to/app/bin/vapor open /path/to/Vapor-Root` to register and open
    the external application source without moving that source into the app dir;
-4. run `setup status`;
-5. run `setup install`;
+4. run `setup self status`;
+5. run `setup self install`;
 6. open a new terminal so PATH changes are visible;
 7. run `vapor`; it should discover the app from its own executable and reopen
    the last active source;
@@ -37,7 +37,7 @@ The bootstrap sequence is:
     interactive shell.
 
 From step 5 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
-application. `setup install` is the explicit bootstrap operation that installs
+application. `setup self install` is the explicit bootstrap operation that installs
 active tools into the app root. Final depot staging uses the separate
 `packages/setup` payload with credential/cache exclusions. Publishing never
 installs missing tools; it reports the failed precondition and leaves that

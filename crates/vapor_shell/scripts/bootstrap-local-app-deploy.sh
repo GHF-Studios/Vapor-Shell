@@ -124,6 +124,6 @@ echo "  manifest: $manifest -> $dest_manifest"
 echo "  binary:   $binary -> $dest_binary"
 echo
 echo "next:"
-echo "  \"$dest_binary\" setup status"
-echo "  \"$dest_binary\" setup install"
+echo "  \"$dest_binary\" setup self status"
+echo "  \"$dest_binary\" setup self install"
 echo "  \"$dest_binary\" open /path/to/external/source"

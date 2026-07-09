@@ -5,17 +5,17 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use vapor_shell::{
-    command::{self, SetupCommand, SetupPackageCommand, ShellCommand},
+    command::{self, SetupCommand, SetupSelfCommand, SetupSelfPackageCommand, ShellCommand},
     discovery::EnvironmentPaths,
     path_setup::PathSetup,
-    setup::{self, SetupRequirement},
+    setup_self::{self, SetupSelfRequirement},
     state::ShellState,
 };
 
 #[cfg(unix)]
 #[test]
-fn active_app_local_tools_satisfy_setup_preflight() {
-    let installation = TestTree::new("setup-installation");
+fn active_app_local_tools_satisfy_setup_self_preflight() {
+    let installation = TestTree::new("setup-self-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
@@ -35,30 +35,31 @@ fn active_app_local_tools_satisfy_setup_preflight() {
     }
     installation.write("cargo-home/registry/.keep", "");
 
-    let source = TestTree::new("setup-source");
+    let source = TestTree::new("setup-self-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
 
-    let home = TestTree::new("setup-home");
+    let home = TestTree::new("setup-self-home");
     let setup = PathSetup::new(
         home.root().to_path_buf(),
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    let registered = setup::register_location_with_setup(paths.installation(), &setup).unwrap();
+    let registered =
+        setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
     assert!(registered.status().registered());
 
-    let before = setup::inspect(paths.installation());
+    let before = setup_self::inspect(paths.installation());
     assert!(before.complete());
-    setup::require(
+    setup_self::require(
         paths.installation(),
         &[
-            SetupRequirement::Rust,
-            SetupRequirement::Git,
-            SetupRequirement::SteamCmd,
+            SetupSelfRequirement::Rust,
+            SetupSelfRequirement::Git,
+            SetupSelfRequirement::SteamCmd,
         ],
         "test projects",
     )
@@ -67,8 +68,8 @@ fn active_app_local_tools_satisfy_setup_preflight() {
 
 #[cfg(unix)]
 #[test]
-fn host_git_wrapper_is_not_a_valid_app_owned_git() {
-    let installation = TestTree::new("setup-git-wrapper");
+fn delegating_git_script_is_not_app_owned_git() {
+    let installation = TestTree::new("setup-self-git-delegating-script");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
@@ -85,16 +86,16 @@ fn host_git_wrapper_is_not_a_valid_app_owned_git() {
     ] {
         write_executable(&installation, path);
     }
-    write_host_git_wrapper(&installation, "tools/git/bin/git");
+    write_delegating_git_script(&installation, "tools/git/bin/git");
 
     let executable = installation.root().join("bin/vapor");
-    let source = TestTree::new("setup-git-wrapper-source");
+    let source = TestTree::new("setup-self-git-delegating-script-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
-    let status = setup::inspect(paths.installation());
+    let status = setup_self::inspect(paths.installation());
 
     assert!(!status.git().installed());
     assert!(
@@ -102,7 +103,7 @@ fn host_git_wrapper_is_not_a_valid_app_owned_git() {
             .git()
             .missing()
             .iter()
-            .any(|entry| entry.contains("host Git wrapper")),
+            .any(|entry| entry.contains("app-owned Git executable")),
         "{:?}",
         status.git().missing()
     );
@@ -110,8 +111,8 @@ fn host_git_wrapper_is_not_a_valid_app_owned_git() {
 
 #[cfg(unix)]
 #[test]
-fn setup_package_install_populates_package_content_without_auth_state() {
-    let installation = TestTree::new("setup-package-installation");
+fn setup_self_package_install_populates_payload_without_auth_state() {
+    let installation = TestTree::new("setup-self-package-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
@@ -137,26 +138,28 @@ fn setup_package_install_populates_package_content_without_auth_state() {
     installation.write("tools/steamcmd/logs/steamcmd.log", "SECRET");
     installation.write("tools/steamcmd/steamapps/appmanifest_1.acf", "SECRET");
 
-    let source = TestTree::new("setup-package-source");
+    let source = TestTree::new("setup-self-package-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
-    let home = TestTree::new("setup-package-home");
+    let home = TestTree::new("setup-self-package-home");
     let setup = PathSetup::new(
         home.root().to_path_buf(),
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
     let mut state = ShellState::new(paths).unwrap();
 
     command::execute(
         ShellCommand::Setup {
-            command: SetupCommand::Package {
-                command: SetupPackageCommand::Install { dry_run: false },
+            command: SetupCommand::Self_ {
+                command: SetupSelfCommand::Package {
+                    command: SetupSelfPackageCommand::Install { dry_run: false },
+                },
             },
         },
         &mut state,
@@ -182,8 +185,8 @@ fn setup_package_install_populates_package_content_without_auth_state() {
 
 #[cfg(unix)]
 #[test]
-fn setup_install_applies_existing_package_content() {
-    let installation = TestTree::new("setup-package-installation");
+fn setup_self_install_applies_existing_payload() {
+    let installation = TestTree::new("setup-self-package-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
@@ -203,22 +206,22 @@ fn setup_install_applies_existing_package_content() {
     }
     installation.write("packages/setup/cargo-home/registry/.keep", "");
 
-    let source = TestTree::new("setup-package-source");
+    let source = TestTree::new("setup-self-package-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
-    let home = TestTree::new("setup-package-home");
+    let home = TestTree::new("setup-self-package-home");
     let setup = PathSetup::new(
         home.root().to_path_buf(),
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
 
-    let report = setup::install(paths.installation()).unwrap();
+    let report = setup_self::install(paths.installation()).unwrap();
     assert_eq!(report.installed_groups(), ["Rust/Cargo", "Git", "SteamCMD"]);
     assert!(report.status().complete());
     assert!(installation.root().join("rustup/bin/rustup").is_file());
@@ -233,15 +236,15 @@ fn setup_install_applies_existing_package_content() {
 
 #[cfg(unix)]
 #[test]
-fn setup_install_dry_run_does_not_mutate_app_root() {
-    let installation = TestTree::new("setup-dry-run-installation");
+fn setup_self_install_dry_run_does_not_mutate_app_root() {
+    let installation = TestTree::new("setup-self-dry-run-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let vapor_executable = write_executable(&installation, "bin/vapor");
 
-    let source = TestTree::new("setup-dry-run-source");
+    let source = TestTree::new("setup-self-dry-run-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
@@ -252,7 +255,9 @@ fn setup_install_dry_run_does_not_mutate_app_root() {
 
     command::execute(
         ShellCommand::Setup {
-            command: SetupCommand::Install { dry_run: true },
+            command: SetupCommand::Self_ {
+                command: SetupSelfCommand::Install { dry_run: true },
+            },
         },
         &mut state,
     )
@@ -288,15 +293,16 @@ fn moved_location_requires_explicit_repair() {
     );
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
 
-    let status = setup::location_status(paths.installation()).unwrap();
-    assert!(matches!(status, setup::LocationStatus::Moved { .. }));
-    let error = setup::require_registered_location(paths.installation(), "run a workspace build")
-        .unwrap_err();
+    let status = setup_self::location_status(paths.installation()).unwrap();
+    assert!(matches!(status, setup_self::LocationStatus::Moved { .. }));
+    let error =
+        setup_self::require_registered_location(paths.installation(), "run a workspace build")
+            .unwrap_err();
     assert!(
         error.contains("no location or PATH state was changed"),
         "{error}"
     );
-    assert!(error.contains("setup repair"), "{error}");
+    assert!(error.contains("setup self repair"), "{error}");
 }
 
 #[cfg(unix)]
@@ -309,7 +315,7 @@ fn write_executable(tree: &TestTree, relative: &str) -> std::path::PathBuf {
 }
 
 #[cfg(unix)]
-fn write_host_git_wrapper(tree: &TestTree, relative: &str) -> std::path::PathBuf {
+fn write_delegating_git_script(tree: &TestTree, relative: &str) -> std::path::PathBuf {
     let path = tree.write(relative, "#!/bin/sh\nexec '/usr/bin/git' \"$@\"\n");
     let mut permissions = fs::metadata(&path).unwrap().permissions();
     permissions.set_mode(0o755);

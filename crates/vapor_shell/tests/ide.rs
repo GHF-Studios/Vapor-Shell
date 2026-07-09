@@ -8,7 +8,7 @@ use vapor_shell::{
     command::{self, IdeCommand, ShellCommand},
     discovery::EnvironmentPaths,
     path_setup::PathSetup,
-    setup,
+    setup_self,
     state::ShellState,
 };
 
@@ -139,7 +139,7 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
 
     let state = ShellState::new(paths).unwrap();
     (installation, source, state)

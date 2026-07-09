@@ -59,33 +59,33 @@ resolved model and reject unmet prerequisites before acting.
 
 ## Setup
 
-### `setup status`
+### `setup self status`
 
 Report the executable-derived app root, persisted app-root registration, active
-Rust/Cargo, Git, SteamCMD health, and distributable package-content status.
+Rust/Cargo, Git, SteamCMD health, and distributable self-setup payload status.
 
-### `setup install [--dry-run]`
+### `setup self install [--dry-run]`
 
 Accept the current app root, register its `bin` directory for PATH setup, and
 install missing Rust/Cargo, Git, and SteamCMD into the app root. This command is
 explicit; other commands do not install or repair prerequisites automatically.
-It does not create `packages/setup`; use `setup package install` for package
+It does not create `packages/setup`; use `setup self package install` for package
 payloads.
 
 `--dry-run` prints the app-root registration, PATH profiles, acquisition paths,
 package status, and tool group actions without changing files or shell profile
 state.
 
-### `setup repair [--dry-run]`
+### `setup self repair [--dry-run]`
 
 Accept the current app root and reapply/reacquire Rust/Cargo, Git, and SteamCMD.
 Use this after an intentional Steam app move or suspected setup damage.
-Repairing active setup still does not refresh package payloads.
+Repairing active setup still does not refresh self-setup payloads.
 
 `--dry-run` previews the reinstall/repair actions without changing files or
 registration state.
 
-### `setup uninstall [--dry-run]`
+### `setup self uninstall [--dry-run]`
 
 Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and app-root
 location state.
@@ -93,22 +93,22 @@ location state.
 `--dry-run` previews removals and registration cleanup without deleting active
 tools or changing PATH setup.
 
-### `setup package status`
+### `setup self package status`
 
-Report distributable setup package payload readiness. These payloads are copied
+Report distributable self-setup payload readiness. These payloads are copied
 into app/depot staging and are separate from the active tools used in the
 current Steam installation.
 
-### `setup package install [--dry-run]`
+### `setup self package install [--dry-run]`
 
 Populate missing `packages/setup` payloads from active app-local tools. The
-active Rust/Cargo, Git, and SteamCMD tools must already pass `setup status`.
-Host Git wrappers are rejected; the package must contain an app-owned Git
-distribution.
+active Rust/Cargo, Git, and SteamCMD tools must already pass `setup self status`.
+A script that delegates to system Git must be replaced with a real app-owned
+Git executable before payloads can be built.
 
 `--dry-run` previews package writes without changing files.
 
-### `setup package repair [--dry-run]`
+### `setup self package repair [--dry-run]`
 
 Rebuild `packages/setup` from active app-local tools. Use this after
 repairing active setup or before staging a new Steam app/depot build.
@@ -125,7 +125,7 @@ root. `[workspace]` sources expose their root Cargo workspace. `[root]` sources
 expose direct submodules that declare `[workspace]` and contain `Cargo.toml`.
 
 Artifacts go to `output/dev/<project>` inside the app root instead of source
-trees. Rust and Git must already pass `setup status`.
+trees. Rust and Git must already pass `setup self status`.
 
 ### `validate [--project PROJECT]`
 
@@ -212,8 +212,8 @@ into the Steam installation/app root.
 
 Build installed documentation, assemble the clean allowlisted app/depot payload,
 and smoke-check the staged package without invoking SteamCMD. This requires
-complete `packages/setup` content; run `setup package install` or
-`setup package repair` first when metadata reports missing package payloads.
+complete `packages/setup` content; run `setup self package install` or
+`setup self package repair` first when metadata reports missing self-setup payloads.
 
 ### `root publish [--account ACCOUNT] [--branch BRANCH] [--dry-run] [--yes]`
 

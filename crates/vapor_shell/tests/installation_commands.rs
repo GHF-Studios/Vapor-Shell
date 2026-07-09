@@ -16,7 +16,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     let outside = TestTree::new("outside-source-root");
 
     let setup = Command::new(&executable)
-        .args(["setup", "status"])
+        .args(["setup", "self", "status"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
         .env("SHELL", "/bin/bash")

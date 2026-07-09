@@ -13,7 +13,7 @@ agent session fails, continue from this file before using older chat context.
 
 Current implementation intent:
 
-1. replace public `toolchain` lifecycle with a broader `setup` command surface;
+1. keep installed-environment setup under `setup self`;
 2. keep backend tools hidden behind Vapor source, content, root, Steam, and setup
    goals;
 3. always attempt to provide Rust/Cargo, Git, and SteamCMD availability rather
@@ -25,20 +25,18 @@ Current implementation intent:
 
 Current implementation progress:
 
-- public `setup` lifecycle replaces the old public tooling grammar;
-- distributable setup package payloads live under `setup package`;
+- installed app setup lives under `setup self`;
+- distributable self-setup payloads live under `setup self package`;
 - Workshop/content commands no longer populate setup payloads;
-- implementation modules and metadata reports use setup naming;
-- removed public commands are rejected by parser tests instead of kept as
-  compatibility aliases.
+- implementation modules and metadata reports use `setup_self` naming.
 
 ## Non-goals
 
 - Do not expose Git, Cargo, rustup, SteamCMD, package managers, DLLs, or shared
   libraries as the primary product grammar.
 - Do not make users choose formal modes such as player, developer, or publisher.
-- Do not keep legacy public compatibility surfaces after command grammar changes.
-- Do not pretend a wrapper around host Git is a portable bundled Git.
+- Do not keep legacy public compatibility surfaces.
+- Do not treat a script that delegates to system Git as app-owned Git.
 - Do not silently edit user source, global IDE settings, Steam authentication
   state, shell profiles, or operating-system packages.
 - Do not merge Workshop/content source with Vapor-Root app/depot source.
@@ -48,9 +46,13 @@ Current implementation progress:
 Vapor should expose user goals and Vapor domains:
 
 ```text
-setup
+setup self
   inspect, install, repair, extend, downgrade, and uninstall the app-local
   command environment and backend availability
+
+setup package
+  initialize, adopt, and repair Vapor package/project/workspace metadata when
+  that package-onboarding workflow exists
 
 source
   open, index, sync, repair, and validate authored source roots
@@ -132,36 +134,37 @@ Representative providers:
 Providers are internal resolution details. Diagnostics may name them, but command
 grammar should remain Vapor-domain grammar.
 
-## Setup command direction
+## Setup Command Direction
 
-`toolchain` is too narrow for the work it currently performs. It mixes:
+Installed-environment setup is self-setup because it prepares Vapor itself:
 
 - app-root acceptance;
 - PATH registration;
 - Rust/Cargo/rustup installation;
 - Git availability;
 - SteamCMD availability;
-- distributable package content.
+- distributable self-setup payloads.
 
-The public lifecycle should move under `setup`:
+The current self-setup lifecycle is:
 
 ```text
-setup status
-setup install [--dry-run]
-setup repair [--dry-run]
-setup extend [--dry-run]
-setup downgrade [--dry-run]
-setup uninstall [--dry-run]
+setup self status
+setup self install [--dry-run]
+setup self repair [--dry-run]
+setup self package status
+setup self package install [--dry-run]
+setup self package repair [--dry-run]
+setup self uninstall [--dry-run]
 ```
 
-This is an intentionally breaking migration. Public `toolchain` commands are
-removed instead of kept as aliases, and internal modules use the setup
-vocabulary as well.
+The default self-setup target is "make the installed Vapor environment as
+complete as it reasonably can be on this machine." It should try to resolve
+Rust/Cargo, Git, and SteamCMD readiness. It should not require a user to opt
+into a developer or publisher role.
 
-The default setup target is "make the installed Vapor environment as complete as
-it reasonably can be on this machine." It should try to resolve Rust/Cargo, Git,
-and SteamCMD readiness. It should not require a user to opt into a developer or
-publisher role.
+`setup package` remains reserved for real package onboarding: creating,
+adopting, or repairing Vapor metadata around a package/workspace/project. The
+current self-setup payload commands intentionally do not occupy that grammar.
 
 ## Source command direction
 
@@ -189,9 +192,8 @@ or opening a Vapor source, not as a general Git shell.
 Content means Workshop-installable Vapor artifacts. It includes first-party
 default engine/game/packagepack content. It excludes Vapor-Root app/depot source.
 
-The previous content-package commands that populated `packages/setup` were
-misnamed. They are setup/package operations, not Workshop content operations,
-and must live under setup or package/depot preparation.
+Self-setup payload commands populate `packages/setup`. They are not Workshop
+content operations and do not define the future package-onboarding grammar.
 
 ## Package metadata and dependency catalogs
 
@@ -263,32 +265,30 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 
 - Add this checkpoint.
 - Link it from design docs.
-- Identify current docs and modules that overload `toolchain` and `content`.
-- Record removed public commands so tests and diagnostics reject them clearly.
+- Identify docs and modules that overload setup and content terms.
+- Keep parser tests focused on supported grammar, not historical command names.
 
 ### Phase 2: command grammar migration
 
-- Add `setup status/install/repair/uninstall` as the primary lifecycle.
-- Remove the public `toolchain` command surface.
-- Move old content package-payload behavior to setup package
-  preparation and remove those public content subcommands.
+- Add `setup self status/install/repair/uninstall` as the primary lifecycle.
+- Keep self-setup payload preparation separate from Workshop content commands.
 
 ### Phase 3: status model split
 
 - Replace hard-coded tool requirements with named capabilities.
 - Report app-root registration, PATH registration, Rust/Cargo, Git, SteamCMD,
-  package payloads, source state, and Steam session as separate rows.
+  self-setup payloads, source state, and Steam session as separate rows.
 - Preserve machine-readable metadata output for scripts and agents.
 
 ### Phase 4: provider resolution
 
 - Add an internal backend resolver.
 - Detect app-local, system, and configured Git/SteamCMD providers.
-- Reject fake host wrappers as bundled providers.
+- Reject delegating Git scripts as app-owned providers.
 - Allow controlled use of valid system providers when policy permits.
 - Add OS/distro/package-manager detection as diagnostic data.
 
-### Phase 5: setup repair actions
+### Phase 5: Self-Setup Repair Actions
 
 - Keep app-local Rust/Cargo/rustup installation explicit and previewable.
 - Provide Git and SteamCMD repair suggestions first.
@@ -305,8 +305,8 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 ### Phase 7: diagnostics, docs, and tests
 
 - Update command docs and topology references.
-- Add regression tests for command help, setup status, removed command rejection,
-  diagnostics, and preflight capability failures.
+- Add regression tests for command help, self-setup status, diagnostics, and
+  preflight capability failures.
 - Verify deployed Steam install behavior from a fresh shell.
 
 ## Open decisions

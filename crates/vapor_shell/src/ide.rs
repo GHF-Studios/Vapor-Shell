@@ -7,7 +7,7 @@
 
 use crate::{
     discovery::{EnvironmentPaths, ensure_contained},
-    setup::SetupStatus,
+    setup_self::SetupSelfStatus,
     workspace::WorkspaceManifest,
 };
 use std::{
@@ -118,7 +118,7 @@ struct IdeFile {
 pub(crate) fn inspect(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    setup: &SetupStatus,
+    setup: &SetupSelfStatus,
 ) -> Result<IdeStatus, String> {
     let plan = build_plan(paths, manifest, setup)?;
     plan.status()
@@ -128,7 +128,7 @@ pub(crate) fn inspect(
 pub(crate) fn preview(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    setup: &SetupStatus,
+    setup: &SetupSelfStatus,
 ) -> Result<IdeRepairReport, String> {
     let plan = build_plan(paths, manifest, setup)?;
     let written = plan
@@ -147,7 +147,7 @@ pub(crate) fn preview(
 pub(crate) fn repair(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    setup: &SetupStatus,
+    setup: &SetupSelfStatus,
 ) -> Result<IdeRepairReport, String> {
     let plan = build_plan(paths, manifest, setup)?;
     fs::create_dir_all(&plan.idea_dir).map_err(|error| {
@@ -175,7 +175,7 @@ pub(crate) fn repair(
 fn build_plan(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    setup: &SetupStatus,
+    setup: &SetupSelfStatus,
 ) -> Result<IdePlan, String> {
     let root = paths.source().root().to_path_buf();
     let idea_dir = root.join(".idea");
@@ -250,7 +250,7 @@ fn rust_xml(rust_bin: &Path, stdlib_source: Option<&Path>) -> String {
 
 fn vapor_xml(
     paths: &EnvironmentPaths,
-    setup: &SetupStatus,
+    setup: &SetupSelfStatus,
     stdlib_source: Option<&Path>,
 ) -> Result<String, String> {
     let root = paths.installation().root();

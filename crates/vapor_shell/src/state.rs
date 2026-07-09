@@ -211,7 +211,7 @@ impl ShellState {
         &self.cargo
     }
 
-    /// Rebuild Cargo-derived state after an explicit setup installation.
+    /// Rebuild Cargo-derived state after an explicit self-setup installation.
     pub fn refresh_cargo_index(&mut self) {
         self.cargo = self
             .paths

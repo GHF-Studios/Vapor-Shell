@@ -399,16 +399,17 @@ Rust/Cargo, Git, SteamCMD, PATH registration, and accepted
 installation-location state. They therefore follow Vapor's status, preview, and
 explicit repair model:
 
-- `setup status` explains current state and next actions;
+- `setup self status` explains current state and next actions;
 - mutating commands support `--dry-run` preview before changing files;
 - normal workflows never silently install or repair prerequisites;
 - scripts may call setup operations and bubble flags upward, but the
   consequential action remains explicit and visible.
 
-Setup package payloads are a separate installed-app/depot staging concern:
-`setup package status`, `setup package install`, and `setup package repair`
-populate `packages/setup` from already healthy active tools. They are not
-Workshop/content commands and are never run implicitly after bootstrap.
+Self-setup payloads are a separate installed-app/depot staging concern:
+`setup self package status`, `setup self package install`, and
+`setup self package repair` populate `packages/setup` from already healthy
+active tools. They are not Workshop/content commands and are never run
+implicitly after bootstrap.
 
 Repair means reaccepting the app root and restoring active setup components to a
 known-good state while preserving only state that is explicitly supposed to
@@ -572,7 +573,7 @@ accidental model.
 - Application publishing uses `root build`, `root package`, and
   `root publish [--dry-run]`; it
   does not expose SteamCMD as a top-level user workflow.
-- Setup repair and IDE repair are manual and previewable.
+- Self-setup repair and IDE repair are manual and previewable.
 - Scripts may automate safe preparation and previews, but not interactive auth
   or real publication.
 

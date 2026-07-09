@@ -8,7 +8,7 @@
 
 use crate::{
     distribution::DistributionManifest,
-    setup::{self, LocationStatus, SetupStatus},
+    setup_self::{self, LocationStatus, SetupSelfStatus},
     state::ShellState,
     workspace::WorkspaceManifest,
 };
@@ -39,7 +39,7 @@ pub struct ResolvedMetadata {
     workspace: Result<WorkspaceManifest, String>,
     distribution: Result<Option<DistributionManifest>, String>,
     location: Result<LocationStatus, String>,
-    setup: SetupStatus,
+    setup_self: SetupSelfStatus,
 }
 
 impl ResolvedMetadata {
@@ -54,8 +54,8 @@ impl ResolvedMetadata {
             |error| Err(error.clone()),
             |paths| DistributionManifest::load_optional(paths),
         );
-        let location = setup::location_status(state.installation());
-        let setup_status = setup::inspect(state.installation());
+        let location = setup_self::location_status(state.installation());
+        let setup_status = setup_self::inspect(state.installation());
         let report =
             MetadataReport::new(state, &workspace, &distribution, &location, &setup_status);
         Self {
@@ -67,7 +67,7 @@ impl ResolvedMetadata {
             workspace,
             distribution,
             location,
-            setup: setup_status,
+            setup_self: setup_status,
         }
     }
 
@@ -101,10 +101,10 @@ impl ResolvedMetadata {
     pub fn validate(&self, plan: &ValidationPlan<'_>) -> Result<(), String> {
         if plan.registered_location {
             let status = self.location.as_ref().map_err(Clone::clone)?;
-            setup::require_registered_status(status, plan.action)?;
+            setup_self::require_registered_status(status, plan.action)?;
         }
-        if !plan.setup.is_empty() {
-            setup::require_status(&self.setup, &plan.setup, plan.action)?;
+        if !plan.setup_self.is_empty() {
+            setup_self::require_status(&self.setup_self, &plan.setup_self, plan.action)?;
         }
         if plan.workspace {
             self.workspace.as_ref().map_err(Clone::clone)?;
@@ -125,8 +125,8 @@ impl ResolvedMetadata {
     }
 
     /// App-local Rust, Git, and SteamCMD status from this snapshot.
-    pub fn setup_status(&self) -> &SetupStatus {
-        &self.setup
+    pub fn setup_self_status(&self) -> &SetupSelfStatus {
+        &self.setup_self
     }
 
     /// Validated Steam distribution policy from this snapshot.

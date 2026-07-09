@@ -39,7 +39,7 @@ not the installed Steam directory itself.
 - [Setup](docs/setup.md): explicit app-local installation of Rust, Git,
   and SteamCMD with prerequisite diagnostics.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
-  setup package payloads, and smoke validation.
+  self-setup payloads, and smoke validation.
 - [Steam development](docs/steam-development.md): root publish previews, manual
   upload confirmation, beta publishing, and persistent cache state.
 - [Command scripts](docs/scripts.md): reusable REPL command sequences exposed
@@ -84,14 +84,14 @@ Then run the installed app-local command:
 
 ```text
 /home/.../steamapps/common/Loo Cast/bin/vapor open /path/to/source
-/home/.../steamapps/common/Loo Cast/bin/vapor setup status
-/home/.../steamapps/common/Loo Cast/bin/vapor setup install
+/home/.../steamapps/common/Loo Cast/bin/vapor setup self status
+/home/.../steamapps/common/Loo Cast/bin/vapor setup self install
 fmt
 test
 validate
 ```
 
 After that shell is installed, all normal builds and checks are routed through
-the Steam app's own `bin/vapor`. `setup install` explicitly installs active
+the Steam app's own `bin/vapor`. `setup self install` explicitly installs active
 tools into the app root. Final app packaging stages `packages/setup`; there is
-no second source tree for setup package payloads.
+no second source tree for self-setup payloads.

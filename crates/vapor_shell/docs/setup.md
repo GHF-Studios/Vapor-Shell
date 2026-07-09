@@ -12,32 +12,31 @@ There is one mandatory app-local setup:
 
 Git must be an app-owned distribution. A script that delegates to host `git`,
 for example `/usr/bin/git`, is rejected by setup health checks and cannot be
-used as distributable package content.
+used as a distributable self-setup payload.
 
-The public lifecycle is intentionally small and intentionally breaking:
+The self-setup lifecycle is intentionally small:
 
-- `setup status` reports app-root registration and installed Rust/Cargo,
+- `setup self status` reports app-root registration and installed Rust/Cargo,
   Git, and SteamCMD health.
-- `setup install` accepts the current app root, registers its `bin`
+- `setup self install` accepts the current app root, registers its `bin`
   directory for PATH setup, and installs missing Rust/Cargo, Git, and SteamCMD.
-- `setup repair` accepts the current app root and reinstalls setup components.
+- `setup self repair` accepts the current app root and reinstalls setup components.
   Use it after an intentional Steam app move or suspected tool damage.
-- `setup uninstall` removes app-local tools, PATH registration, and the
+- `setup self uninstall` removes app-local tools, PATH registration, and the
   app-root location record.
-- `setup package install` and `setup package repair` populate
-  `packages/setup`, the
-  distributable package content used by app/depot staging. They are separate
-  from active setup installation and are never run implicitly after
-  bootstrap.
+- `setup self package install` and `setup self package repair` populate
+  `packages/setup`, the distributable self-setup payload used by app/depot
+  staging. They are separate from active self-setup installation and are never
+  run implicitly after bootstrap.
 
 No workflow command installs or repairs prerequisites implicitly. Premature
-commands stop with an actionable diagnostic and point to `setup status`,
-`setup install`, or `setup repair`.
+commands stop with an actionable diagnostic and point to `setup self status`,
+`setup self install`, or `setup self repair`.
 
-Mutating setup commands follow Vapor's status-preview-repair model. Use
-`--dry-run` with `setup install`, `setup repair`, or `setup
-uninstall` to preview active tool directories, PATH registration, and app-root
-location changes before applying them.
+Mutating self-setup commands follow Vapor's status-preview-repair model. Use
+`--dry-run` with `setup self install`, `setup self repair`, or `setup
+self uninstall` to preview active tool directories, PATH registration, and
+app-root location changes before applying them.
 
 ## App-root registration
 
@@ -49,20 +48,21 @@ Vapor persists the accepted app-root path at:
 
 The file lives inside the app root's `.vapor` metadata area. If Steam moves the
 app, the file moves with it while still recording the previous absolute path.
-`setup status` reports that mismatch. `setup repair` is the explicit
+`setup self status` reports that mismatch. `setup self repair` is the explicit
 “yes, this move is intended” operation.
 
 Launching the Shell, SDK GUI, Launcher GUI, or a game never updates this state
 implicitly.
 
-## Setup installation
+## Self-Setup Installation
 
-Explicit `setup install` performs app-local installation into the app root:
+Explicit `setup self install` performs app-local installation into the app root:
 
 - Rust is installed through `rustup-init` with `RUSTUP_HOME` and `CARGO_HOME`
   pointing inside the app root.
-- Git is applied from a complete app-owned `packages/setup/git` package.
-  Host Git wrappers are not accepted.
+- Git is applied from a complete app-owned `packages/setup/git` payload. A
+  script that delegates to system Git must be replaced with a real app-owned
+  Git executable.
 - SteamCMD is downloaded and extracted under `tools/steamcmd`.
 
 This is still app-local operation: active tools and build outputs live under the
@@ -80,7 +80,7 @@ tools/git/
 tools/steamcmd/
 ```
 
-Distributable package content lives separately:
+Distributable self-setup payloads live separately:
 
 ```text
 packages/setup/
@@ -88,8 +88,8 @@ packages/setup/
 
 Commands that need Cargo, Git, or SteamCMD validate these installed paths
 directly. If anything is missing, the command stops and tells the operator to run
-`setup status`, `setup install`, or `setup repair`.
+`setup self status`, `setup self install`, or `setup self repair`.
 
 Final app/depot staging copies `packages/setup`, not the live active
-tool directories. Populate or refresh that package content explicitly with
-`setup package install` or `setup package repair`.
+tool directories. Populate or refresh those payloads explicitly with
+`setup self package install` or `setup self package repair`.

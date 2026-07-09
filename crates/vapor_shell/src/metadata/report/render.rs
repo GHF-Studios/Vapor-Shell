@@ -2,7 +2,7 @@
 
 use super::{
     CargoReport, CargoState, DistributionManifestReport, LocationReport, LocationState,
-    MetadataReport, ResourceState, SetupComponentReport, SourceState, WorkspaceManifestReport,
+    MetadataReport, ResourceState, SetupSelfComponentReport, SourceState, WorkspaceManifestReport,
 };
 use std::{fmt::Write, path::PathBuf};
 
@@ -73,18 +73,18 @@ impl MetadataReport {
         .unwrap();
         write_location(&mut output, &self.installation.location);
 
-        writeln!(output, "setup:").unwrap();
-        write_tool(&mut output, &self.setup.rust);
-        write_tool(&mut output, &self.setup.git);
-        write_tool(&mut output, &self.setup.steamcmd);
+        writeln!(output, "setup self:").unwrap();
+        write_tool(&mut output, &self.setup_self.rust);
+        write_tool(&mut output, &self.setup_self.git);
+        write_tool(&mut output, &self.setup_self.steamcmd);
         writeln!(
             output,
-            "  package content: {} ({})",
-            status_word(self.setup.package.complete),
-            self.setup.package.root.display()
+            "  self-setup payload: {} ({})",
+            status_word(self.setup_self.package.complete),
+            self.setup_self.package.root.display()
         )
         .unwrap();
-        for missing in &self.setup.package.missing {
+        for missing in &self.setup_self.package.missing {
             writeln!(output, "    missing: {missing}").unwrap();
         }
 
@@ -154,7 +154,7 @@ fn write_location(output: &mut String, location: &LocationReport) {
     }
 }
 
-fn write_tool(output: &mut String, tool: &SetupComponentReport) {
+fn write_tool(output: &mut String, tool: &SetupSelfComponentReport) {
     writeln!(
         output,
         "  {}: {} ({})",

@@ -5,12 +5,14 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use vapor_shell::{
-    command::{self, RootCommand, SetupCommand, SetupPackageCommand, ShellCommand},
+    command::{
+        self, RootCommand, SetupCommand, SetupSelfCommand, SetupSelfPackageCommand, ShellCommand,
+    },
     discovery::EnvironmentPaths,
     distribution::{self, DistributionManifest},
     manifest,
     path_setup::PathSetup,
-    setup,
+    setup_self,
     state::ShellState,
     steam,
 };
@@ -191,13 +193,15 @@ development-branch = "vapor-dev"
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
     let mut state = ShellState::new(paths).unwrap();
 
     command::execute(
         ShellCommand::Setup {
-            command: SetupCommand::Package {
-                command: SetupPackageCommand::Install { dry_run: false },
+            command: SetupCommand::Self_ {
+                command: SetupSelfCommand::Package {
+                    command: SetupSelfPackageCommand::Install { dry_run: false },
+                },
             },
         },
         &mut state,

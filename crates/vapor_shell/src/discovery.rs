@@ -230,7 +230,7 @@ impl InstallationPaths {
         self.cargo.as_deref()
     }
 
-    /// Rescan the installation for Cargo after an explicit setup install.
+    /// Rescan the installation for Cargo after an explicit self-setup install.
     pub fn bundled_cargo(&self) -> Option<PathBuf> {
         bundled_cargo_candidates(&self.root)
             .into_iter()

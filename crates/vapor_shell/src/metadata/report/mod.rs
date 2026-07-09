@@ -3,7 +3,7 @@
 use crate::{
     cargo_metadata::CargoIndex,
     distribution::DistributionManifest,
-    setup::{LocationStatus, SetupComponentStatus, SetupStatus},
+    setup_self::{LocationStatus, SetupSelfComponentStatus, SetupSelfStatus},
     state::ShellState,
     workspace::WorkspaceManifest,
 };
@@ -18,7 +18,7 @@ pub struct MetadataReport {
     schema_version: u32,
     source: SourceReport,
     installation: InstallationReport,
-    setup: SetupReport,
+    setup_self: SetupSelfReport,
     manifests: ManifestReport,
     cargo: CargoReport,
     diagnostics: Vec<Diagnostic>,
@@ -30,19 +30,19 @@ impl MetadataReport {
         workspace: &Result<WorkspaceManifest, String>,
         distribution: &Result<Option<DistributionManifest>, String>,
         location: &Result<LocationStatus, String>,
-        setup: &SetupStatus,
+        setup_self: &SetupSelfStatus,
     ) -> Self {
         let source = SourceReport::new(state);
         let installation = InstallationReport::new(state, location);
-        let setup_report = SetupReport::new(setup);
+        let setup_self_report = SetupSelfReport::new(setup_self);
         let manifests = ManifestReport::new(workspace, distribution);
         let cargo = CargoReport::new(state.cargo_index());
-        let diagnostics = diagnostics(location, setup, workspace, distribution, &cargo);
+        let diagnostics = diagnostics(location, setup_self, workspace, distribution, &cargo);
         Self {
             schema_version: 1,
             source,
             installation,
-            setup: setup_report,
+            setup_self: setup_self_report,
             manifests,
             cargo,
             diagnostics,
@@ -175,21 +175,21 @@ enum LocationState {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct SetupReport {
+struct SetupSelfReport {
     complete: bool,
-    rust: SetupComponentReport,
-    git: SetupComponentReport,
-    steamcmd: SetupComponentReport,
+    rust: SetupSelfComponentReport,
+    git: SetupSelfComponentReport,
+    steamcmd: SetupSelfComponentReport,
     package: PackageReport,
 }
 
-impl SetupReport {
-    fn new(status: &SetupStatus) -> Self {
+impl SetupSelfReport {
+    fn new(status: &SetupSelfStatus) -> Self {
         Self {
             complete: status.complete(),
-            rust: SetupComponentReport::new(status.rust()),
-            git: SetupComponentReport::new(status.git()),
-            steamcmd: SetupComponentReport::new(status.steamcmd()),
+            rust: SetupSelfComponentReport::new(status.rust()),
+            git: SetupSelfComponentReport::new(status.git()),
+            steamcmd: SetupSelfComponentReport::new(status.steamcmd()),
             package: PackageReport {
                 complete: status.package_complete(),
                 root: status.package_root().to_path_buf(),
@@ -200,7 +200,7 @@ impl SetupReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct SetupComponentReport {
+struct SetupSelfComponentReport {
     label: String,
     installed: bool,
     path: PathBuf,
@@ -214,8 +214,8 @@ struct PackageReport {
     missing: Vec<String>,
 }
 
-impl SetupComponentReport {
-    fn new(status: &SetupComponentStatus) -> Self {
+impl SetupSelfComponentReport {
+    fn new(status: &SetupSelfComponentStatus) -> Self {
         Self {
             label: status.label().to_owned(),
             installed: status.installed(),
@@ -442,7 +442,7 @@ impl std::fmt::Display for DiagnosticLevel {
 
 fn diagnostics(
     location: &Result<LocationStatus, String>,
-    setup: &SetupStatus,
+    setup_self: &SetupSelfStatus,
     workspace: &Result<WorkspaceManifest, String>,
     distribution: &Result<Option<DistributionManifest>, String>,
     cargo: &CargoReport,
@@ -453,7 +453,7 @@ fn diagnostics(
             level: DiagnosticLevel::Warning,
             scope: "vapor_home",
             message: format!(
-                "'{}' has not been accepted; review `vapor setup status`, then run `vapor setup install`",
+                "'{}' has not been accepted; review `vapor setup self status`, then run `vapor setup self install`",
                 current.display()
             ),
         }),
@@ -461,7 +461,7 @@ fn diagnostics(
             level: DiagnosticLevel::Warning,
             scope: "vapor_home",
             message: format!(
-                "accepted location '{}' differs from current location '{}'; run `vapor setup repair` if the move was intentional, or restore the app",
+                "accepted location '{}' differs from current location '{}'; run `vapor setup self repair` if the move was intentional, or restore the app",
                 locked.display(),
                 current.display()
             ),
@@ -473,11 +473,11 @@ fn diagnostics(
         }),
         Ok(LocationStatus::Registered { .. }) => {}
     }
-    for status in [setup.rust(), setup.git(), setup.steamcmd()] {
+    for status in [setup_self.rust(), setup_self.git(), setup_self.steamcmd()] {
         if !status.installed() {
             diagnostics.push(Diagnostic {
                 level: DiagnosticLevel::Warning,
-                scope: "setup",
+                scope: "setup_self",
                 message: format!(
                     "{} is incomplete at {}: missing {}",
                     status.label(),
@@ -487,13 +487,13 @@ fn diagnostics(
             });
         }
     }
-    if !setup.package_complete() {
+    if !setup_self.package_complete() {
         diagnostics.push(Diagnostic {
             level: DiagnosticLevel::Warning,
-            scope: "setup_package",
+            scope: "setup_self_package",
             message: format!(
-                "distributable setup package is incomplete: {}; run `vapor setup package install` after active tools are healthy",
-                setup.missing_package_entries().join(", ")
+                "distributable self-setup payload is incomplete: {}; run `vapor setup self package install` after active tools are healthy",
+                setup_self.missing_package_entries().join(", ")
             ),
         });
     }

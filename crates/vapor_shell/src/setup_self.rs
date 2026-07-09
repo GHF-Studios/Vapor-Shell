@@ -1,13 +1,13 @@
 //! Explicit installation and inspection of the app-local Vapor setup.
 //!
-//! `setup install` creates the one mandatory app-local tool bundle inside the
+//! `setup self install` creates the one mandatory app-local tool bundle inside the
 //! Steam app root. Normal workflow commands never invoke installation
 //! implicitly.
 
 use crate::{
     discovery::{InstallationPaths, ensure_contained},
     path_setup::{PathSetup, PathSetupReport},
-    setup_packages,
+    setup_self_packages,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -97,7 +97,7 @@ struct LocationLock {
 
 /// App-local tool requirement used by command preflight checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SetupRequirement {
+pub enum SetupSelfRequirement {
     /// Rustup, Cargo, Rustc, Rustfmt, Clippy, and Rustdoc.
     Rust,
     /// Portable Git distribution.
@@ -106,7 +106,7 @@ pub enum SetupRequirement {
     SteamCmd,
 }
 
-impl SetupRequirement {
+impl SetupSelfRequirement {
     /// Human-readable tool-group name used in diagnostics.
     pub fn label(self) -> &'static str {
         match self {
@@ -119,14 +119,14 @@ impl SetupRequirement {
 
 /// Health of one required app-local tool group.
 #[derive(Debug, Clone)]
-pub struct SetupComponentStatus {
+pub struct SetupSelfComponentStatus {
     label: &'static str,
     installed: bool,
     path: PathBuf,
     missing: Vec<String>,
 }
 
-impl SetupComponentStatus {
+impl SetupSelfComponentStatus {
     /// Human-readable tool-group name.
     pub fn label(&self) -> &str {
         self.label
@@ -148,28 +148,28 @@ impl SetupComponentStatus {
     }
 }
 
-/// Complete status of active Rust, Git, SteamCMD, and package content.
+/// Complete status of active Rust, Git, SteamCMD, and self-setup payloads.
 #[derive(Debug, Clone)]
-pub struct SetupStatus {
-    rust: SetupComponentStatus,
-    git: SetupComponentStatus,
-    steamcmd: SetupComponentStatus,
-    package: setup_packages::SetupPackageStatus,
+pub struct SetupSelfStatus {
+    rust: SetupSelfComponentStatus,
+    git: SetupSelfComponentStatus,
+    steamcmd: SetupSelfComponentStatus,
+    package: setup_self_packages::SetupSelfPackageStatus,
 }
 
-impl SetupStatus {
+impl SetupSelfStatus {
     /// App-local Rust status.
-    pub fn rust(&self) -> &SetupComponentStatus {
+    pub fn rust(&self) -> &SetupSelfComponentStatus {
         &self.rust
     }
 
     /// App-local Git status.
-    pub fn git(&self) -> &SetupComponentStatus {
+    pub fn git(&self) -> &SetupSelfComponentStatus {
         &self.git
     }
 
     /// App-local SteamCMD status.
-    pub fn steamcmd(&self) -> &SetupComponentStatus {
+    pub fn steamcmd(&self) -> &SetupSelfComponentStatus {
         &self.steamcmd
     }
 
@@ -178,36 +178,36 @@ impl SetupStatus {
         self.rust.installed && self.git.installed && self.steamcmd.installed
     }
 
-    /// Whether the distributable package content required for app staging exists.
+    /// Whether the distributable self-setup payload required for app staging exists.
     pub fn package_complete(&self) -> bool {
         self.package.complete()
     }
 
-    /// Root of the distributable setup package content.
+    /// Root of the distributable self-setup payload content.
     pub fn package_root(&self) -> &Path {
         self.package.root()
     }
 
-    /// Missing package content entries.
+    /// Missing self-setup payload entries.
     pub fn missing_package_entries(&self) -> &[String] {
         self.package.missing()
     }
 
     /// Status of one requested tool group.
-    pub fn requirement(&self, requirement: SetupRequirement) -> &SetupComponentStatus {
+    pub fn requirement(&self, requirement: SetupSelfRequirement) -> &SetupSelfComponentStatus {
         match requirement {
-            SetupRequirement::Rust => &self.rust,
-            SetupRequirement::Git => &self.git,
-            SetupRequirement::SteamCmd => &self.steamcmd,
+            SetupSelfRequirement::Rust => &self.rust,
+            SetupSelfRequirement::Git => &self.git,
+            SetupSelfRequirement::SteamCmd => &self.steamcmd,
         }
     }
 }
 
-/// Result of an explicit setup installation or repair.
+/// Result of an explicit self-setup installation or repair.
 #[derive(Debug, Clone)]
 pub struct InstallReport {
     installed_groups: Vec<&'static str>,
-    status: SetupStatus,
+    status: SetupSelfStatus,
 }
 
 /// Result of explicit setup removal.
@@ -236,7 +236,7 @@ impl InstallReport {
     }
 
     /// Post-install status.
-    pub fn status(&self) -> &SetupStatus {
+    pub fn status(&self) -> &SetupSelfStatus {
         &self.status
     }
 }
@@ -378,11 +378,11 @@ pub fn require_registered_status(status: &LocationStatus, action: &str) -> Resul
     match status {
         LocationStatus::Registered { .. } => Ok(()),
         LocationStatus::Unregistered { current } => Err(format!(
-            "cannot {action}: the app root has not been accepted\n  current: {}\nhelp: review this location with `vapor setup status`\nhelp: accept it explicitly with `vapor setup install`\nnote: no location or PATH state was changed",
+            "cannot {action}: the app root has not been accepted\n  current: {}\nhelp: review this location with `vapor setup self status`\nhelp: accept it explicitly with `vapor setup self install`\nnote: no location or PATH state was changed",
             current.display()
         )),
         LocationStatus::Moved { locked, current } => Err(format!(
-            "cannot {action}: the app root no longer matches its accepted location\n  previous: {}\n  current:  {}\nhelp: if this move was intentional, run `vapor setup repair`\nhelp: otherwise move the Steam app back or verify its library location\nnote: no location or PATH state was changed",
+            "cannot {action}: the app root no longer matches its accepted location\n  previous: {}\n  current:  {}\nhelp: if this move was intentional, run `vapor setup self repair`\nhelp: otherwise move the Steam app back or verify its library location\nnote: no location or PATH state was changed",
             locked.display(),
             current.display()
         )),
@@ -390,7 +390,7 @@ pub fn require_registered_status(status: &LocationStatus, action: &str) -> Resul
 }
 
 /// Inspect the mandatory app-local setup.
-pub fn inspect(installation: &InstallationPaths) -> SetupStatus {
+pub fn inspect(installation: &InstallationPaths) -> SetupSelfStatus {
     inspect_root(installation.root())
 }
 
@@ -401,7 +401,7 @@ pub fn inspect(installation: &InstallationPaths) -> SetupStatus {
 /// Fails when the app location is not accepted, acquisition fails, a path
 /// escapes the installation, or verification remains incomplete.
 pub fn install(installation: &InstallationPaths) -> Result<InstallReport, String> {
-    apply_setup_install(installation, false)
+    apply_setup_self_install(installation, false)
 }
 
 /// Reinstall every app-local tool group.
@@ -410,7 +410,7 @@ pub fn install(installation: &InstallationPaths) -> Result<InstallReport, String
 ///
 /// Fails under the same conditions as [`install`].
 pub fn repair(installation: &InstallationPaths) -> Result<InstallReport, String> {
-    apply_setup_install(installation, true)
+    apply_setup_self_install(installation, true)
 }
 
 /// Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and location lock.
@@ -449,7 +449,7 @@ pub fn uninstall(installation: &InstallationPaths) -> Result<UninstallReport, St
 ///
 /// Fails when acquisition fails, a path escapes the installation, copying fails,
 /// or post-install verification remains incomplete.
-fn apply_setup_install(
+fn apply_setup_self_install(
     installation: &InstallationPaths,
     repair: bool,
 ) -> Result<InstallReport, String> {
@@ -458,7 +458,7 @@ fn apply_setup_install(
 
     let root = installation.root();
     let installed_groups = if before.package_complete() {
-        setup_packages::copy_setup_package_to_active(
+        setup_self_packages::copy_setup_self_package_to_active(
             root,
             &before.package,
             repair,
@@ -473,7 +473,7 @@ fn apply_setup_install(
     let status = inspect(installation);
     if !status.complete() {
         return Err(format!(
-            "setup installation completed, but verification still fails\n{}",
+            "self-setup installation completed, but verification still fails\n{}",
             format_missing(&status)
         ));
     }
@@ -485,11 +485,11 @@ fn apply_setup_install(
 
 fn bootstrap_tools(
     root: &Path,
-    before: &SetupStatus,
+    before: &SetupSelfStatus,
     repair: bool,
 ) -> Result<Vec<&'static str>, String> {
     if !cfg!(target_os = "linux") {
-        return Err("setup installation is currently implemented only for Linux".to_owned());
+        return Err("self-setup installation is currently implemented only for Linux".to_owned());
     }
     let mut installed_groups = Vec::new();
     if repair || !before.rust.installed() {
@@ -498,7 +498,7 @@ fn bootstrap_tools(
     }
     if repair || !before.git.installed() {
         return Err(format!(
-            "cannot install Git: no complete app-owned Git package is available at '{}'\nhelp: verify Steam app files, or create setup package payloads with `vapor setup package install` from an app root that already contains real Git\nnote: Vapor no longer installs a wrapper around host Git",
+            "cannot install Git: no complete app-owned Git payload is available at '{}'\nhelp: replace tools/git/bin/git with a real app-owned Git distribution, then run `vapor setup self package install`\nnote: Vapor will not install or package a script that delegates to system Git",
             before.package_root().display()
         ));
     }
@@ -562,7 +562,7 @@ fn rustup_init_url() -> Result<&'static str, String> {
         ("linux", "x86_64") => Ok(RUSTUP_INIT_X86_64_LINUX),
         ("linux", "aarch64") => Ok(RUSTUP_INIT_AARCH64_LINUX),
         (os, arch) => Err(format!(
-            "Rust/Cargo setup installation is not configured for {arch}-{os}"
+            "Rust/Cargo self-setup installation is not configured for {arch}-{os}"
         )),
     }
 }
@@ -651,21 +651,21 @@ fn make_executable(path: &Path) -> Result<(), String> {
 /// Returns a diagnostic naming missing components and explicit next commands.
 pub fn require(
     installation: &InstallationPaths,
-    requirements: &[SetupRequirement],
+    requirements: &[SetupSelfRequirement],
     action: &str,
 ) -> Result<(), String> {
     let status = inspect(installation);
     require_status(&status, requirements, action)
 }
 
-/// Require selected tools using an already-resolved setup status.
+/// Require selected tools using an already-resolved self-setup status.
 ///
 /// # Errors
 ///
 /// Returns a diagnostic naming missing components and explicit next commands.
 pub fn require_status(
-    status: &SetupStatus,
-    requirements: &[SetupRequirement],
+    status: &SetupSelfStatus,
+    requirements: &[SetupSelfRequirement],
     action: &str,
 ) -> Result<(), String> {
     let missing = requirements
@@ -677,7 +677,7 @@ pub fn require_status(
         return Ok(());
     }
     Err(format!(
-        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: inspect setup with `vapor setup status`\nhelp: install setup explicitly with `vapor setup install`\nnote: this command will not install or repair prerequisites automatically",
+        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: inspect setup with `vapor setup self status`\nhelp: install setup explicitly with `vapor setup self install`\nnote: this command will not install or repair prerequisites automatically",
         missing
             .iter()
             .map(|requirement| requirement.label())
@@ -688,7 +688,7 @@ pub fn require_status(
     ))
 }
 
-fn inspect_root(root: &Path) -> SetupStatus {
+fn inspect_root(root: &Path) -> SetupSelfStatus {
     let rustup = root.join("rustup/bin").join(executable("rustup"));
     let toolchains = root.join("rustup-home/toolchains");
     let (rust_bin, rust_missing) = inspect_rust(&toolchains, Some(root));
@@ -696,7 +696,7 @@ fn inspect_root(root: &Path) -> SetupStatus {
     if !is_healthy_executable(&rustup, root) {
         missing.push(format!("rustup (expected at {})", rustup.display()));
     }
-    let rust = SetupComponentStatus {
+    let rust = SetupSelfComponentStatus {
         label: "Rust/Cargo",
         installed: missing.is_empty(),
         path: rust_bin.unwrap_or(toolchains),
@@ -704,16 +704,16 @@ fn inspect_root(root: &Path) -> SetupStatus {
     };
 
     let git_path = root.join("tools/git/bin").join(executable("git"));
-    let git_is_wrapper = setup_packages::is_host_git_wrapper(&git_path);
-    let git_installed = !git_is_wrapper && is_healthy_executable(&git_path, root);
-    let git = SetupComponentStatus {
+    let git_delegates_to_system = setup_self_packages::is_delegating_git_script(&git_path);
+    let git_installed = !git_delegates_to_system && is_healthy_executable(&git_path, root);
+    let git = SetupSelfComponentStatus {
         label: "Git",
         installed: git_installed,
         path: git_path,
         missing: if git_installed {
             Vec::new()
-        } else if git_is_wrapper {
-            vec!["app-owned git (host Git wrapper is not accepted)".to_owned()]
+        } else if git_delegates_to_system {
+            vec!["app-owned Git executable (replace delegating script)".to_owned()]
         } else {
             vec!["git".to_owned()]
         },
@@ -721,7 +721,7 @@ fn inspect_root(root: &Path) -> SetupStatus {
 
     let steam_path = steam_executable(root);
     let steam_installed = is_executable(&steam_path);
-    let steamcmd = SetupComponentStatus {
+    let steamcmd = SetupSelfComponentStatus {
         label: "SteamCMD",
         installed: steam_installed,
         path: steam_path,
@@ -732,11 +732,11 @@ fn inspect_root(root: &Path) -> SetupStatus {
         },
     };
 
-    SetupStatus {
+    SetupSelfStatus {
         rust,
         git,
         steamcmd,
-        package: setup_packages::inspect_setup_package(root),
+        package: setup_self_packages::inspect_setup_self_package(root),
     }
 }
 
@@ -772,18 +772,21 @@ fn inspect_rust(toolchains: &Path, active_root: Option<&Path>) -> (Option<PathBu
     )
 }
 
-fn format_missing(status: &SetupStatus) -> String {
+fn format_missing(status: &SetupSelfStatus) -> String {
     format_missing_selected(
         status,
         &[
-            SetupRequirement::Rust,
-            SetupRequirement::Git,
-            SetupRequirement::SteamCmd,
+            SetupSelfRequirement::Rust,
+            SetupSelfRequirement::Git,
+            SetupSelfRequirement::SteamCmd,
         ],
     )
 }
 
-fn format_missing_selected(status: &SetupStatus, requirements: &[SetupRequirement]) -> String {
+fn format_missing_selected(
+    status: &SetupSelfStatus,
+    requirements: &[SetupSelfRequirement],
+) -> String {
     requirements
         .iter()
         .filter_map(|requirement| {

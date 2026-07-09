@@ -10,8 +10,8 @@ use crate::{
     discovery::EnvironmentPaths,
     documentation, ide,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
-    setup::{self, SetupRequirement},
-    setup_packages, source_registry,
+    setup_self::{self, SetupSelfRequirement},
+    setup_self_packages, source_registry,
     state::ShellState,
     steam,
     workflow::{self, CargoWorkflow, ProjectSelection},
@@ -112,7 +112,7 @@ pub enum ShellCommand {
         project: ProjectSelection,
     },
 
-    /// Inspect, install, repair, or remove Vapor setup.
+    /// Inspect or repair Vapor setup domains.
     Setup {
         /// Setup operation.
         #[command(subcommand)]
@@ -215,49 +215,61 @@ pub enum IdeCommand {
     },
 }
 
-/// Vapor setup lifecycle operations.
+/// Vapor setup domain operations.
 #[derive(Debug, Subcommand)]
 pub enum SetupCommand {
+    /// Manage this installed Vapor app environment.
+    #[command(name = "self")]
+    Self_ {
+        /// Self-setup operation.
+        #[command(subcommand)]
+        command: SetupSelfCommand,
+    },
+}
+
+/// Installed app self-setup lifecycle operations.
+#[derive(Debug, Subcommand)]
+pub enum SetupSelfCommand {
     /// Report app-root, PATH, app-local tool, and package-payload readiness.
     Status,
-    /// Install missing setup components inside the app root.
+    /// Install missing self-setup components inside the app root.
     Install {
         /// Preview registration and file changes without applying them.
         #[arg(long)]
         dry_run: bool,
     },
-    /// Remove app-local setup components, PATH registration, and location state.
+    /// Remove app-local self-setup components, PATH registration, and location state.
     Uninstall {
         /// Preview removal without deleting files or registration state.
         #[arg(long)]
         dry_run: bool,
     },
-    /// Reapply or reacquire setup components inside the app root.
+    /// Reapply or reacquire self-setup components inside the app root.
     Repair {
         /// Preview registration and repair changes without applying them.
         #[arg(long)]
         dry_run: bool,
     },
-    /// Manage distributable setup package payloads used for app/depot staging.
+    /// Manage distributable self-setup payloads used for app/depot staging.
     Package {
-        /// Setup package operation.
+        /// Self-setup package payload operation.
         #[command(subcommand)]
-        command: SetupPackageCommand,
+        command: SetupSelfPackageCommand,
     },
 }
 
-/// Distributable setup package operations.
+/// Distributable self-setup package payload operations.
 #[derive(Debug, Subcommand)]
-pub enum SetupPackageCommand {
-    /// Report distributable setup package-payload readiness.
+pub enum SetupSelfPackageCommand {
+    /// Report distributable self-setup payload readiness.
     Status,
-    /// Populate missing distributable setup package payloads from active tools.
+    /// Populate missing distributable self-setup payloads from active tools.
     Install {
         /// Preview package writes without changing files.
         #[arg(long)]
         dry_run: bool,
     },
-    /// Rebuild distributable setup package payloads from active tools.
+    /// Rebuild distributable self-setup payloads from active tools.
     Repair {
         /// Preview package rebuild without changing files.
         #[arg(long)]
@@ -454,7 +466,7 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             let status = ide::inspect(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
-                metadata.setup_status(),
+                metadata.setup_self_status(),
             )?;
             print_ide_status(&status);
             if status.complete() {
@@ -469,20 +481,20 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             metadata.validate(
                 &ValidationPlan::new("repair IDE setup")
                     .registered_location()
-                    .setup(&[SetupRequirement::Rust])
+                    .setup_self(&[SetupSelfRequirement::Rust])
                     .workspace(),
             )?;
             let report = if dry_run {
                 ide::preview(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
-                    metadata.setup_status(),
+                    metadata.setup_self_status(),
                 )?
             } else {
                 ide::repair(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
-                    metadata.setup_status(),
+                    metadata.setup_self_status(),
                 )?
             };
             print_ide_status(report.status());
@@ -540,7 +552,7 @@ fn execute_workflow(
     metadata.validate(
         &ValidationPlan::new(command.label())
             .registered_location()
-            .setup(&[SetupRequirement::Rust, SetupRequirement::Git])
+            .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
             .workspace(),
     )?;
     workflow::run(
@@ -554,66 +566,74 @@ fn execute_workflow(
 }
 
 fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), String> {
+    match command {
+        SetupCommand::Self_ { command } => execute_setup_self(command, state),
+    }
+}
+
+fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Result<(), String> {
     let installation = state.installation();
     match command {
-        SetupCommand::Status => {
-            let location = setup::location_status(installation)?;
+        SetupSelfCommand::Status => {
+            let location = setup_self::location_status(installation)?;
             print_location_status(&location);
-            let status = setup::inspect(installation);
+            let status = setup_self::inspect(installation);
             print_tool_status(status.rust());
             print_tool_status(status.git());
             print_tool_status(status.steamcmd());
             print_package_status(&status);
             if !location.registered() {
-                println!("hint: accept this app root explicitly with `vapor setup install`");
+                println!("hint: accept this app root explicitly with `vapor setup self install`");
             } else if status.complete() {
                 println!(
-                    "hint: setup is ready; package depot payloads with `vapor setup package install`"
+                    "hint: self-setup is ready; package depot payloads with `vapor setup self package install`"
                 );
             } else {
-                println!("hint: install missing setup components with `vapor setup install`");
+                println!(
+                    "hint: install missing self-setup components with `vapor setup self install`"
+                );
             }
         }
-        SetupCommand::Install { dry_run } => {
+        SetupSelfCommand::Install { dry_run } => {
             if dry_run {
-                preview_setup_install(installation, false)?;
+                preview_setup_self_install(installation, false)?;
                 return Ok(());
             }
-            let change = setup::register_location(installation)?;
+            let change = setup_self::register_location(installation)?;
             print_location_status(change.status());
-            let report = setup::install(installation)?;
+            let report = setup_self::install(installation)?;
             state.refresh_cargo_index();
             if report.installed_groups().is_empty() {
-                println!("setup is already installed; no files changed");
+                println!("self-setup is already installed; no files changed");
             } else {
                 println!("installed: {}", report.installed_groups().join(", "));
             }
             print_path_hint(change.path_setup());
-            println!("hint: confirm with `vapor setup status`, then run `vapor validate`");
+            println!("hint: confirm with `vapor setup self status`, then run `vapor validate`");
         }
-        SetupCommand::Repair { dry_run } => {
+        SetupSelfCommand::Repair { dry_run } => {
             if dry_run {
-                preview_setup_install(installation, true)?;
+                preview_setup_self_install(installation, true)?;
                 return Ok(());
             }
-            let change = setup::register_location(installation)?;
+            let change = setup_self::register_location(installation)?;
             print_location_status(change.status());
-            let report = setup::repair(installation)?;
+            let report = setup_self::repair(installation)?;
             state.refresh_cargo_index();
             if report.installed_groups().is_empty() {
-                println!("setup repair found all components already installed");
+                println!("self-setup repair found all components already installed");
             } else {
                 println!("repaired: {}", report.installed_groups().join(", "));
             }
             print_path_hint(change.path_setup());
-            println!("hint: confirm with `vapor setup status`, then run `vapor validate`");
+            println!("hint: confirm with `vapor setup self status`, then run `vapor validate`");
         }
-        SetupCommand::Uninstall { dry_run } => {
+        SetupSelfCommand::Uninstall { dry_run } => {
             if dry_run {
-                preview_setup_uninstall(installation)?;
+                preview_setup_self_uninstall(installation)?;
                 return Ok(());
             }
-            let report = setup::uninstall(installation)?;
+            let report = setup_self::uninstall(installation)?;
             state.refresh_cargo_index();
             print_location_status(report.location().status());
             println!(
@@ -621,37 +641,39 @@ fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), St
                 report.removed_paths()
             );
             print_path_hint(report.location().path_setup());
-            println!("hint: reinstall later with `vapor setup install`");
+            println!("hint: reinstall later with `vapor setup self install`");
         }
-        SetupCommand::Package { command } => match command {
-            SetupPackageCommand::Status => {
-                let status = setup::inspect(installation);
+        SetupSelfCommand::Package { command } => match command {
+            SetupSelfPackageCommand::Status => {
+                let status = setup_self::inspect(installation);
                 print_package_status(&status);
                 if status.package_complete() {
                     println!("hint: assemble the app package with `vapor root package`");
                 } else {
-                    println!("hint: populate package payloads with `vapor setup package install`");
+                    println!(
+                        "hint: populate self-setup payloads with `vapor setup self package install`"
+                    );
                 }
             }
-            SetupPackageCommand::Install { dry_run } => {
-                execute_setup_package(false, dry_run, state)?;
+            SetupSelfPackageCommand::Install { dry_run } => {
+                execute_setup_self_package(false, dry_run, state)?;
             }
-            SetupPackageCommand::Repair { dry_run } => {
-                execute_setup_package(true, dry_run, state)?;
+            SetupSelfPackageCommand::Repair { dry_run } => {
+                execute_setup_self_package(true, dry_run, state)?;
             }
         },
     }
     Ok(())
 }
 
-fn preview_setup_install(
+fn preview_setup_self_install(
     installation: &crate::discovery::InstallationPaths,
     repair: bool,
 ) -> Result<(), String> {
-    let location = setup::location_status(installation)?;
-    let status = setup::inspect(installation);
+    let location = setup_self::location_status(installation)?;
+    let status = setup_self::inspect(installation);
     println!(
-        "dry-run: would {} Vapor setup",
+        "dry-run: would {} Vapor self-setup",
         if repair { "repair" } else { "install" }
     );
     print_location_status(&location);
@@ -670,10 +692,10 @@ fn preview_setup_install(
         installation.root().join("cargo-home").display()
     );
     println!(
-        "would apply app-owned Git from {} when a complete package exists",
+        "would apply app-owned Git from {} when complete self-setup payloads exist",
         status.package_root().display()
     );
-    println!("would not install a host-Git wrapper");
+    println!("would require tools/git/bin/git to be a real app-owned Git executable");
     println!(
         "would download and extract SteamCMD into {} when SteamCMD is missing or repair is requested",
         installation.root().join("tools/steamcmd").display()
@@ -682,12 +704,12 @@ fn preview_setup_install(
     Ok(())
 }
 
-fn preview_setup_uninstall(
+fn preview_setup_self_uninstall(
     installation: &crate::discovery::InstallationPaths,
 ) -> Result<(), String> {
-    let location = setup::location_status(installation)?;
-    let status = setup::inspect(installation);
-    println!("dry-run: would uninstall Vapor setup");
+    let location = setup_self::location_status(installation)?;
+    let status = setup_self::inspect(installation);
+    println!("dry-run: would uninstall Vapor self-setup");
     print_location_status(&location);
     for path in [
         installation.root().join("rustup"),
@@ -715,7 +737,7 @@ fn preview_setup_uninstall(
     Ok(())
 }
 
-fn print_tool_action(status: &setup::SetupComponentStatus, repair: bool) {
+fn print_tool_action(status: &setup_self::SetupSelfComponentStatus, repair: bool) {
     let action = if repair {
         "reapply"
     } else if status.installed() {
@@ -730,17 +752,17 @@ fn print_tool_action(status: &setup::SetupComponentStatus, repair: bool) {
     }
 }
 
-fn print_location_status(status: &setup::LocationStatus) {
+fn print_location_status(status: &setup_self::LocationStatus) {
     match status {
-        setup::LocationStatus::Unregistered { current } => {
+        setup_self::LocationStatus::Unregistered { current } => {
             println!("app root: unregistered");
             println!("  current:   {}", current.display());
         }
-        setup::LocationStatus::Registered { path } => {
+        setup_self::LocationStatus::Registered { path } => {
             println!("app root: registered");
             println!("  path:      {}", path.display());
         }
-        setup::LocationStatus::Moved { locked, current } => {
+        setup_self::LocationStatus::Moved { locked, current } => {
             println!("app root: moved (confirmation required)");
             println!("  previous:  {}", locked.display());
             println!("  current:   {}", current.display());
@@ -759,7 +781,7 @@ fn print_path_hint(report: &crate::path_setup::PathSetupReport) {
     }
 }
 
-fn print_tool_status(status: &setup::SetupComponentStatus) {
+fn print_tool_status(status: &setup_self::SetupSelfComponentStatus) {
     println!(
         "{}: {}",
         status.label(),
@@ -775,9 +797,9 @@ fn print_tool_status(status: &setup::SetupComponentStatus) {
     }
 }
 
-fn print_package_status(status: &setup::SetupStatus) {
+fn print_package_status(status: &setup_self::SetupSelfStatus) {
     println!(
-        "package content: {}",
+        "self-setup payload: {}",
         if status.package_complete() {
             "ready"
         } else {
@@ -797,7 +819,7 @@ fn execute_docs(command: DocsCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("build documentation")
                     .registered_location()
-                    .setup(&[SetupRequirement::Rust])
+                    .setup_self(&[SetupSelfRequirement::Rust])
                     .workspace(),
             )?;
             println!(
@@ -826,7 +848,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("rebuild the Vapor application")
                     .registered_location()
-                    .setup(&[SetupRequirement::Rust, SetupRequirement::Git])
+                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
                     .workspace(),
             )?;
             workflow::run(
@@ -844,15 +866,15 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("package the Vapor application")
                     .registered_location()
-                    .setup(&[
-                        SetupRequirement::Rust,
-                        SetupRequirement::Git,
-                        SetupRequirement::SteamCmd,
+                    .setup_self(&[
+                        SetupSelfRequirement::Rust,
+                        SetupSelfRequirement::Git,
+                        SetupSelfRequirement::SteamCmd,
                     ])
                     .workspace()
                     .distribution(),
             )?;
-            setup_packages::validate_setup_package(state.installation().root())?;
+            setup_self_packages::validate_setup_self_package(state.installation().root())?;
             documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
             let report = crate::distribution::stage(
                 state.active_paths()?,
@@ -882,15 +904,15 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("publish the Vapor application")
                     .registered_location()
-                    .setup(&[
-                        SetupRequirement::Rust,
-                        SetupRequirement::Git,
-                        SetupRequirement::SteamCmd,
+                    .setup_self(&[
+                        SetupSelfRequirement::Rust,
+                        SetupSelfRequirement::Git,
+                        SetupSelfRequirement::SteamCmd,
                     ])
                     .workspace()
                     .distribution(),
             )?;
-            setup_packages::validate_setup_package(state.installation().root())?;
+            setup_self_packages::validate_setup_self_package(state.installation().root())?;
             workflow::run(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
@@ -947,27 +969,23 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
     Ok(())
 }
 
-fn execute_setup_package(repair: bool, dry_run: bool, state: &ShellState) -> Result<(), String> {
+fn execute_setup_self_package(
+    repair: bool,
+    dry_run: bool,
+    state: &ShellState,
+) -> Result<(), String> {
     let action = if repair {
-        "repair setup package payloads"
+        "repair self-setup payloads"
     } else {
-        "install setup package payloads"
+        "install self-setup payloads"
     };
-    let location = setup::location_status(state.installation())?;
-    setup::require_registered_status(&location, action)?;
-    let setup_status = setup::inspect(state.installation());
-    setup::require_status(
-        &setup_status,
-        &[
-            SetupRequirement::Rust,
-            SetupRequirement::Git,
-            SetupRequirement::SteamCmd,
-        ],
-        action,
-    )?;
+    let location = setup_self::location_status(state.installation())?;
+    setup_self::require_registered_status(&location, action)?;
+    let setup_status = setup_self::inspect(state.installation());
+    setup_self_packages::validate_active_setup_for_packaging(state.installation().root())?;
     if dry_run {
         println!(
-            "dry-run: would {} distributable setup package payloads",
+            "dry-run: would {} distributable self-setup payloads",
             if repair { "repair" } else { "install" }
         );
         print_package_status(&setup_status);
@@ -977,16 +995,17 @@ fn execute_setup_package(repair: bool, dry_run: bool, state: &ShellState) -> Res
         );
         println!("dry-run: no package files were changed");
     } else {
-        let report = setup_packages::install_setup_package(state.installation().root(), repair)?;
+        let report =
+            setup_self_packages::install_setup_self_package(state.installation().root(), repair)?;
         if report.changed() {
             println!(
-                "{} package content at {}",
+                "{} self-setup payload at {}",
                 if repair { "repaired" } else { "installed" },
                 report.status().root().display()
             );
         } else {
             println!(
-                "package content is already installed at {}",
+                "self-setup payload is already installed at {}",
                 report.status().root().display()
             );
         }

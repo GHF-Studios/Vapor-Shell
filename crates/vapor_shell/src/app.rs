@@ -4,7 +4,7 @@ use crate::{
     command::{self, Control, ShellCommand},
     discovery::EnvironmentPaths,
     prompt::VaporPrompt,
-    setup, source_registry,
+    setup_self, source_registry,
     state::ShellState,
     terminal,
 };
@@ -72,29 +72,29 @@ pub fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let setup_status = setup::inspect(state.installation());
-    match setup::location_status(state.installation()) {
-        Ok(setup::LocationStatus::Registered { .. }) => {}
-        Ok(setup::LocationStatus::Unregistered { current }) => {
+    let setup_status = setup_self::inspect(state.installation());
+    match setup_self::location_status(state.installation()) {
+        Ok(setup_self::LocationStatus::Registered { .. }) => {}
+        Ok(setup_self::LocationStatus::Unregistered { current }) => {
             eprintln!("notice: app root is not registered: {}", current.display());
-            eprintln!("hint: review `setup status`, then choose `setup install`");
+            eprintln!("hint: review `setup self status`, then choose `setup self install`");
         }
-        Ok(setup::LocationStatus::Moved { locked, current }) => {
+        Ok(setup_self::LocationStatus::Moved { locked, current }) => {
             eprintln!("notice: app root moved and requires explicit confirmation");
             eprintln!("  previous: {}", locked.display());
             eprintln!("  current:   {}", current.display());
-            eprintln!("hint: review `setup status`, then choose `setup repair`");
+            eprintln!("hint: review `setup self status`, then choose `setup self repair`");
         }
         Err(error) => eprintln!("warning: app-root location state is invalid: {error}"),
     }
     if !setup_status.complete() {
         eprintln!("notice: Vapor setup is missing Rust, Git, or SteamCMD readiness");
-        eprintln!("hint: inspect it with `setup status`, then choose `setup install`");
+        eprintln!("hint: inspect it with `setup self status`, then choose `setup self install`");
     }
     if !setup_status.package_complete() {
-        eprintln!("notice: distributable setup package payloads are incomplete");
+        eprintln!("notice: distributable self-setup payloads are incomplete");
         eprintln!(
-            "hint: inspect them with `setup package status`, then choose `setup package install`"
+            "hint: inspect them with `setup self package status`, then choose `setup self package install`"
         );
     }
 

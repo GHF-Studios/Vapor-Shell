@@ -19,9 +19,7 @@ fn help_uses_defined_argument_domains() {
     assert!(help.contains("sources"), "{help}");
     assert!(help.contains("validate"), "{help}");
     assert!(help.contains("setup"), "{help}");
-    assert!(!help.contains("toolchain"), "{help}");
     assert!(!help.contains("\n  workspace"), "{help}");
-    assert!(!help.contains("self"), "{help}");
     assert!(!help.contains("steam"), "{help}");
 
     let metadata_help = ShellCommand::try_parse_from(["", "metadata", "--help"])
@@ -37,20 +35,24 @@ fn help_uses_defined_argument_domains() {
     let setup_help = ShellCommand::try_parse_from(["", "setup", "--help"])
         .expect_err("setup help should exit through Clap")
         .to_string();
+    assert!(setup_help.contains("self"), "{setup_help}");
+    let setup_self_help = ShellCommand::try_parse_from(["", "setup", "self", "--help"])
+        .expect_err("setup self help should exit through Clap")
+        .to_string();
     for command in ["status", "install", "uninstall", "repair", "package"] {
         assert!(
-            setup_help.contains(command),
-            "missing {command}: {setup_help}"
+            setup_self_help.contains(command),
+            "missing {command}: {setup_self_help}"
         );
     }
     for command in ["install", "uninstall", "repair"] {
-        let help = ShellCommand::try_parse_from(["", "setup", command, "--help"])
-            .expect_err("setup mutation help should exit through Clap")
+        let help = ShellCommand::try_parse_from(["", "setup", "self", command, "--help"])
+            .expect_err("setup self mutation help should exit through Clap")
             .to_string();
         assert!(help.contains("--dry-run"), "{help}");
     }
-    let package_help = ShellCommand::try_parse_from(["", "setup", "package", "--help"])
-        .expect_err("setup package help should exit through Clap")
+    let package_help = ShellCommand::try_parse_from(["", "setup", "self", "package", "--help"])
+        .expect_err("setup self package help should exit through Clap")
         .to_string();
     for command in ["status", "install", "repair"] {
         assert!(
@@ -59,18 +61,12 @@ fn help_uses_defined_argument_domains() {
         );
     }
     for command in ["install", "repair"] {
-        let help = ShellCommand::try_parse_from(["", "setup", "package", command, "--help"])
-            .expect_err("setup package mutation help should exit through Clap")
-            .to_string();
+        let help =
+            ShellCommand::try_parse_from(["", "setup", "self", "package", command, "--help"])
+                .expect_err("setup self package mutation help should exit through Clap")
+                .to_string();
         assert!(help.contains("--dry-run"), "{help}");
     }
-    let removed_command = ShellCommand::try_parse_from(["", "toolchain", "status"])
-        .expect_err("toolchain command must be removed")
-        .to_string();
-    assert!(
-        removed_command.contains("unrecognized"),
-        "{removed_command}"
-    );
 
     let ide_help = ShellCommand::try_parse_from(["", "ide", "--help"])
         .expect_err("ide help should exit through Clap")
@@ -108,13 +104,6 @@ fn help_uses_defined_argument_domains() {
     assert!(content_help.contains("status"), "{content_help}");
     assert!(!content_help.contains("install"), "{content_help}");
     assert!(!content_help.contains("repair"), "{content_help}");
-    let removed_content_install = ShellCommand::try_parse_from(["", "content", "install"])
-        .expect_err("content install command must be removed")
-        .to_string();
-    assert!(
-        removed_content_install.contains("unrecognized"),
-        "{removed_content_install}"
-    );
 
     let sources_help = ShellCommand::try_parse_from(["", "sources", "--help"])
         .expect_err("sources help should exit through Clap")

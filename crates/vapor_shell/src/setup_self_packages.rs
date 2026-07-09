@@ -1,4 +1,4 @@
-//! App-local distributable package content lifecycle.
+//! App-local distributable self-setup payload lifecycle.
 
 use crate::discovery::ensure_contained;
 use std::{
@@ -9,12 +9,12 @@ use std::{
 const SETUP_PACKAGE: &str = "packages/setup";
 
 #[derive(Debug, Clone)]
-pub(crate) struct SetupPackageStatus {
+pub(crate) struct SetupSelfPackageStatus {
     root: PathBuf,
     missing: Vec<String>,
 }
 
-impl SetupPackageStatus {
+impl SetupSelfPackageStatus {
     pub(crate) fn root(&self) -> &Path {
         &self.root
     }
@@ -31,7 +31,7 @@ impl SetupPackageStatus {
 #[derive(Debug, Clone)]
 pub(crate) struct PackageInstallReport {
     changed: bool,
-    status: SetupPackageStatus,
+    status: SetupSelfPackageStatus,
 }
 
 impl PackageInstallReport {
@@ -39,32 +39,32 @@ impl PackageInstallReport {
         self.changed
     }
 
-    pub(crate) fn status(&self) -> &SetupPackageStatus {
+    pub(crate) fn status(&self) -> &SetupSelfPackageStatus {
         &self.status
     }
 }
 
-pub(crate) fn inspect_setup_package(app_root: &Path) -> SetupPackageStatus {
-    inspect_package_at(&setup_package_root(app_root))
+pub(crate) fn inspect_setup_self_package(app_root: &Path) -> SetupSelfPackageStatus {
+    inspect_package_at(&self_package_root(app_root))
 }
 
-pub(crate) fn validate_setup_package(app_root: &Path) -> Result<(), String> {
-    let status = inspect_setup_package(app_root);
+pub(crate) fn validate_setup_self_package(app_root: &Path) -> Result<(), String> {
+    let status = inspect_setup_self_package(app_root);
     if status.complete() {
         return Ok(());
     }
     Err(format!(
-        "the distributable setup package is incomplete at '{}'\nmissing package entries:\n  - {}\nhelp: populate package payloads explicitly with `vapor setup package install`\nhelp: if package payloads may be stale or damaged, run `vapor setup package repair`\nnote: `vapor setup install` only prepares active app-local tools",
+        "the distributable self-setup payload is incomplete at '{}'\nmissing package entries:\n  - {}\nhelp: populate payloads explicitly with `vapor setup self package install`\nhelp: if payloads may be stale or damaged, run `vapor setup self package repair`\nnote: `vapor setup self install` only prepares active app-local tools",
         status.root().display(),
         status.missing().join("\n  - ")
     ))
 }
 
-pub(crate) fn install_setup_package(
+pub(crate) fn install_setup_self_package(
     app_root: &Path,
     repair: bool,
 ) -> Result<PackageInstallReport, String> {
-    let before = inspect_setup_package(app_root);
+    let before = inspect_setup_self_package(app_root);
     if before.complete() && !repair {
         return Ok(PackageInstallReport {
             changed: false,
@@ -73,7 +73,7 @@ pub(crate) fn install_setup_package(
     }
 
     validate_active_setup_for_packaging(app_root)?;
-    let package = setup_package_root(app_root);
+    let package = self_package_root(app_root);
     ensure_contained(app_root, &package)?;
     if repair && package.exists() {
         fs::remove_dir_all(&package)
@@ -123,10 +123,10 @@ pub(crate) fn install_setup_package(
         ],
     )?;
 
-    let status = inspect_setup_package(app_root);
+    let status = inspect_setup_self_package(app_root);
     if !status.complete() {
         return Err(format!(
-            "package content was written, but verification still fails\nmissing package entries:\n  - {}",
+            "self-setup payload was written, but verification still fails\nmissing package entries:\n  - {}",
             status.missing().join("\n  - ")
         ));
     }
@@ -136,9 +136,9 @@ pub(crate) fn install_setup_package(
     })
 }
 
-pub(crate) fn copy_setup_package_to_active(
+pub(crate) fn copy_setup_self_package_to_active(
     app_root: &Path,
-    status: &SetupPackageStatus,
+    status: &SetupSelfPackageStatus,
     repair: bool,
     active_rust_ready: bool,
     active_git_ready: bool,
@@ -146,7 +146,7 @@ pub(crate) fn copy_setup_package_to_active(
 ) -> Result<Vec<&'static str>, String> {
     if !status.complete() {
         return Err(format!(
-            "the Steam application does not contain a complete setup package\nmissing package entries:\n  - {}\nhelp: repair Steam app files, or create package payloads with `vapor setup package install`\nnote: `vapor setup install` does not create package payloads",
+            "the Steam application does not contain complete self-setup payloads\nmissing package entries:\n  - {}\nhelp: repair Steam app files, or create payloads with `vapor setup self package install`\nnote: `vapor setup self install` does not create package payloads",
             status.missing().join("\n  - ")
         ));
     }
@@ -195,7 +195,7 @@ pub(crate) fn copy_setup_package_to_active(
     Ok(installed)
 }
 
-pub(crate) fn is_host_git_wrapper(path: &Path) -> bool {
+pub(crate) fn is_delegating_git_script(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
@@ -210,11 +210,11 @@ pub(crate) fn is_host_git_wrapper(path: &Path) -> bool {
         && (source.contains("/usr/bin/git") || source.contains(" git"))
 }
 
-fn setup_package_root(app_root: &Path) -> PathBuf {
+fn self_package_root(app_root: &Path) -> PathBuf {
     app_root.join(SETUP_PACKAGE)
 }
 
-fn inspect_package_at(package: &Path) -> SetupPackageStatus {
+fn inspect_package_at(package: &Path) -> SetupSelfPackageStatus {
     let mut missing = Vec::new();
     for directory in [
         "rustup",
@@ -231,7 +231,7 @@ fn inspect_package_at(package: &Path) -> SetupPackageStatus {
     missing.extend(inspect_package_tools(package));
     missing.sort();
     missing.dedup();
-    SetupPackageStatus {
+    SetupSelfPackageStatus {
         root: package.to_path_buf(),
         missing,
     }
@@ -250,8 +250,8 @@ fn inspect_package_tools(package: &Path) -> Vec<String> {
     let git = package.join("git/bin").join(executable("git"));
     if !is_executable(&git) {
         missing.push(format!("git/bin/{}", executable("git")));
-    } else if is_host_git_wrapper(&git) {
-        missing.push("git/bin/git (host Git wrapper is not distributable)".to_owned());
+    } else if is_delegating_git_script(&git) {
+        missing.push("git/bin/git (replace with app-owned Git executable)".to_owned());
     }
     if !steam_candidates(&package.join("steamcmd"))
         .iter()
@@ -262,7 +262,7 @@ fn inspect_package_tools(package: &Path) -> Vec<String> {
     missing
 }
 
-fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(), String> {
+pub(crate) fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(), String> {
     let mut missing = Vec::new();
     for directory in [
         "rustup",
@@ -287,8 +287,8 @@ fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(), String> {
     let git = app_root.join("tools/git/bin").join(executable("git"));
     if !is_executable(&git) {
         missing.push(format!("tools/git/bin/{}", executable("git")));
-    } else if is_host_git_wrapper(&git) {
-        missing.push("tools/git/bin/git (host Git wrapper is not app-owned)".to_owned());
+    } else if is_delegating_git_script(&git) {
+        missing.push("tools/git/bin/git (replace with app-owned Git executable)".to_owned());
     }
     if !steam_candidates(&app_root.join("tools/steamcmd"))
         .iter()
@@ -300,7 +300,7 @@ fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "cannot populate setup package payloads: active app-local tools are incomplete\nmissing active entries:\n  - {}\nhelp: run `vapor setup status` and repair active tools first\nnote: host Git wrappers are rejected; package payloads must contain an app-owned Git distribution",
+            "cannot populate self-setup payloads: active app-local tools are incomplete\nmissing active entries:\n  - {}\nhelp: run `vapor setup self status` and repair active tools first\nnote: replace any delegating Git script with a real app-owned Git distribution",
             missing.join("\n  - ")
         ))
     }
@@ -355,14 +355,14 @@ fn copy_tree_entry(
     }
     let canonical = fs::canonicalize(source).map_err(|error| {
         format!(
-            "failed to resolve package content '{}': {error}",
+            "failed to resolve self-setup payload '{}': {error}",
             source.display()
         )
     })?;
     ensure_contained(item_root, &canonical)?;
     let metadata = fs::metadata(&canonical).map_err(|error| {
         format!(
-            "failed to inspect package content '{}': {error}",
+            "failed to inspect self-setup payload '{}': {error}",
             source.display()
         )
     })?;
