@@ -76,6 +76,11 @@ payloads.
 package status, and tool group actions without changing files or shell profile
 state.
 
+When complete `packages/setup` payloads exist, Git is copied from the app-owned
+payload. Otherwise Linux setup imports a usable host Git binary into
+`tools/git`, copies its Git exec-path support files, and replaces any script
+that delegates to system Git.
+
 ### `setup self repair [--dry-run]`
 
 Accept the current app root and reapply/reacquire Rust/Cargo, Git, and SteamCMD.
@@ -104,7 +109,7 @@ current Steam installation.
 Populate missing `packages/setup` payloads from active app-local tools. The
 active Rust/Cargo, Git, and SteamCMD tools must already pass `setup self status`.
 A script that delegates to system Git must be replaced with a real app-owned
-Git executable before payloads can be built.
+Git installation before payloads can be built.
 
 `--dry-run` previews package writes without changing files.
 

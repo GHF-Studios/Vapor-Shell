@@ -584,6 +584,8 @@ fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Resu
             print_package_status(&status);
             if !location.registered() {
                 println!("hint: accept this app root explicitly with `vapor setup self install`");
+            } else if status.complete() && status.package_complete() {
+                println!("hint: self-setup is ready");
             } else if status.complete() {
                 println!(
                     "hint: self-setup is ready; package depot payloads with `vapor setup self package install`"
@@ -695,7 +697,10 @@ fn preview_setup_self_install(
         "would apply app-owned Git from {} when complete self-setup payloads exist",
         status.package_root().display()
     );
-    println!("would require tools/git/bin/git to be a real app-owned Git executable");
+    println!(
+        "would otherwise import a real host Git binary into {} and replace delegating scripts",
+        installation.root().join("tools/git").display()
+    );
     println!(
         "would download and extract SteamCMD into {} when SteamCMD is missing or repair is requested",
         installation.root().join("tools/steamcmd").display()

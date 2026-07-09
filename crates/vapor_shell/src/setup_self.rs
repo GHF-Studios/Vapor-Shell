@@ -11,6 +11,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     env, fs,
     path::{Path, PathBuf},
     process::Command,
@@ -497,10 +498,8 @@ fn bootstrap_tools(
         installed_groups.push("Rust/Cargo");
     }
     if repair || !before.git.installed() {
-        return Err(format!(
-            "cannot install Git: no complete app-owned Git payload is available at '{}'\nhelp: replace tools/git/bin/git with a real app-owned Git distribution, then run `vapor setup self package install`\nnote: Vapor will not install or package a script that delegates to system Git",
-            before.package_root().display()
-        ));
+        bootstrap_git(root)?;
+        installed_groups.push("Git");
     }
     if repair || !before.steamcmd.installed() {
         bootstrap_steamcmd(root)?;
@@ -555,6 +554,196 @@ fn bootstrap_steamcmd(root: &Path) -> Result<(), String> {
     } else {
         Err(format!("SteamCMD archive extraction exited with {status}"))
     }
+}
+
+fn bootstrap_git(root: &Path) -> Result<(), String> {
+    let host = find_host_git(root)?;
+    let target = root.join("tools/git");
+    ensure_contained(root, &target)?;
+    if target.exists() {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("failed to reset '{}': {error}", target.display()))?;
+    }
+
+    let bin = target.join("bin");
+    fs::create_dir_all(&bin)
+        .map_err(|error| format!("failed to create '{}': {error}", bin.display()))?;
+
+    if let Some(exec_path) = host.exec_path {
+        copy_external_tree(root, &exec_path, &target.join("libexec/git-core"))?;
+    }
+    let app_git = target.join("libexec/git-core").join(executable("git"));
+    if !is_executable(&app_git) {
+        copy_external_file(root, &host.binary, &app_git)?;
+    }
+    if let Some(templates) = host.templates {
+        copy_external_tree(root, &templates, &target.join("share/git-core/templates"))?;
+    }
+    write_git_launcher(root, &target)?;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct HostGit {
+    binary: PathBuf,
+    exec_path: Option<PathBuf>,
+    templates: Option<PathBuf>,
+}
+
+fn find_host_git(root: &Path) -> Result<HostGit, String> {
+    let mut candidates = host_git_candidates();
+    candidates.sort();
+    candidates.dedup();
+
+    let mut inspected = BTreeSet::new();
+    let mut rejected = Vec::new();
+    for candidate in candidates {
+        if !is_executable(&candidate) {
+            continue;
+        }
+        let canonical = match fs::canonicalize(&candidate) {
+            Ok(path) => path,
+            Err(error) => {
+                rejected.push(format!("{} ({error})", candidate.display()));
+                continue;
+            }
+        };
+        if !inspected.insert(canonical.clone()) || path_is_inside(&canonical, root) {
+            continue;
+        }
+        if setup_self_packages::is_delegating_git_script(&canonical) {
+            rejected.push(format!(
+                "{} (delegates to another Git)",
+                canonical.display()
+            ));
+            continue;
+        }
+        let version = Command::new(&canonical).arg("--version").output();
+        if !version.is_ok_and(|output| output.status.success()) {
+            rejected.push(format!("{} (`git --version` failed)", canonical.display()));
+            continue;
+        }
+        let exec_path = git_stdout_path(&canonical, "--exec-path");
+        return Ok(HostGit {
+            binary: canonical,
+            templates: git_template_path(exec_path.as_deref()),
+            exec_path,
+        });
+    }
+
+    let detail = if rejected.is_empty() {
+        "no executable Git candidate was found on PATH or in common system locations".to_owned()
+    } else {
+        format!("rejected candidates:\n  - {}", rejected.join("\n  - "))
+    };
+    Err(format!(
+        "cannot install Git: no usable host Git is available to import\n{detail}\nhelp: install Git with the operating-system package manager, then run `vapor setup self install`\nnote: Vapor imports a real Git binary into tools/git; it will not install a wrapper that delegates to system Git"
+    ))
+}
+
+fn host_git_candidates() -> Vec<PathBuf> {
+    let mut candidates = env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
+        .map(|directory| directory.join(executable("git")))
+        .collect::<Vec<_>>();
+    if cfg!(target_os = "linux") {
+        candidates.extend([
+            PathBuf::from("/usr/bin/git"),
+            PathBuf::from("/usr/local/bin/git"),
+            PathBuf::from("/bin/git"),
+        ]);
+    }
+    candidates
+}
+
+fn git_stdout_path(git: &Path, arg: &str) -> Option<PathBuf> {
+    let output = Command::new(git).arg(arg).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let value = stdout.trim();
+    (!value.is_empty()).then(|| PathBuf::from(value))
+}
+
+fn git_template_path(exec_path: Option<&Path>) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(exec_path) = exec_path
+        && let Some(prefix) = exec_path.parent().and_then(Path::parent)
+    {
+        candidates.push(prefix.join("share/git-core/templates"));
+    }
+    candidates.extend([
+        PathBuf::from("/usr/share/git-core/templates"),
+        PathBuf::from("/usr/local/share/git-core/templates"),
+    ]);
+    candidates.into_iter().find(|path| path.is_dir())
+}
+
+fn write_git_launcher(root: &Path, git_root: &Path) -> Result<(), String> {
+    let launcher = git_root.join("bin").join(executable("git"));
+    ensure_contained(root, &launcher)?;
+    let source = "#!/bin/sh\nset -eu\nself_dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\ngit_root=$(CDPATH= cd -- \"$self_dir/..\" && pwd)\nif [ -d \"$git_root/libexec/git-core\" ]; then\n    GIT_EXEC_PATH=\"$git_root/libexec/git-core\"\n    export GIT_EXEC_PATH\nfi\nif [ -d \"$git_root/share/git-core/templates\" ]; then\n    GIT_TEMPLATE_DIR=\"$git_root/share/git-core/templates\"\n    export GIT_TEMPLATE_DIR\nfi\nexec \"$git_root/libexec/git-core/git\" \"$@\"\n";
+    fs::write(&launcher, source)
+        .map_err(|error| format!("failed to write '{}': {error}", launcher.display()))?;
+    make_executable(&launcher)
+}
+
+fn copy_external_file(root: &Path, source: &Path, target: &Path) -> Result<(), String> {
+    ensure_contained(root, target)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
+    }
+    fs::copy(source, target).map_err(|error| {
+        format!(
+            "failed to copy host file '{}' to '{}': {error}",
+            source.display(),
+            target.display()
+        )
+    })?;
+    make_executable(target)
+}
+
+fn copy_external_tree(root: &Path, source: &Path, destination: &Path) -> Result<(), String> {
+    let canonical = fs::canonicalize(source).map_err(|error| {
+        format!(
+            "failed to resolve host Git path '{}': {error}",
+            source.display()
+        )
+    })?;
+    copy_external_tree_entry(root, &canonical, destination)
+}
+
+fn copy_external_tree_entry(root: &Path, source: &Path, destination: &Path) -> Result<(), String> {
+    ensure_contained(root, destination)?;
+    let metadata = fs::metadata(source).map_err(|error| {
+        format!(
+            "failed to inspect host Git path '{}': {error}",
+            source.display()
+        )
+    })?;
+    if metadata.is_dir() {
+        fs::create_dir_all(destination)
+            .map_err(|error| format!("failed to create '{}': {error}", destination.display()))?;
+        for entry in fs::read_dir(source).map_err(|error| {
+            format!(
+                "failed to read host Git path '{}': {error}",
+                source.display()
+            )
+        })? {
+            let entry = entry.map_err(|error| format!("failed to read host Git entry: {error}"))?;
+            copy_external_tree_entry(root, &entry.path(), &destination.join(entry.file_name()))?;
+        }
+    } else if metadata.is_file() {
+        copy_external_file(root, source, destination)?;
+    }
+    Ok(())
+}
+
+fn path_is_inside(path: &Path, root: &Path) -> bool {
+    fs::canonicalize(root).is_ok_and(|root| path.starts_with(root))
 }
 
 fn rustup_init_url() -> Result<&'static str, String> {

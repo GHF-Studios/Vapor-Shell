@@ -60,9 +60,10 @@ Explicit `setup self install` performs app-local installation into the app root:
 
 - Rust is installed through `rustup-init` with `RUSTUP_HOME` and `CARGO_HOME`
   pointing inside the app root.
-- Git is applied from a complete app-owned `packages/setup/git` payload. A
-  script that delegates to system Git must be replaced with a real app-owned
-  Git executable.
+- Git is applied from a complete app-owned `packages/setup/git` payload when
+  one exists. Otherwise Linux setup imports a usable host Git binary into
+  `tools/git`, copies its Git exec-path support files, and replaces delegating
+  scripts with an app-owned launcher.
 - SteamCMD is downloaded and extracted under `tools/steamcmd`.
 
 This is still app-local operation: active tools and build outputs live under the

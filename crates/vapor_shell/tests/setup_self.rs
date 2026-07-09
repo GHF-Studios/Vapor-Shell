@@ -111,6 +111,43 @@ fn delegating_git_script_is_not_app_owned_git() {
 
 #[cfg(unix)]
 #[test]
+fn app_owned_git_launcher_satisfies_setup_self_preflight() {
+    let installation = TestTree::new("setup-self-git-app-owned-launcher");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    write_executable(&installation, "bin/vapor");
+    for path in [
+        "rustup/bin/rustup",
+        "rustup-home/toolchains/nightly-host/bin/cargo",
+        "rustup-home/toolchains/nightly-host/bin/rustc",
+        "rustup-home/toolchains/nightly-host/bin/rustfmt",
+        "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
+        "rustup-home/toolchains/nightly-host/bin/rustdoc",
+        "tools/git/libexec/git-core/git",
+        "tools/steamcmd/steamcmd",
+    ] {
+        write_executable(&installation, path);
+    }
+    write_app_owned_git_launcher(&installation, "tools/git/bin/git");
+    installation.write("cargo-home/registry/.keep", "");
+
+    let executable = installation.root().join("bin/vapor");
+    let source = TestTree::new("setup-self-git-app-owned-launcher-source");
+    source.write(
+        "Vapor.toml",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
+    );
+    let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
+    let status = setup_self::inspect(paths.installation());
+
+    assert!(status.git().installed(), "{:?}", status.git().missing());
+    assert!(status.complete());
+}
+
+#[cfg(unix)]
+#[test]
 fn setup_self_package_install_populates_payload_without_auth_state() {
     let installation = TestTree::new("setup-self-package-installation");
     installation.write(
@@ -317,6 +354,18 @@ fn write_executable(tree: &TestTree, relative: &str) -> std::path::PathBuf {
 #[cfg(unix)]
 fn write_delegating_git_script(tree: &TestTree, relative: &str) -> std::path::PathBuf {
     let path = tree.write(relative, "#!/bin/sh\nexec '/usr/bin/git' \"$@\"\n");
+    let mut permissions = fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&path, permissions).unwrap();
+    path
+}
+
+#[cfg(unix)]
+fn write_app_owned_git_launcher(tree: &TestTree, relative: &str) -> std::path::PathBuf {
+    let path = tree.write(
+        relative,
+        "#!/bin/sh\nself_dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\ngit_root=$(CDPATH= cd -- \"$self_dir/..\" && pwd)\nexec \"$git_root/libexec/git-core/git\" \"$@\"\n",
+    );
     let mut permissions = fs::metadata(&path).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&path, permissions).unwrap();

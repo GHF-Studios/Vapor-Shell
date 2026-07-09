@@ -405,6 +405,11 @@ explicit repair model:
 - scripts may call setup operations and bubble flags upward, but the
   consequential action remains explicit and visible.
 
+Git setup has two sources. A complete `packages/setup/git` payload is copied as
+the app-owned source of truth when present. On Linux, missing active Git can
+also be repaired by importing a real host Git binary plus its exec-path support
+files into `tools/git`; scripts that merely delegate to system Git are rejected.
+
 Self-setup payloads are a separate installed-app/depot staging concern:
 `setup self package status`, `setup self package install`, and
 `setup self package repair` populate `packages/setup` from already healthy

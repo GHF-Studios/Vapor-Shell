@@ -283,9 +283,11 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 ### Phase 4: provider resolution
 
 - Add an internal backend resolver.
-- Detect app-local, system, and configured Git/SteamCMD providers.
+- Detect app-local, imported host, system, and configured Git/SteamCMD
+  providers.
 - Reject delegating Git scripts as app-owned providers.
-- Allow controlled use of valid system providers when policy permits.
+- Use host Git only as an explicit import source for app-owned setup until a
+  full portable Git payload exists.
 - Add OS/distro/package-manager detection as diagnostic data.
 
 ### Phase 5: Self-Setup Repair Actions
