@@ -52,9 +52,9 @@ standalone `[project]` or content manifest is rejected as a source root.
 
 Invoking the app-owned `vapor` command from any terminal directory is valid as
 long as the executable itself is still `<app-root>/bin/vapor`: the shell starts
-closed, reports the app root, and waits for `open NAME`, `open PATH`, or
-`sources add PATH`. Vapor does not fall back to a home directory or treat the
-Steam installation as source.
+from `VAPOR_WORKSPACE`, the remembered source, or a closed app-only state. Vapor
+does not infer source context from arbitrary host-shell cwd for source-bound
+commands; use `open PATH` or a Vapor script when source context matters.
 
 ## Steam and desktop launches
 
@@ -69,10 +69,11 @@ shell to register external source roots under the app root. A later Steam launch
 can reopen the last active external source. If the saved path is absent or
 invalid, Vapor reports that problem and continues in the closed app-only shell.
 
-Ad-hoc one-shot commands are disabled. Direct facades are limited to bootstrap
-and automation-safe commands such as `open`, `close`, `sources`, `setup`,
-`metadata`, app inspection, and `script run`. They do not trigger terminal
-relaunch.
+Host-level direct facades do not trigger terminal relaunch. They are limited to
+bootstrap, source selection, app inspection, metadata, content status, and
+`script run`. Source-bound workflows such as `validate`, `build`, `root
+package`, and `root publish --dry-run` run inside the interactive shell or a
+Vapor script.
 
 ## Disjoint-root invariant
 

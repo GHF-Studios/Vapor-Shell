@@ -1,15 +1,24 @@
 //! Application startup and the interactive read/evaluate loop.
 
 use crate::{
-    command::{self, Control, ShellCommand},
+    command::{
+        self, ContentCommand, Control, ScriptCommand, SetupCommand, ShellCommand, SourcesCommand,
+    },
     discovery::EnvironmentPaths,
+    metadata::MetadataFormat,
     prompt::VaporPrompt,
     setup_self, source_registry,
     state::ShellState,
     terminal,
 };
-use clap::{Parser, error::ErrorKind};
+use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
+
+enum StartupMode {
+    Repl,
+    Direct(ShellCommand),
+    Exit,
+}
 
 /// Discover the containing Vapor workspace and run the interactive shell.
 ///
@@ -18,56 +27,24 @@ use clap_repl::{ClapEditor, ReadCommandOutput};
 /// Returns an error before entering the REPL when executable discovery, root
 /// manifest validation, or initial state construction fails.
 pub fn run() -> Result<(), String> {
-    let one_shot = if std::env::args_os().len() > 1 {
-        match ShellCommand::try_parse() {
-            Ok(command) => Some(command),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
-                ) =>
-            {
-                error
-                    .print()
-                    .map_err(|print_error| print_error.to_string())?;
-                return Ok(());
-            }
-            Err(error) => return Err(error.to_string()),
-        }
-    } else {
-        None
-    };
+    let startup = parse_startup()?;
+    if matches!(startup, StartupMode::Exit) {
+        return Ok(());
+    }
 
     // Steam and desktop launchers do not normally provide an interactive
     // console. Relaunch before discovery so the child can report configuration
     // errors in the terminal it owns.
-    if one_shot.is_none() && terminal::needs_relaunch() {
+    if matches!(startup, StartupMode::Repl) && terminal::needs_relaunch() {
         terminal::relaunch()?;
         return Ok(());
     }
 
     let installation = EnvironmentPaths::discover_installation()?;
     let mut state = ShellState::closed(installation);
-    if let Some(source) = source_registry::active_source(state.installation())? {
-        match EnvironmentPaths::from_installation_and_invocation(
-            state.installation().clone(),
-            &source,
-        ) {
-            Ok(paths) => command::print_warnings(state.open_paths(paths)?),
-            Err(error) => {
-                eprintln!("warning: active source is invalid: {error}");
-                eprintln!("hint: choose another source with `open NAME` or clear it with `close`");
-            }
-        }
-    }
+    open_saved_source(&mut state)?;
 
-    if let Some(command) = one_shot {
-        if !one_shot_allowed(&command) {
-            return Err(
-                "this command must run inside the interactive Vapor shell\nhelp: allowed direct facades are `vapor script run NAME`, `vapor setup ...`, `vapor content status`, `vapor sources ...`, `vapor open SOURCE`, `vapor close`, and read-only app inspection"
-                    .to_owned(),
-            );
-        }
+    if let StartupMode::Direct(command) = startup {
         command::execute(command, &mut state)?;
         return Ok(());
     }
@@ -111,20 +88,132 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn one_shot_allowed(command: &ShellCommand) -> bool {
-    matches!(
-        command,
-        ShellCommand::Script { .. }
-            | ShellCommand::Setup { .. }
-            | ShellCommand::Content { .. }
-            | ShellCommand::Sources { .. }
-            | ShellCommand::Open { .. }
-            | ShellCommand::Close
-            | ShellCommand::Installation
-            | ShellCommand::Binaries
-            | ShellCommand::Libraries
-            | ShellCommand::Metadata { .. }
-    )
+fn parse_startup() -> Result<StartupMode, String> {
+    if std::env::args_os().len() <= 1 {
+        return Ok(StartupMode::Repl);
+    }
+
+    match HostCommand::try_parse() {
+        Ok(command) => Ok(StartupMode::Direct(command.into_shell_command())),
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            error
+                .print()
+                .map_err(|print_error| print_error.to_string())?;
+            Ok(StartupMode::Exit)
+        }
+        Err(host_error) => match ShellCommand::try_parse() {
+            Ok(_) => Err(shell_only_error()),
+            Err(shell_error)
+                if matches!(
+                    shell_error.kind(),
+                    ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+                ) =>
+            {
+                shell_error
+                    .print()
+                    .map_err(|print_error| print_error.to_string())?;
+                eprintln!(
+                    "note: this is shell command help; run `vapor` to enter the shell or use `vapor script run NAME`"
+                );
+                Ok(StartupMode::Exit)
+            }
+            Err(_) => Err(host_error.to_string()),
+        },
+    }
+}
+
+fn shell_only_error() -> String {
+    "this command must run inside the interactive Vapor shell\nhelp: run `vapor` to enter the shell, or put repeatable commands in `.vapor/scripts/NAME.vapor` and run `vapor script run NAME`"
+        .to_owned()
+}
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "vapor",
+    bin_name = "vapor",
+    about = "Open the Vapor shell or run a narrow host-level facade",
+    after_help = "Run `vapor` with no command to enter the Vapor shell.\nThe shell owns source context, setup state, and command authority.\nSource workflows belong in the shell or in `.vapor/scripts/NAME.vapor`."
+)]
+struct HostCommand {
+    #[command(subcommand)]
+    command: HostSubcommand,
+}
+
+#[derive(Debug, Subcommand)]
+enum HostSubcommand {
+    /// Inspect or repair app-local setup.
+    Setup {
+        #[command(subcommand)]
+        command: SetupCommand,
+    },
+    /// Manage the app-local source index.
+    Sources {
+        #[command(subcommand)]
+        command: SourcesCommand,
+    },
+    /// Open an indexed source name or external source path.
+    Open { source: String },
+    /// Close the active source while keeping app state.
+    Close,
+    /// Print the Steam installation/app root.
+    Installation,
+    /// Print the app-local binary directory.
+    Binaries,
+    /// Print the app-local library directory.
+    Libraries,
+    /// Report resolved metadata for the remembered/open source.
+    Metadata {
+        #[arg(long, value_enum, default_value_t)]
+        format: MetadataFormat,
+    },
+    /// Report the remembered/open source's active content node.
+    Content {
+        #[command(subcommand)]
+        command: ContentCommand,
+    },
+    /// Run a source-controlled Vapor script.
+    Script {
+        #[command(subcommand)]
+        command: ScriptCommand,
+    },
+}
+
+impl HostCommand {
+    fn into_shell_command(self) -> ShellCommand {
+        match self.command {
+            HostSubcommand::Setup { command } => ShellCommand::Setup { command },
+            HostSubcommand::Sources { command } => ShellCommand::Sources { command },
+            HostSubcommand::Open { source } => ShellCommand::Open { source },
+            HostSubcommand::Close => ShellCommand::Close,
+            HostSubcommand::Installation => ShellCommand::Installation,
+            HostSubcommand::Binaries => ShellCommand::Binaries,
+            HostSubcommand::Libraries => ShellCommand::Libraries,
+            HostSubcommand::Metadata { format } => ShellCommand::Metadata { format },
+            HostSubcommand::Content { command } => ShellCommand::Content { command },
+            HostSubcommand::Script { command } => ShellCommand::Script { command },
+        }
+    }
+}
+
+fn open_saved_source(state: &mut ShellState) -> Result<(), String> {
+    if let Some(source) = source_registry::active_source(state.installation())? {
+        match EnvironmentPaths::from_installation_and_invocation(
+            state.installation().clone(),
+            &source,
+        ) {
+            Ok(paths) => command::print_warnings(state.open_paths(paths)?),
+            Err(error) => {
+                eprintln!("warning: active source is invalid: {error}");
+                eprintln!("hint: choose another source with `open NAME` or clear it with `close`");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn run_shell(mut state: ShellState) {

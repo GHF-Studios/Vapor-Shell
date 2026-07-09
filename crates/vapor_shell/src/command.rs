@@ -24,8 +24,12 @@ use std::{
 };
 
 #[derive(Debug, Parser)]
-#[command(name = "vapor", bin_name = "vapor")]
-/// Commands accepted by the interactive Vapor prompt.
+#[command(
+    name = "vapor",
+    bin_name = "vapor",
+    after_help = "Run `vapor` with no command to enter the Vapor shell.\nThe shell owns source context, setup state, and command authority.\nHost-level direct facades are limited to setup, source selection, app inspection, metadata, content status, and `script run`."
+)]
+/// Commands accepted by the Vapor shell and its narrow host facades.
 pub enum ShellCommand {
     /// Change directory inside this Vapor source root; omit the path to jump to its root.
     Cd {

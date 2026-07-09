@@ -92,10 +92,11 @@ failed prerequisites implicitly.
 
 ## Command surface
 
-The interactive shell is the primary interface. Ad-hoc one-shot commands are
-disabled. Direct CLI facades are reserved for bootstrap, app inspection,
-source selection, setup lifecycle, metadata reporting, and repeatable
-non-auth scripts.
+The interactive shell is the primary command environment. Source-bound commands
+derive authority from the shell's active source, current source cursor,
+accepted app root, and setup status. Host-level direct facades are narrow:
+bootstrap, app inspection, source selection, metadata reporting, content status,
+and script entry.
 
 Scripts may dry-run publish staging and IDE repair, but they may not
 authenticate Steam, perform real uploads, or apply project-local IDE changes.

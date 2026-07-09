@@ -15,6 +15,29 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     fs::copy(vapor_binary(), &executable).unwrap();
     let outside = TestTree::new("outside-source-root");
 
+    let host_help = Command::new(&executable)
+        .arg("--help")
+        .current_dir(outside.root())
+        .env("HOME", outside.root())
+        .env("SHELL", "/bin/bash")
+        .output()
+        .unwrap();
+    assert!(
+        host_help.status.success(),
+        "{}",
+        String::from_utf8_lossy(&host_help.stderr)
+    );
+    let stdout = String::from_utf8(host_help.stdout).unwrap();
+    for command in ["setup", "sources", "open", "script"] {
+        assert!(stdout.contains(command), "missing {command}: {stdout}");
+    }
+    for shell_only in ["validate", "build", "root", "cd"] {
+        assert!(
+            !stdout.contains(&format!("\n  {shell_only}")),
+            "host help should not list shell-only command {shell_only}: {stdout}"
+        );
+    }
+
     let setup = Command::new(&executable)
         .args(["setup", "self", "status"])
         .current_dir(outside.root())
@@ -49,6 +72,10 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     let stderr = String::from_utf8(rejected_one_shot.stderr).unwrap();
     assert!(
         stderr.contains("must run inside the interactive Vapor shell"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("put repeatable commands in `.vapor/scripts/NAME.vapor`"),
         "{stderr}"
     );
 

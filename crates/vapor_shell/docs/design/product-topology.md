@@ -484,7 +484,9 @@ source. Vapor owns this session without imitating an operating-system shell.
 
 Non-interactive automation runs a declared Vapor script or one of the narrow
 direct facades needed for bootstrap and source selection. It does not expose
-every interactive operation as an ad-hoc one-shot command.
+every interactive operation as an ad-hoc one-shot command. The script entrypoint
+still executes through the Vapor shell command model, so source context and
+authority remain session-scoped.
 
 Commands should remain discoverable even when unavailable. Help and interactive
 surfaces show the operation and explain which target or prerequisite is missing

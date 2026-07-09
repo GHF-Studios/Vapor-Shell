@@ -1,10 +1,16 @@
 # Interactive commands
 
 Run `help` for the command list or `help <COMMAND>` for argument details.
-`vapor` without arguments opens the interactive shell. Ad-hoc one-shot commands
-are intentionally disabled; the direct CLI facade is reserved for
-setup/bootstrap commands: `open`, `close`, `sources`, `setup`,
-`metadata`, `installation`, `binaries`, `libraries`, and `script run`.
+`vapor` without arguments opens the interactive shell. The shell owns source
+context, setup state, and command authority. Host-level direct facades are
+limited to setup/bootstrap and automation entrypoints: `open`, `close`,
+`sources`, `setup`, `metadata`, `installation`, `binaries`, `libraries`,
+`content status`, and `script run`.
+
+Repeatable automation should live in `.vapor/scripts/NAME.vapor` and run through
+`vapor script run NAME`, which executes the same command grammar against a
+Vapor shell session state. Real Steam uploads and real IDE repair remain manual
+interactive-shell actions.
 
 ## Source navigation
 
