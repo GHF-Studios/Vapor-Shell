@@ -31,17 +31,17 @@ The bootstrap sequence is:
 6. open a new terminal so PATH changes are visible;
 7. run `vapor`; it should discover the app from its own executable and reopen
    the last active source;
-8. run `validate` using the installed toolchain;
+8. run `validate` using app-local Rust/Cargo;
 9. run `root build`, `root package`, and `root publish --dry-run`;
 10. upload the rebuilt app with `root publish --account NAME --yes` from the
     interactive shell.
 
 From step 5 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
-application. `setup install` is the explicit bootstrap operation that
-installs tools into the app root. Final depot staging uses that installed
-app-local layout with credential/cache exclusions. Publishing never installs
-missing tools; it reports the failed precondition and leaves that decision to
-the operator.
+application. `setup install` is the explicit bootstrap operation that installs
+active tools into the app root. Final depot staging uses the separate
+`packages/setup` payload with credential/cache exclusions. Publishing never
+installs missing tools; it reports the failed precondition and leaves that
+decision to the operator.
 
 The bootstrap script is intentionally not a full depot installer. It does not
 copy source repos, Cargo workspaces, staged package trees, or generated outputs.

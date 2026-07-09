@@ -3,8 +3,8 @@
 use crate::{
     cargo_metadata::CargoIndex,
     distribution::DistributionManifest,
+    setup::{LocationStatus, SetupComponentStatus, SetupStatus},
     state::ShellState,
-    toolchain::{LocationStatus, ToolStatus, ToolchainStatus},
     workspace::WorkspaceManifest,
 };
 use serde::Serialize;
@@ -18,7 +18,7 @@ pub struct MetadataReport {
     schema_version: u32,
     source: SourceReport,
     installation: InstallationReport,
-    toolchain: ToolchainReport,
+    setup: SetupReport,
     manifests: ManifestReport,
     cargo: CargoReport,
     diagnostics: Vec<Diagnostic>,
@@ -30,19 +30,19 @@ impl MetadataReport {
         workspace: &Result<WorkspaceManifest, String>,
         distribution: &Result<Option<DistributionManifest>, String>,
         location: &Result<LocationStatus, String>,
-        toolchain: &ToolchainStatus,
+        setup: &SetupStatus,
     ) -> Self {
         let source = SourceReport::new(state);
         let installation = InstallationReport::new(state, location);
-        let toolchain_report = ToolchainReport::new(toolchain);
+        let setup_report = SetupReport::new(setup);
         let manifests = ManifestReport::new(workspace, distribution);
         let cargo = CargoReport::new(state.cargo_index());
-        let diagnostics = diagnostics(location, toolchain, workspace, distribution, &cargo);
+        let diagnostics = diagnostics(location, setup, workspace, distribution, &cargo);
         Self {
             schema_version: 1,
             source,
             installation,
-            toolchain: toolchain_report,
+            setup: setup_report,
             manifests,
             cargo,
             diagnostics,
@@ -175,21 +175,21 @@ enum LocationState {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct ToolchainReport {
+struct SetupReport {
     complete: bool,
-    rust: ToolReport,
-    git: ToolReport,
-    steamcmd: ToolReport,
+    rust: SetupComponentReport,
+    git: SetupComponentReport,
+    steamcmd: SetupComponentReport,
     package: PackageReport,
 }
 
-impl ToolchainReport {
-    fn new(status: &ToolchainStatus) -> Self {
+impl SetupReport {
+    fn new(status: &SetupStatus) -> Self {
         Self {
             complete: status.complete(),
-            rust: ToolReport::new(status.rust()),
-            git: ToolReport::new(status.git()),
-            steamcmd: ToolReport::new(status.steamcmd()),
+            rust: SetupComponentReport::new(status.rust()),
+            git: SetupComponentReport::new(status.git()),
+            steamcmd: SetupComponentReport::new(status.steamcmd()),
             package: PackageReport {
                 complete: status.package_complete(),
                 root: status.package_root().to_path_buf(),
@@ -200,7 +200,7 @@ impl ToolchainReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct ToolReport {
+struct SetupComponentReport {
     label: String,
     installed: bool,
     path: PathBuf,
@@ -214,8 +214,8 @@ struct PackageReport {
     missing: Vec<String>,
 }
 
-impl ToolReport {
-    fn new(status: &ToolStatus) -> Self {
+impl SetupComponentReport {
+    fn new(status: &SetupComponentStatus) -> Self {
         Self {
             label: status.label().to_owned(),
             installed: status.installed(),
@@ -442,7 +442,7 @@ impl std::fmt::Display for DiagnosticLevel {
 
 fn diagnostics(
     location: &Result<LocationStatus, String>,
-    toolchain: &ToolchainStatus,
+    setup: &SetupStatus,
     workspace: &Result<WorkspaceManifest, String>,
     distribution: &Result<Option<DistributionManifest>, String>,
     cargo: &CargoReport,
@@ -473,11 +473,11 @@ fn diagnostics(
         }),
         Ok(LocationStatus::Registered { .. }) => {}
     }
-    for status in [toolchain.rust(), toolchain.git(), toolchain.steamcmd()] {
+    for status in [setup.rust(), setup.git(), setup.steamcmd()] {
         if !status.installed() {
             diagnostics.push(Diagnostic {
                 level: DiagnosticLevel::Warning,
-                scope: "toolchain",
+                scope: "setup",
                 message: format!(
                     "{} is incomplete at {}: missing {}",
                     status.label(),
@@ -487,13 +487,13 @@ fn diagnostics(
             });
         }
     }
-    if !toolchain.package_complete() {
+    if !setup.package_complete() {
         diagnostics.push(Diagnostic {
             level: DiagnosticLevel::Warning,
             scope: "setup_package",
             message: format!(
                 "distributable setup package is incomplete: {}; run `vapor setup package install` after active tools are healthy",
-                toolchain.missing_package_entries().join(", ")
+                setup.missing_package_entries().join(", ")
             ),
         });
     }

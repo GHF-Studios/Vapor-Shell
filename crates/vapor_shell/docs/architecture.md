@@ -74,7 +74,7 @@ Cargo integration has three materially different states:
   installed or healthy;
 - **loaded**: bundled Cargo returned compatible metadata.
 
-The shell retains enough diagnostic and toolchain functionality to recover from
+The shell retains enough diagnostic and setup functionality to recover from
 unmet prerequisites. Cargo-backed workflows do not proceed until required source
 structure and tools validate.
 
@@ -94,7 +94,7 @@ failed prerequisites implicitly.
 
 The interactive shell is the primary interface. Ad-hoc one-shot commands are
 disabled. Direct CLI facades are reserved for bootstrap, app inspection,
-source selection, toolchain lifecycle, metadata reporting, and repeatable
+source selection, setup lifecycle, metadata reporting, and repeatable
 non-auth scripts.
 
 Scripts may dry-run publish staging and IDE repair, but they may not
@@ -111,9 +111,10 @@ authenticate Steam, perform real uploads, or apply project-local IDE changes.
 - `metadata`: shared environment resolution, reporting, and targeted preflight.
 - `source_registry`: app-local index and active selection for external sources.
 - `workspace`: source-root Cargo workspace discovery.
-- `workflow`: Steam-toolchain formatting, checking, testing, and validation.
+- `workflow`: app-local Rust/Cargo formatting, checking, testing, and validation.
 - `path_setup`: marked registration of the app-owned `bin` directory in PATH.
-- `toolchain`: explicit app-local Rust, Git, and SteamCMD lifecycle.
+- `setup`: explicit app-local Rust/Cargo, Git, and SteamCMD lifecycle.
+- `setup_packages`: distributable setup package payload inspection and copying.
 - `state`: source navigation and current content context.
 - `prompt`: Reedline presentation adapter.
 

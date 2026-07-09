@@ -8,8 +8,8 @@
 
 use crate::{
     distribution::DistributionManifest,
+    setup::{self, LocationStatus, SetupStatus},
     state::ShellState,
-    toolchain::{self, LocationStatus, ToolchainStatus},
     workspace::WorkspaceManifest,
 };
 use clap::ValueEnum;
@@ -39,11 +39,11 @@ pub struct ResolvedMetadata {
     workspace: Result<WorkspaceManifest, String>,
     distribution: Result<Option<DistributionManifest>, String>,
     location: Result<LocationStatus, String>,
-    toolchain: ToolchainStatus,
+    setup: SetupStatus,
 }
 
 impl ResolvedMetadata {
-    /// Resolve source, installation, manifest, Cargo, and toolchain state.
+    /// Resolve source, installation, manifest, Cargo, and setup state.
     pub fn resolve(state: &ShellState) -> Self {
         let active_paths = state.active_paths();
         let workspace = active_paths.as_ref().map_or_else(
@@ -54,9 +54,10 @@ impl ResolvedMetadata {
             |error| Err(error.clone()),
             |paths| DistributionManifest::load_optional(paths),
         );
-        let location = toolchain::location_status(state.installation());
-        let toolchain = toolchain::inspect(state.installation());
-        let report = MetadataReport::new(state, &workspace, &distribution, &location, &toolchain);
+        let location = setup::location_status(state.installation());
+        let setup_status = setup::inspect(state.installation());
+        let report =
+            MetadataReport::new(state, &workspace, &distribution, &location, &setup_status);
         Self {
             report,
             source_root: state
@@ -66,7 +67,7 @@ impl ResolvedMetadata {
             workspace,
             distribution,
             location,
-            toolchain,
+            setup: setup_status,
         }
     }
 
@@ -100,10 +101,10 @@ impl ResolvedMetadata {
     pub fn validate(&self, plan: &ValidationPlan<'_>) -> Result<(), String> {
         if plan.registered_location {
             let status = self.location.as_ref().map_err(Clone::clone)?;
-            toolchain::require_registered_status(status, plan.action)?;
+            setup::require_registered_status(status, plan.action)?;
         }
-        if !plan.tools.is_empty() {
-            toolchain::require_status(&self.toolchain, &plan.tools, plan.action)?;
+        if !plan.setup.is_empty() {
+            setup::require_status(&self.setup, &plan.setup, plan.action)?;
         }
         if plan.workspace {
             self.workspace.as_ref().map_err(Clone::clone)?;
@@ -124,8 +125,8 @@ impl ResolvedMetadata {
     }
 
     /// App-local Rust, Git, and SteamCMD status from this snapshot.
-    pub fn toolchain_status(&self) -> &ToolchainStatus {
-        &self.toolchain
+    pub fn setup_status(&self) -> &SetupStatus {
+        &self.setup
     }
 
     /// Validated Steam distribution policy from this snapshot.

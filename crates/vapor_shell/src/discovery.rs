@@ -5,7 +5,7 @@
 //! Vapor deliberately separates app-owned machinery from authored source:
 //!
 //! - [`InstallationPaths`] is anchored to the running executable. It contains
-//!   bundled tools, toolchains, binaries, libraries, and installed content.
+//!   bundled setup tools, binaries, libraries, and installed content.
 //! - [`SourceWorkspace`] is anchored to an explicitly selected external source
 //!   path. It contains critical authored source and must be outside the
 //!   installation.

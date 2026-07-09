@@ -1,4 +1,4 @@
-//! Cargo workflows routed through the Steam-installed Vapor toolchain.
+//! Cargo workflows routed through the Steam-installed Vapor setup.
 
 use crate::{
     discovery::{EnvironmentPaths, ensure_contained},

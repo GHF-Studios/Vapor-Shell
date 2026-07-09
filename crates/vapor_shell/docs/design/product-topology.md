@@ -385,17 +385,19 @@ The exact trust proof may evolve without changing these semantics.
 
 ## Setup experience
 
-Setup is explicit only when the user intentionally manages it. Its minimal
-lifecycle is:
+Setup is explicit only when the user intentionally manages the installed Vapor
+environment. It is not a persona switch and does not ask the user to choose a
+player, developer, or publisher mode. Its active lifecycle is:
 
 - status;
 - install;
 - uninstall;
 - repair.
 
-Setup operations are consequential because they can change app-local Rust,
-Cargo, Git, SteamCMD, PATH registration, and accepted installation-location
-state. They therefore follow Vapor's status, preview, and explicit repair model:
+Setup operations are consequential because they can change app-local
+Rust/Cargo, Git, SteamCMD, PATH registration, and accepted
+installation-location state. They therefore follow Vapor's status, preview, and
+explicit repair model:
 
 - `setup status` explains current state and next actions;
 - mutating commands support `--dry-run` preview before changing files;
@@ -403,9 +405,15 @@ state. They therefore follow Vapor's status, preview, and explicit repair model:
 - scripts may call setup operations and bubble flags upward, but the
   consequential action remains explicit and visible.
 
-Repair means restoring a known-good installation, conceptually equivalent to
-uninstalling and reinstalling the app-local toolchain while preserving only
-state that is explicitly supposed to survive.
+Setup package payloads are a separate installed-app/depot staging concern:
+`setup package status`, `setup package install`, and `setup package repair`
+populate `packages/setup` from already healthy active tools. They are not
+Workshop/content commands and are never run implicitly after bootstrap.
+
+Repair means reaccepting the app root and restoring active setup components to a
+known-good state while preserving only state that is explicitly supposed to
+survive. Package payload repair is separate so packaging can prove exactly what
+will be copied into a depot.
 
 ## IDE integration
 
@@ -414,14 +422,13 @@ where that can be done safely. RustRover and other JetBrains IDEs are the first
 target because they are part of the intended authoring loop.
 
 Opening a Vapor application source root or workspace should be able to
-configure that project to use the Steam-installed Vapor toolchain: bundled Rust
-and Cargo, Cargo home, rustup and toolchain paths, relevant environment
-variables, and project mappings.
+configure that project to use app-local Rust/Cargo, Cargo home, rustup paths,
+relevant environment variables, and project mappings.
 
 The implemented first pass is `ide status` and `ide repair [--dry-run]`.
 It manages only selected-source-root `.idea` files for routed Cargo projects,
-Rust toolchain discovery, stdlib source discovery when packaged, and
-Vapor-owned toolchain metadata.
+Rust/Cargo discovery, stdlib source discovery when packaged, and Vapor-owned
+setup metadata.
 
 IDE setup is not automatic startup behavior. It is a manual, repo-by-repo or
 workspace-by-workspace operation because changing project files can be annoying
@@ -450,7 +457,7 @@ The global CLI is usable regardless of the terminal's current directory because
 the executable discovers the Steam installation/app root from itself first.
 Invoking `vapor` opens the interactive Vapor Shell even when no source is
 active. A closed shell may inspect the app, manage the source index, report
-metadata, and manage the app-local toolchain.
+metadata, and manage app-local setup.
 
 Source work starts only after explicitly opening an external source:
 
@@ -565,7 +572,7 @@ accidental model.
 - Application publishing uses `root build`, `root package`, and
   `root publish [--dry-run]`; it
   does not expose SteamCMD as a top-level user workflow.
-- Toolchain repair and IDE repair are manual and previewable.
+- Setup repair and IDE repair are manual and previewable.
 - Scripts may automate safe preparation and previews, but not interactive auth
   or real publication.
 

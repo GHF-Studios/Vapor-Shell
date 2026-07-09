@@ -1,13 +1,13 @@
 //! Declarative, command-specific preflight requirements.
 
-use crate::toolchain::Requirement;
+use crate::setup::SetupRequirement;
 
 /// Requirements checked before one command performs side effects.
 #[derive(Debug, Clone)]
 pub struct ValidationPlan<'a> {
     pub(super) action: &'a str,
     pub(super) registered_location: bool,
-    pub(super) tools: Vec<Requirement>,
+    pub(super) setup: Vec<SetupRequirement>,
     pub(super) workspace: bool,
     pub(super) distribution: bool,
 }
@@ -18,7 +18,7 @@ impl<'a> ValidationPlan<'a> {
         Self {
             action,
             registered_location: false,
-            tools: Vec::new(),
+            setup: Vec::new(),
             workspace: false,
             distribution: false,
         }
@@ -33,8 +33,8 @@ impl<'a> ValidationPlan<'a> {
 
     /// Require the selected app-local tool groups.
     #[must_use]
-    pub fn tools(mut self, tools: &[Requirement]) -> Self {
-        self.tools.extend_from_slice(tools);
+    pub fn setup(mut self, requirements: &[SetupRequirement]) -> Self {
+        self.setup.extend_from_slice(requirements);
         self
     }
 

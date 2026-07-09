@@ -29,7 +29,8 @@ crates/vapor_shell/
 │   ├── source_registry.rs
 │   ├── steam.rs
 │   ├── terminal.rs
-│   ├── toolchain.rs
+│   ├── setup.rs
+│   ├── setup_packages.rs
 │   ├── workflow.rs
 │   ├── workspace.rs
 │   └── state.rs
@@ -46,7 +47,7 @@ crates/vapor_shell/
     ├── metadata.rs
     ├── path_setup.rs
     ├── state.rs
-    ├── toolchain.rs
+    ├── setup.rs
     ├── workflow.rs
     └── workspace.rs
 ```

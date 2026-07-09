@@ -6,15 +6,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const TOOLCHAIN_PACKAGE: &str = "packages/toolchain";
+const SETUP_PACKAGE: &str = "packages/setup";
 
 #[derive(Debug, Clone)]
-pub(crate) struct ToolchainPackageStatus {
+pub(crate) struct SetupPackageStatus {
     root: PathBuf,
     missing: Vec<String>,
 }
 
-impl ToolchainPackageStatus {
+impl SetupPackageStatus {
     pub(crate) fn root(&self) -> &Path {
         &self.root
     }
@@ -31,7 +31,7 @@ impl ToolchainPackageStatus {
 #[derive(Debug, Clone)]
 pub(crate) struct PackageInstallReport {
     changed: bool,
-    status: ToolchainPackageStatus,
+    status: SetupPackageStatus,
 }
 
 impl PackageInstallReport {
@@ -39,17 +39,17 @@ impl PackageInstallReport {
         self.changed
     }
 
-    pub(crate) fn status(&self) -> &ToolchainPackageStatus {
+    pub(crate) fn status(&self) -> &SetupPackageStatus {
         &self.status
     }
 }
 
-pub(crate) fn inspect_toolchain_package(app_root: &Path) -> ToolchainPackageStatus {
-    inspect_package_at(&toolchain_package_root(app_root))
+pub(crate) fn inspect_setup_package(app_root: &Path) -> SetupPackageStatus {
+    inspect_package_at(&setup_package_root(app_root))
 }
 
-pub(crate) fn validate_toolchain_package(app_root: &Path) -> Result<(), String> {
-    let status = inspect_toolchain_package(app_root);
+pub(crate) fn validate_setup_package(app_root: &Path) -> Result<(), String> {
+    let status = inspect_setup_package(app_root);
     if status.complete() {
         return Ok(());
     }
@@ -60,11 +60,11 @@ pub(crate) fn validate_toolchain_package(app_root: &Path) -> Result<(), String> 
     ))
 }
 
-pub(crate) fn install_toolchain_package(
+pub(crate) fn install_setup_package(
     app_root: &Path,
     repair: bool,
 ) -> Result<PackageInstallReport, String> {
-    let before = inspect_toolchain_package(app_root);
+    let before = inspect_setup_package(app_root);
     if before.complete() && !repair {
         return Ok(PackageInstallReport {
             changed: false,
@@ -72,8 +72,8 @@ pub(crate) fn install_toolchain_package(
         });
     }
 
-    validate_active_toolchain_for_packaging(app_root)?;
-    let package = toolchain_package_root(app_root);
+    validate_active_setup_for_packaging(app_root)?;
+    let package = setup_package_root(app_root);
     ensure_contained(app_root, &package)?;
     if repair && package.exists() {
         fs::remove_dir_all(&package)
@@ -123,7 +123,7 @@ pub(crate) fn install_toolchain_package(
         ],
     )?;
 
-    let status = inspect_toolchain_package(app_root);
+    let status = inspect_setup_package(app_root);
     if !status.complete() {
         return Err(format!(
             "package content was written, but verification still fails\nmissing package entries:\n  - {}",
@@ -136,9 +136,9 @@ pub(crate) fn install_toolchain_package(
     })
 }
 
-pub(crate) fn copy_toolchain_package_to_active(
+pub(crate) fn copy_setup_package_to_active(
     app_root: &Path,
-    status: &ToolchainPackageStatus,
+    status: &SetupPackageStatus,
     repair: bool,
     active_rust_ready: bool,
     active_git_ready: bool,
@@ -172,7 +172,7 @@ pub(crate) fn copy_toolchain_package_to_active(
             &app_root.join("cargo-home"),
             &[],
         )?;
-        installed.push("Rust toolchain");
+        installed.push("Rust/Cargo");
     }
     if repair || !active_git_ready {
         copy_tree(
@@ -210,11 +210,11 @@ pub(crate) fn is_host_git_wrapper(path: &Path) -> bool {
         && (source.contains("/usr/bin/git") || source.contains(" git"))
 }
 
-fn toolchain_package_root(app_root: &Path) -> PathBuf {
-    app_root.join(TOOLCHAIN_PACKAGE)
+fn setup_package_root(app_root: &Path) -> PathBuf {
+    app_root.join(SETUP_PACKAGE)
 }
 
-fn inspect_package_at(package: &Path) -> ToolchainPackageStatus {
+fn inspect_package_at(package: &Path) -> SetupPackageStatus {
     let mut missing = Vec::new();
     for directory in [
         "rustup",
@@ -231,7 +231,7 @@ fn inspect_package_at(package: &Path) -> ToolchainPackageStatus {
     missing.extend(inspect_package_tools(package));
     missing.sort();
     missing.dedup();
-    ToolchainPackageStatus {
+    SetupPackageStatus {
         root: package.to_path_buf(),
         missing,
     }
@@ -262,7 +262,7 @@ fn inspect_package_tools(package: &Path) -> Vec<String> {
     missing
 }
 
-fn validate_active_toolchain_for_packaging(app_root: &Path) -> Result<(), String> {
+fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(), String> {
     let mut missing = Vec::new();
     for directory in [
         "rustup",

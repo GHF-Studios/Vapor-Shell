@@ -10,8 +10,9 @@ use vapor_shell::{
     distribution::{self, DistributionManifest},
     manifest,
     path_setup::PathSetup,
+    setup,
     state::ShellState,
-    steam, toolchain,
+    steam,
 };
 
 fn fixture() -> (TestTree, TestTree, EnvironmentPaths, DistributionManifest) {
@@ -23,18 +24,18 @@ fn fixture() -> (TestTree, TestTree, EnvironmentPaths, DistributionManifest) {
     let executable = installation.write("bin/vapor", "binary");
     installation.write("docs/index.html", "docs");
     for path in [
-        "packages/toolchain/rustup/bin/rustup",
-        "packages/toolchain/rustup-home/toolchains/test-host/bin/cargo",
-        "packages/toolchain/rustup-home/toolchains/test-host/bin/rustc",
-        "packages/toolchain/rustup-home/toolchains/test-host/bin/rustfmt",
-        "packages/toolchain/rustup-home/toolchains/test-host/bin/cargo-clippy",
-        "packages/toolchain/rustup-home/toolchains/test-host/bin/rustdoc",
-        "packages/toolchain/git/bin/git",
-        "packages/toolchain/steamcmd/steamcmd",
+        "packages/setup/rustup/bin/rustup",
+        "packages/setup/rustup-home/toolchains/test-host/bin/cargo",
+        "packages/setup/rustup-home/toolchains/test-host/bin/rustc",
+        "packages/setup/rustup-home/toolchains/test-host/bin/rustfmt",
+        "packages/setup/rustup-home/toolchains/test-host/bin/cargo-clippy",
+        "packages/setup/rustup-home/toolchains/test-host/bin/rustdoc",
+        "packages/setup/git/bin/git",
+        "packages/setup/steamcmd/steamcmd",
     ] {
         write_tool(&installation, path);
     }
-    installation.write("packages/toolchain/cargo-home/registry/.keep", "");
+    installation.write("packages/setup/cargo-home/registry/.keep", "");
     let source = TestTree::new("dist-source");
     source.write(
         distribution::FILE_NAME,
@@ -89,25 +90,20 @@ fn staging_is_allowlisted_and_uses_package_content() {
     assert!(
         report
             .root()
-            .join("packages/toolchain/rustup/bin/rustup")
+            .join("packages/setup/rustup/bin/rustup")
             .is_file()
     );
     assert!(
         report
             .root()
-            .join("packages/toolchain/rustup-home/toolchains/test-host/bin/cargo")
+            .join("packages/setup/rustup-home/toolchains/test-host/bin/cargo")
             .is_file()
     );
+    assert!(report.root().join("packages/setup/git/bin/git").is_file());
     assert!(
         report
             .root()
-            .join("packages/toolchain/git/bin/git")
-            .is_file()
-    );
-    assert!(
-        report
-            .root()
-            .join("packages/toolchain/steamcmd/steamcmd")
+            .join("packages/setup/steamcmd/steamcmd")
             .is_file()
     );
     assert!(!report.root().join("rustup").exists());
@@ -143,7 +139,7 @@ fn publish_dry_run_generates_preview_vdf_without_steamcmd_execution() {
 
 #[cfg(unix)]
 #[test]
-fn root_publish_dry_run_requires_active_app_local_toolchain() {
+fn root_publish_dry_run_requires_active_app_local_setup() {
     let installation = TestTree::new("app-publish-installation");
     installation.write(
         manifest::FILE_NAME,
@@ -195,7 +191,7 @@ development-branch = "vapor-dev"
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    toolchain::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
     let mut state = ShellState::new(paths).unwrap();
 
     command::execute(

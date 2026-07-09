@@ -4,18 +4,17 @@ Vapor setup lives inside the Steam installation/app root. Vapor does not
 use system Rust, system SteamCMD, or user-data shim directories as authoritative
 tooling.
 
-There is one mandatory installed toolchain bundle:
+There is one mandatory app-local setup:
 
 - Rust/Cargo through app-local `rustup`, `rustup-home`, and `cargo-home`;
 - Git through `tools/git`;
 - SteamCMD through `tools/steamcmd`.
 
 Git must be an app-owned distribution. A script that delegates to host `git`,
-for example `/usr/bin/git`, is rejected by toolchain health checks and cannot be
+for example `/usr/bin/git`, is rejected by setup health checks and cannot be
 used as distributable package content.
 
-The public lifecycle is intentionally small and intentionally breaking from the
-older `toolchain` command surface:
+The public lifecycle is intentionally small and intentionally breaking:
 
 - `setup status` reports app-root registration and installed Rust/Cargo,
   Git, and SteamCMD health.
@@ -26,7 +25,7 @@ older `toolchain` command surface:
 - `setup uninstall` removes app-local tools, PATH registration, and the
   app-root location record.
 - `setup package install` and `setup package repair` populate
-  `packages/toolchain`, the
+  `packages/setup`, the
   distributable package content used by app/depot staging. They are separate
   from active setup installation and are never run implicitly after
   bootstrap.
@@ -62,7 +61,7 @@ Explicit `setup install` performs app-local installation into the app root:
 
 - Rust is installed through `rustup-init` with `RUSTUP_HOME` and `CARGO_HOME`
   pointing inside the app root.
-- Git is applied from a complete app-owned `packages/toolchain/git` package.
+- Git is applied from a complete app-owned `packages/setup/git` package.
   Host Git wrappers are not accepted.
 - SteamCMD is downloaded and extracted under `tools/steamcmd`.
 
@@ -71,7 +70,7 @@ Steam app root, and no workflow command performs this installation implicitly.
 
 ## Installed layout
 
-The installed toolchain uses these app-owned paths:
+The installed setup uses these app-owned paths:
 
 ```text
 rustup/
@@ -84,13 +83,13 @@ tools/steamcmd/
 Distributable package content lives separately:
 
 ```text
-packages/toolchain/
+packages/setup/
 ```
 
 Commands that need Cargo, Git, or SteamCMD validate these installed paths
 directly. If anything is missing, the command stops and tells the operator to run
 `setup status`, `setup install`, or `setup repair`.
 
-Final app/depot staging copies `packages/toolchain`, not the live active
+Final app/depot staging copies `packages/setup`, not the live active
 tool directories. Populate or refresh that package content explicitly with
 `setup package install` or `setup package repair`.

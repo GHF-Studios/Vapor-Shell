@@ -69,12 +69,12 @@ pub fn smoke(stage: &Path) -> Result<(), String> {
         "Vapor.toml",
         "bin",
         "docs",
-        "packages/toolchain",
-        "packages/toolchain/rustup",
-        "packages/toolchain/rustup-home",
-        "packages/toolchain/cargo-home",
-        "packages/toolchain/git",
-        "packages/toolchain/steamcmd",
+        "packages/setup",
+        "packages/setup/rustup",
+        "packages/setup/rustup-home",
+        "packages/setup/cargo-home",
+        "packages/setup/git",
+        "packages/setup/steamcmd",
     ] {
         let path = stage.join(required);
         if !path.exists() {
@@ -92,14 +92,14 @@ pub fn smoke(stage: &Path) -> Result<(), String> {
         return Err("staged application has no vapor binary".to_owned());
     }
     for forbidden in [
-        "packages/toolchain/cargo-home/credentials",
-        "packages/toolchain/cargo-home/credentials.toml",
-        "packages/toolchain/cargo-home/registry/cache",
-        "packages/toolchain/cargo-home/registry/src",
-        "packages/toolchain/steamcmd/config",
-        "packages/toolchain/steamcmd/logs",
-        "packages/toolchain/steamcmd/steamapps",
-        "packages/toolchain/steamcmd/dumps",
+        "packages/setup/cargo-home/credentials",
+        "packages/setup/cargo-home/credentials.toml",
+        "packages/setup/cargo-home/registry/cache",
+        "packages/setup/cargo-home/registry/src",
+        "packages/setup/steamcmd/config",
+        "packages/setup/steamcmd/logs",
+        "packages/setup/steamcmd/steamapps",
+        "packages/setup/steamcmd/dumps",
     ] {
         let path = stage.join(forbidden);
         if path.exists() {

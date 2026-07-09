@@ -69,7 +69,7 @@ Rust/Cargo, Git, SteamCMD health, and distributable package-content status.
 Accept the current app root, register its `bin` directory for PATH setup, and
 install missing Rust/Cargo, Git, and SteamCMD into the app root. This command is
 explicit; other commands do not install or repair prerequisites automatically.
-It does not create `packages/toolchain`; use `setup package install` for package
+It does not create `packages/setup`; use `setup package install` for package
 payloads.
 
 `--dry-run` prints the app-root registration, PATH profiles, acquisition paths,
@@ -101,7 +101,7 @@ current Steam installation.
 
 ### `setup package install [--dry-run]`
 
-Populate missing `packages/toolchain` payloads from active app-local tools. The
+Populate missing `packages/setup` payloads from active app-local tools. The
 active Rust/Cargo, Git, and SteamCMD tools must already pass `setup status`.
 Host Git wrappers are rejected; the package must contain an app-owned Git
 distribution.
@@ -110,7 +110,7 @@ distribution.
 
 ### `setup package repair [--dry-run]`
 
-Rebuild `packages/toolchain` from active app-local tools. Use this after
+Rebuild `packages/setup` from active app-local tools. Use this after
 repairing active setup or before staging a new Steam app/depot build.
 
 `--dry-run` previews the package rebuild without changing files.
@@ -119,7 +119,7 @@ repairing active setup or before staging a new Steam app/depot build.
 
 ### `fmt|check|test|build [--project PROJECT]`
 
-Run the selected Cargo operation through the Steam-installed toolchain.
+Run the selected Cargo operation through app-local Rust/Cargo.
 `PROJECT` is `all` or a Cargo workspace name discovered from the active source
 root. `[workspace]` sources expose their root Cargo workspace. `[root]` sources
 expose direct submodules that declare `[workspace]` and contain `Cargo.toml`.
@@ -179,19 +179,19 @@ print a generated document path, or open it asynchronously.
 
 Inspect project-local RustRover/JetBrains settings for the active source root.
 This is read-only. It reports the selected source root, `.idea` directory,
-Steam-installed Rust toolchain bin directory, Rust standard-library source
+app-local Rust/Cargo bin directory, Rust standard-library source
 status, and the state of the files Vapor manages.
 
 ### `ide repair [--dry-run]`
 
 Write project-local IDE settings for the active source root so RustRover can
-see the Steam-installed Vapor toolchain and routed Cargo workspaces.
+see app-local Rust/Cargo and routed Cargo workspaces.
 
 The current first pass manages only files under the selected source root's
 `.idea` directory:
 
 - `.idea/cargoProjects.xml` for routed Cargo workspace manifests;
-- `.idea/rust.xml` for the Rust toolchain path and stdlib source path when
+- `.idea/rust.xml` for the Rust/Cargo path and stdlib source path when
   packaged;
 - `.idea/vapor.xml` for Vapor-owned app-root, Cargo home, rustup home, Cargo,
   rustc, rustup, Git, and source identity metadata.
@@ -212,7 +212,7 @@ into the Steam installation/app root.
 
 Build installed documentation, assemble the clean allowlisted app/depot payload,
 and smoke-check the staged package without invoking SteamCMD. This requires
-complete `packages/toolchain` content; run `setup package install` or
+complete `packages/setup` content; run `setup package install` or
 `setup package repair` first when metadata reports missing package payloads.
 
 ### `root publish [--account ACCOUNT] [--branch BRANCH] [--dry-run] [--yes]`

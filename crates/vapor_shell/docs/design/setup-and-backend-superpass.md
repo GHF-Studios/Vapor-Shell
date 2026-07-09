@@ -1,6 +1,6 @@
 # Setup and backend superpass
 
-Status: **owner-aligned checkpoint for implementation**
+Status: **implementation checkpoint**
 
 This checkpoint records the owner decisions behind the setup/tooling rework. It
 extends `product-topology.md`; it does not replace the root/source/content
@@ -22,6 +22,15 @@ Current implementation intent:
    performing privileged system changes;
 5. keep app/depot root authority separate from operating-system administrator
    privilege.
+
+Current implementation progress:
+
+- public `setup` lifecycle replaces the old public tooling grammar;
+- distributable setup package payloads live under `setup package`;
+- Workshop/content commands no longer populate setup payloads;
+- implementation modules and metadata reports use setup naming;
+- removed public commands are rejected by parser tests instead of kept as
+  compatibility aliases.
 
 ## Non-goals
 
@@ -145,9 +154,9 @@ setup downgrade [--dry-run]
 setup uninstall [--dry-run]
 ```
 
-This is an intentionally breaking migration. Public `toolchain` commands should
-be removed instead of kept as aliases. Internal module names may lag temporarily
-only where a mechanical rename would obscure the behavioral change.
+This is an intentionally breaking migration. Public `toolchain` commands are
+removed instead of kept as aliases, and internal modules use the setup
+vocabulary as well.
 
 The default setup target is "make the installed Vapor environment as complete as
 it reasonably can be on this machine." It should try to resolve Rust/Cargo, Git,
@@ -180,7 +189,7 @@ or opening a Vapor source, not as a general Git shell.
 Content means Workshop-installable Vapor artifacts. It includes first-party
 default engine/game/packagepack content. It excludes Vapor-Root app/depot source.
 
-The previous content-package commands that populated `packages/toolchain` were
+The previous content-package commands that populated `packages/setup` were
 misnamed. They are setup/package operations, not Workshop content operations,
 and must live under setup or package/depot preparation.
 
@@ -246,7 +255,7 @@ Diagnostics should answer:
 6. what requires user confirmation, OS privilege, Steam auth, or source edits;
 7. the smallest next command or action.
 
-Avoid generic "toolchain incomplete" errors when the actual blocker is narrower.
+Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 
 ## Implementation phases
 
@@ -303,7 +312,5 @@ Avoid generic "toolchain incomplete" errors when the actual blocker is narrower.
 ## Open decisions
 
 - Final exact `setup extend` and `setup downgrade` semantics.
-- Final internal rename schedule for modules that still use `toolchain` as an
-  implementation term after public commands move to `setup`.
 - Exact location and schema for shipped provider/dependency metadata.
 - First distro/package-manager actions to support beyond detection.

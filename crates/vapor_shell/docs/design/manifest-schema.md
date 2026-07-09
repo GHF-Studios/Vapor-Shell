@@ -226,5 +226,5 @@ Vapor-Root is app/depot source; Loo-Cast is Workshop/content source.
 The bootstrap schema does not duplicate Cargo members, package names, targets,
 Rust dependencies, documentation paths, promoted binaries, or Git submodules.
 It also does not define installation receipts, Steam authentication state, a
-public `VAPOR_HOME`, manual toolchain locks, backend pipeline stages, or
+public `VAPOR_HOME`, manual setup/provider locks, backend pipeline stages, or
 provider syntax that has not been forced by a real example.

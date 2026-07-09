@@ -36,10 +36,10 @@ not the installed Steam directory itself.
   command can affect.
 - [Cargo integration](docs/cargo-metadata.md): required Rust workspaces,
   authority boundaries, nested-workspace consequences, and derived metadata.
-- [Setup](docs/toolchain.md): explicit app-local installation of Rust, Git,
+- [Setup](docs/setup.md): explicit app-local installation of Rust, Git,
   and SteamCMD with prerequisite diagnostics.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
-  installed toolchain layout, and smoke validation.
+  setup package payloads, and smoke validation.
 - [Steam development](docs/steam-development.md): root publish previews, manual
   upload confirmation, beta publishing, and persistent cache state.
 - [Command scripts](docs/scripts.md): reusable REPL command sequences exposed
@@ -92,6 +92,6 @@ validate
 ```
 
 After that shell is installed, all normal builds and checks are routed through
-the Steam app's own `bin/vapor`. `setup install` explicitly installs tools
-into the app root. Final app packaging stages that installed app-local
-toolchain layout; there is no second source tree for the toolchain.
+the Steam app's own `bin/vapor`. `setup install` explicitly installs active
+tools into the app root. Final app packaging stages `packages/setup`; there is
+no second source tree for setup package payloads.

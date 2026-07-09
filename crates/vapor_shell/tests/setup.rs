@@ -8,14 +8,14 @@ use vapor_shell::{
     command::{self, SetupCommand, SetupPackageCommand, ShellCommand},
     discovery::EnvironmentPaths,
     path_setup::PathSetup,
+    setup::{self, SetupRequirement},
     state::ShellState,
-    toolchain::{self, Requirement},
 };
 
 #[cfg(unix)]
 #[test]
-fn active_app_local_tools_satisfy_toolchain_preflight() {
-    let installation = TestTree::new("toolchain-installation");
+fn active_app_local_tools_satisfy_setup_preflight() {
+    let installation = TestTree::new("setup-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
@@ -35,27 +35,31 @@ fn active_app_local_tools_satisfy_toolchain_preflight() {
     }
     installation.write("cargo-home/registry/.keep", "");
 
-    let source = TestTree::new("toolchain-source");
+    let source = TestTree::new("setup-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
 
-    let home = TestTree::new("toolchain-home");
+    let home = TestTree::new("setup-home");
     let setup = PathSetup::new(
         home.root().to_path_buf(),
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    let registered = toolchain::register_location_with_setup(paths.installation(), &setup).unwrap();
+    let registered = setup::register_location_with_setup(paths.installation(), &setup).unwrap();
     assert!(registered.status().registered());
 
-    let before = toolchain::inspect(paths.installation());
+    let before = setup::inspect(paths.installation());
     assert!(before.complete());
-    toolchain::require(
+    setup::require(
         paths.installation(),
-        &[Requirement::Rust, Requirement::Git, Requirement::SteamCmd],
+        &[
+            SetupRequirement::Rust,
+            SetupRequirement::Git,
+            SetupRequirement::SteamCmd,
+        ],
         "test projects",
     )
     .unwrap();
@@ -64,7 +68,7 @@ fn active_app_local_tools_satisfy_toolchain_preflight() {
 #[cfg(unix)]
 #[test]
 fn host_git_wrapper_is_not_a_valid_app_owned_git() {
-    let installation = TestTree::new("toolchain-git-wrapper");
+    let installation = TestTree::new("setup-git-wrapper");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
@@ -84,13 +88,13 @@ fn host_git_wrapper_is_not_a_valid_app_owned_git() {
     write_host_git_wrapper(&installation, "tools/git/bin/git");
 
     let executable = installation.root().join("bin/vapor");
-    let source = TestTree::new("toolchain-git-wrapper-source");
+    let source = TestTree::new("setup-git-wrapper-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
-    let status = toolchain::inspect(paths.installation());
+    let status = setup::inspect(paths.installation());
 
     assert!(!status.git().installed());
     assert!(
@@ -146,7 +150,7 @@ fn setup_package_install_populates_package_content_without_auth_state() {
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    toolchain::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
     let mut state = ShellState::new(paths).unwrap();
 
     command::execute(
@@ -159,7 +163,7 @@ fn setup_package_install_populates_package_content_without_auth_state() {
     )
     .unwrap();
 
-    let package = installation.root().join("packages/toolchain");
+    let package = installation.root().join("packages/setup");
     assert!(package.join("rustup/bin/rustup").is_file());
     assert!(
         package
@@ -178,47 +182,44 @@ fn setup_package_install_populates_package_content_without_auth_state() {
 
 #[cfg(unix)]
 #[test]
-fn toolchain_install_applies_existing_package_content() {
-    let installation = TestTree::new("toolchain-package-installation");
+fn setup_install_applies_existing_package_content() {
+    let installation = TestTree::new("setup-package-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let vapor_executable = write_executable(&installation, "bin/vapor");
     for path in [
-        "packages/toolchain/rustup/bin/rustup",
-        "packages/toolchain/rustup-home/toolchains/nightly-host/bin/cargo",
-        "packages/toolchain/rustup-home/toolchains/nightly-host/bin/rustc",
-        "packages/toolchain/rustup-home/toolchains/nightly-host/bin/rustfmt",
-        "packages/toolchain/rustup-home/toolchains/nightly-host/bin/cargo-clippy",
-        "packages/toolchain/rustup-home/toolchains/nightly-host/bin/rustdoc",
-        "packages/toolchain/git/bin/git",
-        "packages/toolchain/steamcmd/steamcmd",
+        "packages/setup/rustup/bin/rustup",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/cargo",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/rustc",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/rustfmt",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/cargo-clippy",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/rustdoc",
+        "packages/setup/git/bin/git",
+        "packages/setup/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
     }
-    installation.write("packages/toolchain/cargo-home/registry/.keep", "");
+    installation.write("packages/setup/cargo-home/registry/.keep", "");
 
-    let source = TestTree::new("toolchain-package-source");
+    let source = TestTree::new("setup-package-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
-    let home = TestTree::new("toolchain-package-home");
+    let home = TestTree::new("setup-package-home");
     let setup = PathSetup::new(
         home.root().to_path_buf(),
         installation.root().join("bin"),
         Some("/bin/bash".to_owned()),
     );
-    toolchain::register_location_with_setup(paths.installation(), &setup).unwrap();
+    setup::register_location_with_setup(paths.installation(), &setup).unwrap();
 
-    let report = toolchain::install(paths.installation()).unwrap();
-    assert_eq!(
-        report.installed_groups(),
-        ["Rust toolchain", "Git", "SteamCMD"]
-    );
+    let report = setup::install(paths.installation()).unwrap();
+    assert_eq!(report.installed_groups(), ["Rust/Cargo", "Git", "SteamCMD"]);
     assert!(report.status().complete());
     assert!(installation.root().join("rustup/bin/rustup").is_file());
     assert!(installation.root().join("tools/git/bin/git").is_file());
@@ -233,14 +234,14 @@ fn toolchain_install_applies_existing_package_content() {
 #[cfg(unix)]
 #[test]
 fn setup_install_dry_run_does_not_mutate_app_root() {
-    let installation = TestTree::new("toolchain-dry-run-installation");
+    let installation = TestTree::new("setup-dry-run-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let vapor_executable = write_executable(&installation, "bin/vapor");
 
-    let source = TestTree::new("toolchain-dry-run-source");
+    let source = TestTree::new("setup-dry-run-source");
     source.write(
         "Vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
@@ -287,11 +288,10 @@ fn moved_location_requires_explicit_repair() {
     );
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
 
-    let status = toolchain::location_status(paths.installation()).unwrap();
-    assert!(matches!(status, toolchain::LocationStatus::Moved { .. }));
-    let error =
-        toolchain::require_registered_location(paths.installation(), "run a workspace build")
-            .unwrap_err();
+    let status = setup::location_status(paths.installation()).unwrap();
+    assert!(matches!(status, setup::LocationStatus::Moved { .. }));
+    let error = setup::require_registered_location(paths.installation(), "run a workspace build")
+        .unwrap_err();
     assert!(
         error.contains("no location or PATH state was changed"),
         "{error}"

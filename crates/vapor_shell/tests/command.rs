@@ -64,12 +64,12 @@ fn help_uses_defined_argument_domains() {
             .to_string();
         assert!(help.contains("--dry-run"), "{help}");
     }
-    let removed_toolchain = ShellCommand::try_parse_from(["", "toolchain", "status"])
+    let removed_command = ShellCommand::try_parse_from(["", "toolchain", "status"])
         .expect_err("toolchain command must be removed")
         .to_string();
     assert!(
-        removed_toolchain.contains("unrecognized"),
-        "{removed_toolchain}"
+        removed_command.contains("unrecognized"),
+        "{removed_command}"
     );
 
     let ide_help = ShellCommand::try_parse_from(["", "ide", "--help"])

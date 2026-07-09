@@ -1,13 +1,13 @@
-//! Explicit installation and inspection of the app-local Vapor toolchain.
+//! Explicit installation and inspection of the app-local Vapor setup.
 //!
 //! `setup install` creates the one mandatory app-local tool bundle inside the
 //! Steam app root. Normal workflow commands never invoke installation
 //! implicitly.
 
 use crate::{
-    content_packages,
     discovery::{InstallationPaths, ensure_contained},
     path_setup::{PathSetup, PathSetupReport},
+    setup_packages,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -97,7 +97,7 @@ struct LocationLock {
 
 /// App-local tool requirement used by command preflight checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Requirement {
+pub enum SetupRequirement {
     /// Rustup, Cargo, Rustc, Rustfmt, Clippy, and Rustdoc.
     Rust,
     /// Portable Git distribution.
@@ -106,11 +106,11 @@ pub enum Requirement {
     SteamCmd,
 }
 
-impl Requirement {
+impl SetupRequirement {
     /// Human-readable tool-group name used in diagnostics.
     pub fn label(self) -> &'static str {
         match self {
-            Self::Rust => "Rust toolchain",
+            Self::Rust => "Rust/Cargo",
             Self::Git => "Git",
             Self::SteamCmd => "SteamCMD",
         }
@@ -119,14 +119,14 @@ impl Requirement {
 
 /// Health of one required app-local tool group.
 #[derive(Debug, Clone)]
-pub struct ToolStatus {
+pub struct SetupComponentStatus {
     label: &'static str,
     installed: bool,
     path: PathBuf,
     missing: Vec<String>,
 }
 
-impl ToolStatus {
+impl SetupComponentStatus {
     /// Human-readable tool-group name.
     pub fn label(&self) -> &str {
         self.label
@@ -137,7 +137,7 @@ impl ToolStatus {
         self.installed
     }
 
-    /// Primary expected executable or toolchain directory.
+    /// Primary expected executable or setup directory.
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -150,26 +150,26 @@ impl ToolStatus {
 
 /// Complete status of active Rust, Git, SteamCMD, and package content.
 #[derive(Debug, Clone)]
-pub struct ToolchainStatus {
-    rust: ToolStatus,
-    git: ToolStatus,
-    steamcmd: ToolStatus,
-    package: content_packages::ToolchainPackageStatus,
+pub struct SetupStatus {
+    rust: SetupComponentStatus,
+    git: SetupComponentStatus,
+    steamcmd: SetupComponentStatus,
+    package: setup_packages::SetupPackageStatus,
 }
 
-impl ToolchainStatus {
+impl SetupStatus {
     /// App-local Rust status.
-    pub fn rust(&self) -> &ToolStatus {
+    pub fn rust(&self) -> &SetupComponentStatus {
         &self.rust
     }
 
     /// App-local Git status.
-    pub fn git(&self) -> &ToolStatus {
+    pub fn git(&self) -> &SetupComponentStatus {
         &self.git
     }
 
     /// App-local SteamCMD status.
-    pub fn steamcmd(&self) -> &ToolStatus {
+    pub fn steamcmd(&self) -> &SetupComponentStatus {
         &self.steamcmd
     }
 
@@ -183,7 +183,7 @@ impl ToolchainStatus {
         self.package.complete()
     }
 
-    /// Root of the distributable toolchain package content.
+    /// Root of the distributable setup package content.
     pub fn package_root(&self) -> &Path {
         self.package.root()
     }
@@ -194,11 +194,11 @@ impl ToolchainStatus {
     }
 
     /// Status of one requested tool group.
-    pub fn requirement(&self, requirement: Requirement) -> &ToolStatus {
+    pub fn requirement(&self, requirement: SetupRequirement) -> &SetupComponentStatus {
         match requirement {
-            Requirement::Rust => &self.rust,
-            Requirement::Git => &self.git,
-            Requirement::SteamCmd => &self.steamcmd,
+            SetupRequirement::Rust => &self.rust,
+            SetupRequirement::Git => &self.git,
+            SetupRequirement::SteamCmd => &self.steamcmd,
         }
     }
 }
@@ -207,10 +207,10 @@ impl ToolchainStatus {
 #[derive(Debug, Clone)]
 pub struct InstallReport {
     installed_groups: Vec<&'static str>,
-    status: ToolchainStatus,
+    status: SetupStatus,
 }
 
-/// Result of explicit toolchain removal.
+/// Result of explicit setup removal.
 #[derive(Debug, Clone)]
 pub struct UninstallReport {
     removed_paths: usize,
@@ -236,7 +236,7 @@ impl InstallReport {
     }
 
     /// Post-install status.
-    pub fn status(&self) -> &ToolchainStatus {
+    pub fn status(&self) -> &SetupStatus {
         &self.status
     }
 }
@@ -389,8 +389,8 @@ pub fn require_registered_status(status: &LocationStatus, action: &str) -> Resul
     }
 }
 
-/// Inspect the mandatory app-local toolchain.
-pub fn inspect(installation: &InstallationPaths) -> ToolchainStatus {
+/// Inspect the mandatory app-local setup.
+pub fn inspect(installation: &InstallationPaths) -> SetupStatus {
     inspect_root(installation.root())
 }
 
@@ -401,7 +401,7 @@ pub fn inspect(installation: &InstallationPaths) -> ToolchainStatus {
 /// Fails when the app location is not accepted, acquisition fails, a path
 /// escapes the installation, or verification remains incomplete.
 pub fn install(installation: &InstallationPaths) -> Result<InstallReport, String> {
-    apply_toolchain_install(installation, false)
+    apply_setup_install(installation, false)
 }
 
 /// Reinstall every app-local tool group.
@@ -410,7 +410,7 @@ pub fn install(installation: &InstallationPaths) -> Result<InstallReport, String
 ///
 /// Fails under the same conditions as [`install`].
 pub fn repair(installation: &InstallationPaths) -> Result<InstallReport, String> {
-    apply_toolchain_install(installation, true)
+    apply_setup_install(installation, true)
 }
 
 /// Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and location lock.
@@ -449,7 +449,7 @@ pub fn uninstall(installation: &InstallationPaths) -> Result<UninstallReport, St
 ///
 /// Fails when acquisition fails, a path escapes the installation, copying fails,
 /// or post-install verification remains incomplete.
-fn apply_toolchain_install(
+fn apply_setup_install(
     installation: &InstallationPaths,
     repair: bool,
 ) -> Result<InstallReport, String> {
@@ -458,7 +458,7 @@ fn apply_toolchain_install(
 
     let root = installation.root();
     let installed_groups = if before.package_complete() {
-        content_packages::copy_toolchain_package_to_active(
+        setup_packages::copy_setup_package_to_active(
             root,
             &before.package,
             repair,
@@ -485,7 +485,7 @@ fn apply_toolchain_install(
 
 fn bootstrap_tools(
     root: &Path,
-    before: &ToolchainStatus,
+    before: &SetupStatus,
     repair: bool,
 ) -> Result<Vec<&'static str>, String> {
     if !cfg!(target_os = "linux") {
@@ -494,7 +494,7 @@ fn bootstrap_tools(
     let mut installed_groups = Vec::new();
     if repair || !before.rust.installed() {
         bootstrap_rust(root)?;
-        installed_groups.push("Rust toolchain");
+        installed_groups.push("Rust/Cargo");
     }
     if repair || !before.git.installed() {
         return Err(format!(
@@ -562,7 +562,7 @@ fn rustup_init_url() -> Result<&'static str, String> {
         ("linux", "x86_64") => Ok(RUSTUP_INIT_X86_64_LINUX),
         ("linux", "aarch64") => Ok(RUSTUP_INIT_AARCH64_LINUX),
         (os, arch) => Err(format!(
-            "Rust toolchain installation is not configured for {arch}-{os}"
+            "Rust/Cargo setup installation is not configured for {arch}-{os}"
         )),
     }
 }
@@ -651,7 +651,7 @@ fn make_executable(path: &Path) -> Result<(), String> {
 /// Returns a diagnostic naming missing components and explicit next commands.
 pub fn require(
     installation: &InstallationPaths,
-    requirements: &[Requirement],
+    requirements: &[SetupRequirement],
     action: &str,
 ) -> Result<(), String> {
     let status = inspect(installation);
@@ -664,8 +664,8 @@ pub fn require(
 ///
 /// Returns a diagnostic naming missing components and explicit next commands.
 pub fn require_status(
-    status: &ToolchainStatus,
-    requirements: &[Requirement],
+    status: &SetupStatus,
+    requirements: &[SetupRequirement],
     action: &str,
 ) -> Result<(), String> {
     let missing = requirements
@@ -688,7 +688,7 @@ pub fn require_status(
     ))
 }
 
-fn inspect_root(root: &Path) -> ToolchainStatus {
+fn inspect_root(root: &Path) -> SetupStatus {
     let rustup = root.join("rustup/bin").join(executable("rustup"));
     let toolchains = root.join("rustup-home/toolchains");
     let (rust_bin, rust_missing) = inspect_rust(&toolchains, Some(root));
@@ -696,17 +696,17 @@ fn inspect_root(root: &Path) -> ToolchainStatus {
     if !is_healthy_executable(&rustup, root) {
         missing.push(format!("rustup (expected at {})", rustup.display()));
     }
-    let rust = ToolStatus {
-        label: "Rust toolchain",
+    let rust = SetupComponentStatus {
+        label: "Rust/Cargo",
         installed: missing.is_empty(),
         path: rust_bin.unwrap_or(toolchains),
         missing,
     };
 
     let git_path = root.join("tools/git/bin").join(executable("git"));
-    let git_is_wrapper = content_packages::is_host_git_wrapper(&git_path);
+    let git_is_wrapper = setup_packages::is_host_git_wrapper(&git_path);
     let git_installed = !git_is_wrapper && is_healthy_executable(&git_path, root);
-    let git = ToolStatus {
+    let git = SetupComponentStatus {
         label: "Git",
         installed: git_installed,
         path: git_path,
@@ -721,7 +721,7 @@ fn inspect_root(root: &Path) -> ToolchainStatus {
 
     let steam_path = steam_executable(root);
     let steam_installed = is_executable(&steam_path);
-    let steamcmd = ToolStatus {
+    let steamcmd = SetupComponentStatus {
         label: "SteamCMD",
         installed: steam_installed,
         path: steam_path,
@@ -732,11 +732,11 @@ fn inspect_root(root: &Path) -> ToolchainStatus {
         },
     };
 
-    ToolchainStatus {
+    SetupStatus {
         rust,
         git,
         steamcmd,
-        package: content_packages::inspect_toolchain_package(root),
+        package: setup_packages::inspect_setup_package(root),
     }
 }
 
@@ -772,14 +772,18 @@ fn inspect_rust(toolchains: &Path, active_root: Option<&Path>) -> (Option<PathBu
     )
 }
 
-fn format_missing(status: &ToolchainStatus) -> String {
+fn format_missing(status: &SetupStatus) -> String {
     format_missing_selected(
         status,
-        &[Requirement::Rust, Requirement::Git, Requirement::SteamCmd],
+        &[
+            SetupRequirement::Rust,
+            SetupRequirement::Git,
+            SetupRequirement::SteamCmd,
+        ],
     )
 }
 
-fn format_missing_selected(status: &ToolchainStatus, requirements: &[Requirement]) -> String {
+fn format_missing_selected(status: &SetupStatus, requirements: &[SetupRequirement]) -> String {
     requirements
         .iter()
         .filter_map(|requirement| {

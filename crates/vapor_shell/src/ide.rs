@@ -7,7 +7,7 @@
 
 use crate::{
     discovery::{EnvironmentPaths, ensure_contained},
-    toolchain::ToolchainStatus,
+    setup::SetupStatus,
     workspace::WorkspaceManifest,
 };
 use std::{
@@ -118,9 +118,9 @@ struct IdeFile {
 pub(crate) fn inspect(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    toolchain: &ToolchainStatus,
+    setup: &SetupStatus,
 ) -> Result<IdeStatus, String> {
-    let plan = build_plan(paths, manifest, toolchain)?;
+    let plan = build_plan(paths, manifest, setup)?;
     plan.status()
 }
 
@@ -128,9 +128,9 @@ pub(crate) fn inspect(
 pub(crate) fn preview(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    toolchain: &ToolchainStatus,
+    setup: &SetupStatus,
 ) -> Result<IdeRepairReport, String> {
-    let plan = build_plan(paths, manifest, toolchain)?;
+    let plan = build_plan(paths, manifest, setup)?;
     let written = plan
         .files
         .iter()
@@ -147,9 +147,9 @@ pub(crate) fn preview(
 pub(crate) fn repair(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    toolchain: &ToolchainStatus,
+    setup: &SetupStatus,
 ) -> Result<IdeRepairReport, String> {
-    let plan = build_plan(paths, manifest, toolchain)?;
+    let plan = build_plan(paths, manifest, setup)?;
     fs::create_dir_all(&plan.idea_dir).map_err(|error| {
         format!(
             "failed to create IDE settings directory '{}': {error}",
@@ -175,11 +175,11 @@ pub(crate) fn repair(
 fn build_plan(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
-    toolchain: &ToolchainStatus,
+    setup: &SetupStatus,
 ) -> Result<IdePlan, String> {
     let root = paths.source().root().to_path_buf();
     let idea_dir = root.join(".idea");
-    let rust_bin = toolchain.rust().path().to_path_buf();
+    let rust_bin = setup.rust().path().to_path_buf();
     let stdlib_source = rust_stdlib_source(&rust_bin).filter(|path| path.is_dir());
     let files = vec![
         IdeFile {
@@ -192,7 +192,7 @@ fn build_plan(
         },
         IdeFile {
             path: idea_dir.join(VAPOR_SETTINGS_FILE),
-            contents: vapor_xml(paths, toolchain, stdlib_source.as_deref())?,
+            contents: vapor_xml(paths, setup, stdlib_source.as_deref())?,
         },
     ];
     Ok(IdePlan {
@@ -239,7 +239,7 @@ fn cargo_projects_xml(manifest: &WorkspaceManifest) -> String {
 fn rust_xml(rust_bin: &Path, stdlib_source: Option<&Path>) -> String {
     RUST_TEMPLATE
         .replace(
-            "{{toolchain_home_directory}}",
+            "{{rust_bin_directory}}",
             &xml_escape(&rust_bin.to_string_lossy()),
         )
         .replace(
@@ -250,7 +250,7 @@ fn rust_xml(rust_bin: &Path, stdlib_source: Option<&Path>) -> String {
 
 fn vapor_xml(
     paths: &EnvironmentPaths,
-    toolchain: &ToolchainStatus,
+    setup: &SetupStatus,
     stdlib_source: Option<&Path>,
 ) -> Result<String, String> {
     let root = paths.installation().root();
@@ -258,9 +258,9 @@ fn vapor_xml(
         .installation()
         .bundled_cargo()
         .ok_or_else(|| "cannot configure IDE: bundled Cargo is missing".to_owned())?;
-    let rustc = toolchain.rust().path().join(executable("rustc"));
+    let rustc = setup.rust().path().join(executable("rustc"));
     let rustup = root.join("rustup/bin").join(executable("rustup"));
-    let git = toolchain.git().path();
+    let git = setup.git().path();
     Ok(VAPOR_TEMPLATE
         .replace("{{source_id}}", &xml_escape(paths.source().identity_id()))
         .replace("{{app_root}}", &xml_escape(&root.to_string_lossy()))
@@ -312,7 +312,7 @@ fn file_current(file: &IdeFile) -> bool {
 fn rust_stdlib_source(rust_bin: &Path) -> Option<PathBuf> {
     rust_bin
         .parent()
-        .map(|toolchain| toolchain.join("lib/rustlib/src/rust/library"))
+        .map(|setup| setup.join("lib/rustlib/src/rust/library"))
 }
 
 fn executable(name: &str) -> String {

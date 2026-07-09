@@ -62,8 +62,8 @@ fn permits_same_identity_when_installation_and_source_are_disjoint() {
 }
 
 #[test]
-fn discovers_cargo_inside_the_managed_rustup_toolchain() {
-    let installation = TestTree::new("toolchain-installation");
+fn discovers_cargo_inside_app_local_rustup() {
+    let installation = TestTree::new("setup-installation");
     installation.write(
         manifest::FILE_NAME,
         "[root]\nname = \"installation\"\norganization = \"example\"\n",

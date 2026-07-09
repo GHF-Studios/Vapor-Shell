@@ -70,7 +70,7 @@ can reopen the last active external source. If the saved path is absent or
 invalid, Vapor reports that problem and continues in the closed app-only shell.
 
 Ad-hoc one-shot commands are disabled. Direct facades are limited to bootstrap
-and automation-safe commands such as `open`, `close`, `sources`, `toolchain`,
+and automation-safe commands such as `open`, `close`, `sources`, `setup`,
 `metadata`, app inspection, and `script run`. They do not trigger terminal
 relaunch.
 

@@ -18,16 +18,17 @@ without uploading. The current baseline payload is conventional and app-owned:
 - `Vapor.toml`
 - `bin/`
 - `docs/`
-- `packages/toolchain/`
+- `packages/setup/`
 
 Source repositories, Cargo build targets, Cargo registries, Git checkouts,
 Steam authentication, logs, and SteamPipe cache state are not staged.
 
 The publish preflight requires installed app-local Rust/Cargo, Git, and
 SteamCMD setup plus complete distributable package payloads. Staging copies
-`packages/toolchain`; populate it explicitly with `setup package install` or
-refresh it with `setup package repair`. Active tool directories such as `rustup-home/`,
-`cargo-home/`, `tools/git/`, and `tools/steamcmd/` are not staged directly.
+`packages/setup`; populate it explicitly with `setup package install` or
+refresh it with `setup package repair`. Active tool directories such as
+`rustup-home/`, `cargo-home/`, `tools/git/`, and `tools/steamcmd/` are not
+staged directly.
 
 Workshop content is separate from this depot flow. A workspace such as
 Loo-Cast can publish workshop items and packagepacks, but it is not part of

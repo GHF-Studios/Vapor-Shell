@@ -7,14 +7,13 @@
 //! the source cursor into the Steam application directory.
 
 use crate::{
-    content_packages,
     discovery::EnvironmentPaths,
     documentation, ide,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
-    source_registry,
+    setup::{self, SetupRequirement},
+    setup_packages, source_registry,
     state::ShellState,
     steam,
-    toolchain::{self, Requirement},
     workflow::{self, CargoWorkflow, ProjectSelection},
 };
 use clap::{Parser, Subcommand};
@@ -78,28 +77,28 @@ pub enum ShellCommand {
         format: MetadataFormat,
     },
 
-    /// Format Cargo workspaces through the Steam-installed setup.
+    /// Format Cargo workspaces through app-local Rust/Cargo.
     Fmt {
         /// Cargo workspace name to format, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
         project: ProjectSelection,
     },
 
-    /// Check Cargo workspaces through the Steam-installed setup.
+    /// Check Cargo workspaces through app-local Rust/Cargo.
     Check {
         /// Cargo workspace name to check, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
         project: ProjectSelection,
     },
 
-    /// Test Cargo workspaces through the Steam-installed setup.
+    /// Test Cargo workspaces through app-local Rust/Cargo.
     Test {
         /// Cargo workspace name to test, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
         project: ProjectSelection,
     },
 
-    /// Build Cargo workspaces through the Steam-installed setup.
+    /// Build Cargo workspaces through app-local Rust/Cargo.
     Build {
         /// Cargo workspace name to build, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
@@ -208,7 +207,7 @@ pub enum SourcesCommand {
 pub enum IdeCommand {
     /// Report RustRover/JetBrains project-local setup state.
     Status,
-    /// Write project-local settings for the Steam-installed Vapor toolchain.
+    /// Write project-local settings for app-local Rust/Cargo.
     Repair {
         /// Preview IDE files without writing them.
         #[arg(long)]
@@ -219,7 +218,7 @@ pub enum IdeCommand {
 /// Vapor setup lifecycle operations.
 #[derive(Debug, Subcommand)]
 pub enum SetupCommand {
-    /// Report app-root, PATH, backend tool, and package-payload readiness.
+    /// Report app-root, PATH, app-local tool, and package-payload readiness.
     Status,
     /// Install missing setup components inside the app root.
     Install {
@@ -455,7 +454,7 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             let status = ide::inspect(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
-                metadata.toolchain_status(),
+                metadata.setup_status(),
             )?;
             print_ide_status(&status);
             if status.complete() {
@@ -470,20 +469,20 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             metadata.validate(
                 &ValidationPlan::new("repair IDE setup")
                     .registered_location()
-                    .tools(&[Requirement::Rust])
+                    .setup(&[SetupRequirement::Rust])
                     .workspace(),
             )?;
             let report = if dry_run {
                 ide::preview(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
-                    metadata.toolchain_status(),
+                    metadata.setup_status(),
                 )?
             } else {
                 ide::repair(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
-                    metadata.toolchain_status(),
+                    metadata.setup_status(),
                 )?
             };
             print_ide_status(report.status());
@@ -515,7 +514,7 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
 fn print_ide_status(status: &ide::IdeStatus) {
     println!("source root: {}", status.source_root().display());
     println!("IDE directory: {}", status.idea_dir().display());
-    println!("Rust toolchain bin: {}", status.rust_bin().display());
+    println!("Rust/Cargo bin: {}", status.rust_bin().display());
     match status.stdlib_source() {
         Some(path) => println!("Rust standard library source: {}", path.display()),
         None => println!(
@@ -541,7 +540,7 @@ fn execute_workflow(
     metadata.validate(
         &ValidationPlan::new(command.label())
             .registered_location()
-            .tools(&[Requirement::Rust, Requirement::Git])
+            .setup(&[SetupRequirement::Rust, SetupRequirement::Git])
             .workspace(),
     )?;
     workflow::run(
@@ -558,9 +557,9 @@ fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), St
     let installation = state.installation();
     match command {
         SetupCommand::Status => {
-            let location = toolchain::location_status(installation)?;
+            let location = setup::location_status(installation)?;
             print_location_status(&location);
-            let status = toolchain::inspect(installation);
+            let status = setup::inspect(installation);
             print_tool_status(status.rust());
             print_tool_status(status.git());
             print_tool_status(status.steamcmd());
@@ -580,9 +579,9 @@ fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), St
                 preview_setup_install(installation, false)?;
                 return Ok(());
             }
-            let change = toolchain::register_location(installation)?;
+            let change = setup::register_location(installation)?;
             print_location_status(change.status());
-            let report = toolchain::install(installation)?;
+            let report = setup::install(installation)?;
             state.refresh_cargo_index();
             if report.installed_groups().is_empty() {
                 println!("setup is already installed; no files changed");
@@ -597,9 +596,9 @@ fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), St
                 preview_setup_install(installation, true)?;
                 return Ok(());
             }
-            let change = toolchain::register_location(installation)?;
+            let change = setup::register_location(installation)?;
             print_location_status(change.status());
-            let report = toolchain::repair(installation)?;
+            let report = setup::repair(installation)?;
             state.refresh_cargo_index();
             if report.installed_groups().is_empty() {
                 println!("setup repair found all components already installed");
@@ -614,7 +613,7 @@ fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), St
                 preview_setup_uninstall(installation)?;
                 return Ok(());
             }
-            let report = toolchain::uninstall(installation)?;
+            let report = setup::uninstall(installation)?;
             state.refresh_cargo_index();
             print_location_status(report.location().status());
             println!(
@@ -626,7 +625,7 @@ fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), St
         }
         SetupCommand::Package { command } => match command {
             SetupPackageCommand::Status => {
-                let status = toolchain::inspect(installation);
+                let status = setup::inspect(installation);
                 print_package_status(&status);
                 if status.package_complete() {
                     println!("hint: assemble the app package with `vapor root package`");
@@ -649,8 +648,8 @@ fn preview_setup_install(
     installation: &crate::discovery::InstallationPaths,
     repair: bool,
 ) -> Result<(), String> {
-    let location = toolchain::location_status(installation)?;
-    let status = toolchain::inspect(installation);
+    let location = setup::location_status(installation)?;
+    let status = setup::inspect(installation);
     println!(
         "dry-run: would {} Vapor setup",
         if repair { "repair" } else { "install" }
@@ -686,8 +685,8 @@ fn preview_setup_install(
 fn preview_setup_uninstall(
     installation: &crate::discovery::InstallationPaths,
 ) -> Result<(), String> {
-    let location = toolchain::location_status(installation)?;
-    let status = toolchain::inspect(installation);
+    let location = setup::location_status(installation)?;
+    let status = setup::inspect(installation);
     println!("dry-run: would uninstall Vapor setup");
     print_location_status(&location);
     for path in [
@@ -716,7 +715,7 @@ fn preview_setup_uninstall(
     Ok(())
 }
 
-fn print_tool_action(status: &toolchain::ToolStatus, repair: bool) {
+fn print_tool_action(status: &setup::SetupComponentStatus, repair: bool) {
     let action = if repair {
         "reapply"
     } else if status.installed() {
@@ -731,17 +730,17 @@ fn print_tool_action(status: &toolchain::ToolStatus, repair: bool) {
     }
 }
 
-fn print_location_status(status: &toolchain::LocationStatus) {
+fn print_location_status(status: &setup::LocationStatus) {
     match status {
-        toolchain::LocationStatus::Unregistered { current } => {
+        setup::LocationStatus::Unregistered { current } => {
             println!("app root: unregistered");
             println!("  current:   {}", current.display());
         }
-        toolchain::LocationStatus::Registered { path } => {
+        setup::LocationStatus::Registered { path } => {
             println!("app root: registered");
             println!("  path:      {}", path.display());
         }
-        toolchain::LocationStatus::Moved { locked, current } => {
+        setup::LocationStatus::Moved { locked, current } => {
             println!("app root: moved (confirmation required)");
             println!("  previous:  {}", locked.display());
             println!("  current:   {}", current.display());
@@ -760,7 +759,7 @@ fn print_path_hint(report: &crate::path_setup::PathSetupReport) {
     }
 }
 
-fn print_tool_status(status: &toolchain::ToolStatus) {
+fn print_tool_status(status: &setup::SetupComponentStatus) {
     println!(
         "{}: {}",
         status.label(),
@@ -776,7 +775,7 @@ fn print_tool_status(status: &toolchain::ToolStatus) {
     }
 }
 
-fn print_package_status(status: &toolchain::ToolchainStatus) {
+fn print_package_status(status: &setup::SetupStatus) {
     println!(
         "package content: {}",
         if status.package_complete() {
@@ -798,7 +797,7 @@ fn execute_docs(command: DocsCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("build documentation")
                     .registered_location()
-                    .tools(&[Requirement::Rust])
+                    .setup(&[SetupRequirement::Rust])
                     .workspace(),
             )?;
             println!(
@@ -827,7 +826,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("rebuild the Vapor application")
                     .registered_location()
-                    .tools(&[Requirement::Rust, Requirement::Git])
+                    .setup(&[SetupRequirement::Rust, SetupRequirement::Git])
                     .workspace(),
             )?;
             workflow::run(
@@ -845,11 +844,15 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("package the Vapor application")
                     .registered_location()
-                    .tools(&[Requirement::Rust, Requirement::Git, Requirement::SteamCmd])
+                    .setup(&[
+                        SetupRequirement::Rust,
+                        SetupRequirement::Git,
+                        SetupRequirement::SteamCmd,
+                    ])
                     .workspace()
                     .distribution(),
             )?;
-            content_packages::validate_toolchain_package(state.installation().root())?;
+            setup_packages::validate_setup_package(state.installation().root())?;
             documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
             let report = crate::distribution::stage(
                 state.active_paths()?,
@@ -879,11 +882,15 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             metadata.validate(
                 &ValidationPlan::new("publish the Vapor application")
                     .registered_location()
-                    .tools(&[Requirement::Rust, Requirement::Git, Requirement::SteamCmd])
+                    .setup(&[
+                        SetupRequirement::Rust,
+                        SetupRequirement::Git,
+                        SetupRequirement::SteamCmd,
+                    ])
                     .workspace()
                     .distribution(),
             )?;
-            content_packages::validate_toolchain_package(state.installation().root())?;
+            setup_packages::validate_setup_package(state.installation().root())?;
             workflow::run(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
@@ -946,12 +953,16 @@ fn execute_setup_package(repair: bool, dry_run: bool, state: &ShellState) -> Res
     } else {
         "install setup package payloads"
     };
-    let location = toolchain::location_status(state.installation())?;
-    toolchain::require_registered_status(&location, action)?;
-    let toolchain = toolchain::inspect(state.installation());
-    toolchain::require_status(
-        &toolchain,
-        &[Requirement::Rust, Requirement::Git, Requirement::SteamCmd],
+    let location = setup::location_status(state.installation())?;
+    setup::require_registered_status(&location, action)?;
+    let setup_status = setup::inspect(state.installation());
+    setup::require_status(
+        &setup_status,
+        &[
+            SetupRequirement::Rust,
+            SetupRequirement::Git,
+            SetupRequirement::SteamCmd,
+        ],
         action,
     )?;
     if dry_run {
@@ -959,15 +970,14 @@ fn execute_setup_package(repair: bool, dry_run: bool, state: &ShellState) -> Res
             "dry-run: would {} distributable setup package payloads",
             if repair { "repair" } else { "install" }
         );
-        print_package_status(&toolchain);
+        print_package_status(&setup_status);
         println!(
             "would copy active tools into {}",
-            toolchain.package_root().display()
+            setup_status.package_root().display()
         );
         println!("dry-run: no package files were changed");
     } else {
-        let report =
-            content_packages::install_toolchain_package(state.installation().root(), repair)?;
+        let report = setup_packages::install_setup_package(state.installation().root(), repair)?;
         if report.changed() {
             println!(
                 "{} package content at {}",

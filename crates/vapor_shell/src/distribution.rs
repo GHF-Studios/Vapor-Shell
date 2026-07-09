@@ -126,8 +126,8 @@ fn default_payload() -> Vec<Payload> {
         Payload::required(PayloadRoot::Installation, "docs", "docs"),
         Payload::required(
             PayloadRoot::Installation,
-            "packages/toolchain",
-            "packages/toolchain",
+            "packages/setup",
+            "packages/setup",
         ),
     ]
 }

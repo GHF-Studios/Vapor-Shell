@@ -63,7 +63,7 @@ For Cargo-backed workflows:
   source structure;
 - malformed Cargo policy or incompatible metadata blocks Cargo-backed
   workflows;
-- a missing app-local Cargo executable is an unmet toolchain prerequisite, not
+- a missing app-local Cargo executable is an unmet setup prerequisite, not
   permission to fall back to host Cargo.
 
 `vapor metadata` reports these states without hiding otherwise recoverable

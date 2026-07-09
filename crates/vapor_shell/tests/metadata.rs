@@ -4,8 +4,8 @@ use common::TestTree;
 use vapor_shell::{
     discovery::EnvironmentPaths,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
+    setup::SetupRequirement,
     state::ShellState,
-    toolchain::Requirement,
 };
 
 fn fixture() -> (TestTree, TestTree, ShellState) {
@@ -37,7 +37,8 @@ fn metadata_reports_partial_state_in_human_and_json_formats() {
     assert!(human.contains("source:    example/source"), "{human}");
     assert!(human.contains("location:   unregistered"), "{human}");
     assert!(human.contains("distribution: not declared"), "{human}");
-    assert!(human.contains("Rust toolchain: missing"), "{human}");
+    assert!(human.contains("setup:"), "{human}");
+    assert!(human.contains("Rust/Cargo: missing"), "{human}");
 
     let json = metadata.render(MetadataFormat::Json).unwrap();
     let json: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -49,6 +50,9 @@ fn metadata_reports_partial_state_in_human_and_json_formats() {
         installation.root().display().to_string()
     );
     assert_eq!(json["installation"]["location"]["status"], "unregistered");
+    assert!(json.get("setup").is_some(), "{json}");
+    assert!(json.get("toolchain").is_none(), "{json}");
+    assert_eq!(json["setup"]["rust"]["label"], "Rust/Cargo");
     assert_eq!(json["manifests"]["distribution"]["status"], "absent");
     assert!(json["diagnostics"].as_array().unwrap().len() >= 4);
 }
@@ -68,7 +72,7 @@ fn validation_plans_check_only_requested_capabilities() {
     assert!(error.contains("setup install"), "{error}");
 
     let error = metadata
-        .validate(&ValidationPlan::new("authenticate").tools(&[Requirement::SteamCmd]))
+        .validate(&ValidationPlan::new("authenticate").setup(&[SetupRequirement::SteamCmd]))
         .unwrap_err();
     assert!(error.contains("SteamCMD"), "{error}");
 

@@ -4,9 +4,9 @@ use crate::{
     command::{self, Control, ShellCommand},
     discovery::EnvironmentPaths,
     prompt::VaporPrompt,
-    source_registry,
+    setup, source_registry,
     state::ShellState,
-    terminal, toolchain,
+    terminal,
 };
 use clap::{Parser, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
@@ -72,14 +72,14 @@ pub fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let toolchain = toolchain::inspect(state.installation());
-    match toolchain::location_status(state.installation()) {
-        Ok(toolchain::LocationStatus::Registered { .. }) => {}
-        Ok(toolchain::LocationStatus::Unregistered { current }) => {
+    let setup_status = setup::inspect(state.installation());
+    match setup::location_status(state.installation()) {
+        Ok(setup::LocationStatus::Registered { .. }) => {}
+        Ok(setup::LocationStatus::Unregistered { current }) => {
             eprintln!("notice: app root is not registered: {}", current.display());
             eprintln!("hint: review `setup status`, then choose `setup install`");
         }
-        Ok(toolchain::LocationStatus::Moved { locked, current }) => {
+        Ok(setup::LocationStatus::Moved { locked, current }) => {
             eprintln!("notice: app root moved and requires explicit confirmation");
             eprintln!("  previous: {}", locked.display());
             eprintln!("  current:   {}", current.display());
@@ -87,11 +87,11 @@ pub fn run() -> Result<(), String> {
         }
         Err(error) => eprintln!("warning: app-root location state is invalid: {error}"),
     }
-    if !toolchain.complete() {
+    if !setup_status.complete() {
         eprintln!("notice: Vapor setup is missing Rust, Git, or SteamCMD readiness");
         eprintln!("hint: inspect it with `setup status`, then choose `setup install`");
     }
-    if !toolchain.package_complete() {
+    if !setup_status.package_complete() {
         eprintln!("notice: distributable setup package payloads are incomplete");
         eprintln!(
             "hint: inspect them with `setup package status`, then choose `setup package install`"
