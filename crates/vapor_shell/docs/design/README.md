@@ -14,6 +14,10 @@ alignment.
 - [Setup and backend superpass](setup-and-backend-superpass.md) — owner-aligned
   direction for setup, backend capability resolution, hidden Cargo/Git/SteamCMD
   plumbing, and the migration away from overloaded tooling/content commands.
+- [Workshop content superpass](workshop-content-superpass.md) — owner-aligned
+  direction for SteamUGC, Workshop-backed custom content lifecycle, source
+  command unification, script authority boundaries, and README/agent-doc
+  alignment.
 
 User guides and reference documentation should cite a checkpoint only when the
 corresponding behavior is either implemented or explicitly labeled as planned.
