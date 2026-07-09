@@ -8,7 +8,7 @@
 //!
 //! # Installation access
 //!
-//! Installation paths remain available through [`ShellState::paths`] for
+//! Installation paths remain available through [`ShellState::active_paths`] for
 //! explicit tool execution and diagnostics. They are not valid navigation
 //! targets because authored source must remain outside the app root.
 

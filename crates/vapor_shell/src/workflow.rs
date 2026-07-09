@@ -70,11 +70,11 @@ impl CargoWorkflow {
 
     pub(crate) fn next_hint(self) -> &'static str {
         match self {
-            Self::Fmt => "formatting completed; next run `vapor test`",
-            Self::Check => "checking completed; next run `vapor test`",
-            Self::Test => "tests completed; next run `vapor validate`",
-            Self::Build => "build completed; use `vapor root build` to promote app binaries",
-            Self::Validate => "validation passed; next run `vapor root build`",
+            Self::Fmt => "formatting completed; next run `test`",
+            Self::Check => "checking completed; next run `test`",
+            Self::Test => "tests completed; next run `validate`",
+            Self::Build => "build completed; use `root build` to promote app binaries",
+            Self::Validate => "validation passed; next run `root build`",
         }
     }
 }

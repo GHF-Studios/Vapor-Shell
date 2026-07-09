@@ -474,11 +474,9 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             )?;
             print_ide_status(&status);
             if status.complete() {
-                println!("hint: IDE settings are current; next run `vapor validate`");
+                println!("hint: IDE settings are current; next run `validate`");
             } else {
-                println!(
-                    "hint: preview project-local IDE repair with `vapor ide repair --dry-run`"
-                );
+                println!("hint: preview project-local IDE repair with `ide repair --dry-run`");
             }
         }
         IdeCommand::Repair { dry_run } => {
@@ -518,7 +516,7 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             }
             if dry_run {
                 println!("dry-run: no IDE files were changed");
-                println!("hint: apply with `vapor ide repair`");
+                println!("hint: apply with `ide repair`");
             } else {
                 println!("hint: restart or refresh RustRover so project settings are reloaded");
             }
@@ -615,7 +613,9 @@ fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Resu
                 println!("installed: {}", report.installed_groups().join(", "));
             }
             print_path_hint(change.path_setup());
-            println!("hint: confirm with `vapor setup self status`, then run `vapor validate`");
+            println!(
+                "hint: confirm with `vapor setup self status`; then enter the shell and run `validate`"
+            );
         }
         SetupSelfCommand::Repair { dry_run } => {
             if dry_run {
@@ -632,7 +632,9 @@ fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Resu
                 println!("repaired: {}", report.installed_groups().join(", "));
             }
             print_path_hint(change.path_setup());
-            println!("hint: confirm with `vapor setup self status`, then run `vapor validate`");
+            println!(
+                "hint: confirm with `vapor setup self status`; then enter the shell and run `validate`"
+            );
         }
         SetupSelfCommand::Uninstall { dry_run } => {
             if dry_run {
@@ -654,7 +656,7 @@ fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Resu
                 let status = setup_self::inspect(installation);
                 print_package_status(&status);
                 if status.package_complete() {
-                    println!("hint: assemble the app package with `vapor root package`");
+                    println!("hint: enter the shell and run `root package`");
                 } else {
                     println!(
                         "hint: populate self-setup payloads with `vapor setup self package install`"
@@ -836,7 +838,7 @@ fn execute_docs(command: DocsCommand, state: &ShellState) -> Result<(), String> 
                 documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?
                     .display()
             );
-            println!("hint: open it with `vapor docs open`");
+            println!("hint: open it with `docs open`");
         }
         DocsCommand::Path { topic } => println!(
             "{}",
@@ -869,7 +871,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             let promoted =
                 workflow::promote(state.active_paths()?, metadata.workspace_manifest()?)?;
             println!("promoted {promoted} installation binaries");
-            println!("hint: assemble the app package with `vapor root package`");
+            println!("hint: assemble the app package with `root package`");
         }
         RootCommand::Package => {
             metadata.validate(
@@ -895,7 +897,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 report.files(),
                 report.root().display()
             );
-            println!("hint: preview Steam upload with `vapor root publish --dry-run`");
+            println!("hint: preview Steam upload with `root publish --dry-run`");
         }
         RootCommand::Publish {
             account,
@@ -950,7 +952,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             println!("SteamPipe build script: {}", script.display());
             if dry_run {
                 println!(
-                    "hint: review the staged app, then run `vapor root publish --account ACCOUNT --yes`"
+                    "hint: review the staged app, then run `root publish --account ACCOUNT --yes`"
                 );
             } else {
                 println!("hint: Steam accepted the app upload; verify the target beta branch");
@@ -1018,7 +1020,7 @@ fn execute_setup_self_package(
                 report.status().root().display()
             );
         }
-        println!("hint: assemble the app package with `vapor root package`");
+        println!("hint: enter the shell and run `root package`");
     }
     Ok(())
 }
