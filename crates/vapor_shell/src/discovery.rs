@@ -1,15 +1,16 @@
-//! Discovery of the replaceable Steam installation and external source root.
+//! Discovery of the Steam installation/app root and external source root.
 //!
 //! # Two-root model
 //!
-//! Vapor deliberately separates replaceable machinery from authored source:
+//! Vapor deliberately separates app-owned machinery from authored source:
 //!
 //! - [`InstallationPaths`] is anchored to the running executable. It contains
 //!   bundled tools, toolchains, binaries, libraries, and installed content.
-//! - [`SourceWorkspace`] is anchored to the invocation directory. It contains
-//!   critical authored source and must be outside the installation.
+//! - [`SourceWorkspace`] is anchored to an explicitly selected external source
+//!   path. It contains critical authored source and must be outside the
+//!   installation.
 //!
-//! [`EnvironmentPaths`] discovers both roots and rejects overlapping layouts.
+//! [`EnvironmentPaths`] pairs both roots and rejects overlapping layouts.
 //! User navigation is confined to the source root; installation paths are
 //! resources that commands may inspect or execute explicitly.
 
@@ -30,16 +31,25 @@ pub struct EnvironmentPaths {
 }
 
 impl EnvironmentPaths {
+    /// Discover only the Steam installation/app root from the running binary.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the executable is not laid out as an installed Vapor app.
+    pub fn discover_installation() -> Result<InstallationPaths, String> {
+        let executable = env::current_exe()
+            .map_err(|error| format!("failed to locate the running Vapor shell: {error}"))?;
+        InstallationPaths::from_executable(&executable)
+    }
+
     /// Discover the installation from the executable and source from the caller.
     ///
     /// # Errors
     ///
     /// Fails when either root lacks a valid workspace marker or when the source
-    /// workspace overlaps the replaceable installation.
+    /// workspace overlaps the Steam installation/app root.
     pub fn discover() -> Result<Self, String> {
-        let executable = env::current_exe()
-            .map_err(|error| format!("failed to locate the running Vapor shell: {error}"))?;
-        let installation = InstallationPaths::from_executable(&executable)?;
+        let installation = Self::discover_installation()?;
         let invocation =
             configured_source(&installation)?
                 .unwrap_or(env::current_dir().map_err(|error| {
@@ -62,6 +72,19 @@ impl EnvironmentPaths {
     /// Returns the same validation errors as [`Self::discover`].
     pub fn from_paths(executable: &Path, invocation: &Path) -> Result<Self, String> {
         let installation = InstallationPaths::from_executable(executable)?;
+        Self::from_installation_and_invocation(installation, invocation)
+    }
+
+    /// Build an active environment from an already-discovered installation and
+    /// selected source invocation path.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the selected source is invalid or overlaps the installation.
+    pub fn from_installation_and_invocation(
+        installation: InstallationPaths,
+        invocation: &Path,
+    ) -> Result<Self, String> {
         let source = SourceWorkspace::from_invocation(invocation, &installation)?;
         Ok(Self {
             installation,
@@ -69,7 +92,7 @@ impl EnvironmentPaths {
         })
     }
 
-    /// Replaceable Steam application paths.
+    /// Steam installation/app-root paths.
     pub fn installation(&self) -> &InstallationPaths {
         &self.installation
     }
@@ -84,7 +107,7 @@ fn configured_source(installation: &InstallationPaths) -> Result<Option<PathBuf>
     if let Some(path) = env::var_os("VAPOR_WORKSPACE").filter(|value| !value.is_empty()) {
         return Ok(Some(PathBuf::from(path)));
     }
-    let state = installation.root().join("state/source-workspace");
+    let state = installation.state_dir().join("source-workspace");
     if !state.is_file() {
         return Ok(None);
     }
@@ -98,7 +121,7 @@ fn configured_source(installation: &InstallationPaths) -> Result<Option<PathBuf>
     }
 }
 
-/// Paths owned by the replaceable Steam installation.
+/// Paths owned by the Steam installation/app root.
 #[derive(Debug, Clone)]
 pub struct InstallationPaths {
     executable: PathBuf,
@@ -112,42 +135,47 @@ pub struct InstallationPaths {
 impl InstallationPaths {
     /// Discover an installation from the canonical executable location.
     ///
-    /// The highest ancestor `Vapor.toml` must declare `[root]` and becomes
-    /// the installation root.
+    /// The executable must be laid out as `<app-root>/bin/vapor[.exe]`.
+    /// `<app-root>/Vapor.toml` must declare `[root]`.
     ///
     /// # Errors
     ///
-    /// Fails for a missing executable, missing marker, invalid marker, or a
-    /// highest marker that describes anything except the application root.
+    /// Fails for a missing executable, missing app-root marker, invalid marker,
+    /// or a marker that describes anything except the app root.
     pub fn from_executable(executable: &Path) -> Result<Self, String> {
         let executable = canonical_file(executable, "Vapor shell executable")?;
         let binaries = executable
             .parent()
             .ok_or_else(|| format!("executable has no parent: {}", executable.display()))?
             .to_path_buf();
-        let marker = highest_marker(&binaries).ok_or_else(|| {
-            format!(
-                "the Vapor shell at '{}' is not installed inside a Vapor installation: no {} exists in any executable ancestor",
-                executable.display(),
-                manifest::FILE_NAME
-            )
-        })?;
-        let root = marker
-            .parent()
-            .expect("an ancestor marker always has a parent")
-            .to_path_buf();
-        let expected_binaries = root.join("bin");
         let expected_name = format!("vapor{}", env::consts::EXE_SUFFIX);
-        if binaries != expected_binaries
-            || executable
-                .file_name()
-                .is_none_or(|name| name != expected_name.as_str())
-        {
+        let candidate_root = if binaries.file_name().is_some_and(|name| name == "bin") {
+            binaries
+                .parent()
+                .ok_or_else(|| format!("binary directory has no parent: {}", binaries.display()))?
+                .to_path_buf()
+        } else {
+            binaries.clone()
+        };
+        let expected_binaries = candidate_root.join("bin");
+        let expected_command = expected_binaries.join(&expected_name);
+        if executable != expected_command {
             return Err(format!(
                 "the running executable is not laid out as an installed Vapor application\n  executable: {}\n  candidate app root: {}\n  expected command: {}\nnote: this usually means a source-built target/debug/vapor was run directly\nhelp: place the bootstrap application outside every source root and run its bin/vapor command",
                 executable.display(),
+                candidate_root.display(),
+                expected_command.display()
+            ));
+        }
+        let root = candidate_root;
+        let marker = root.join(manifest::FILE_NAME);
+        if !marker.is_file() {
+            return Err(format!(
+                "the installed Vapor application is missing its root manifest\n  executable: {}\n  app root:   {}\n  expected:   {}\nhelp: install or bootstrap the app root with a [root] {} beside bin/",
+                executable.display(),
                 root.display(),
-                expected_binaries.join(expected_name).display()
+                marker.display(),
+                manifest::FILE_NAME
             ));
         }
         let identity_id = require_installation_marker(&marker, &root)?;
@@ -172,7 +200,7 @@ impl InstallationPaths {
         &self.executable
     }
 
-    /// Steam application root and machinery boundary.
+    /// Steam installation/app-root machinery boundary.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -180,6 +208,16 @@ impl InstallationPaths {
     /// Directory containing the running shell executable.
     pub fn binaries(&self) -> &Path {
         &self.binaries
+    }
+
+    /// App-local Vapor metadata directory.
+    pub fn vapor_dir(&self) -> PathBuf {
+        self.root.join(".vapor")
+    }
+
+    /// App-local mutable Vapor state directory.
+    pub fn state_dir(&self) -> PathBuf {
+        self.vapor_dir().join("state")
     }
 
     /// Conventional `lib` directory, when installed.
@@ -192,7 +230,7 @@ impl InstallationPaths {
         self.cargo.as_deref()
     }
 
-    /// Rescan the installation for Cargo after an explicit toolchain install.
+    /// Rescan the installation for Cargo after an explicit setup install.
     pub fn bundled_cargo(&self) -> Option<PathBuf> {
         bundled_cargo_candidates(&self.root)
             .into_iter()
@@ -242,12 +280,12 @@ impl SourceWorkspace {
         if roots_overlap(&root, installation.root()) {
             if root == installation.root() {
                 return Err(format!(
-                    "no external source root is selected: invocation resolved the Steam app root itself\n  app root: {}\nhelp: invoke Vapor from a separate source repository, or open the shell and select a remembered source root",
+                    "no external source root is selected: invocation resolved the Steam installation/app root itself\n  app root: {}\nhelp: invoke Vapor from a separate source repository, or open the shell and select a remembered source root",
                     root.display()
                 ));
             }
             return Err(format!(
-                "the selected source root and Steam app root are not disjoint\n  source root: {}\n  app root:    {}\nhelp: keep authored repositories outside the replaceable Steam application tree",
+                "the selected source root and Steam installation/app root are not disjoint\n  source root: {}\n  app root:    {}\nhelp: keep authored repositories outside the Steam installation/app root",
                 root.display(),
                 installation.root().display()
             ));
@@ -312,19 +350,19 @@ fn require_installation_marker(marker: &Path, root: &Path) -> Result<String, Str
     match manifest::read(marker, root)? {
         VaporEntity::Root { id, .. } => Ok(id),
         VaporEntity::Registry { id, .. } => Err(format!(
-            "highest Vapor manifest '{}' describes registry '{id}', not the Steam application root; the installation must contain [root]",
+            "highest Vapor manifest '{}' describes registry '{id}', not the Steam installation/app root; the installation must contain [root]",
             marker.display()
         )),
         VaporEntity::Workspace { id, .. } => Err(format!(
-            "highest Vapor manifest '{}' describes workspace '{id}', not the Steam application root; the installation must contain [root]",
+            "highest Vapor manifest '{}' describes workspace '{id}', not the Steam installation/app root; the installation must contain [root]",
             marker.display()
         )),
         VaporEntity::Project { id, .. } => Err(format!(
-            "highest Vapor manifest '{}' describes project '{id}', not the Steam application root; the installation must contain [root]",
+            "highest Vapor manifest '{}' describes project '{id}', not the Steam installation/app root; the installation must contain [root]",
             marker.display()
         )),
         VaporEntity::Content { kind, id, .. } => Err(format!(
-            "highest Vapor manifest '{}' describes {kind} '{id}', not the Steam application root; the installation must contain [root]",
+            "highest Vapor manifest '{}' describes {kind} '{id}', not the Steam installation/app root; the installation must contain [root]",
             marker.display()
         )),
     }

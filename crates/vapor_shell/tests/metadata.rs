@@ -65,7 +65,7 @@ fn validation_plans_check_only_requested_capabilities() {
     let error = metadata
         .validate(&ValidationPlan::new("build projects").registered_location())
         .unwrap_err();
-    assert!(error.contains("toolchain install"), "{error}");
+    assert!(error.contains("setup install"), "{error}");
 
     let error = metadata
         .validate(&ValidationPlan::new("authenticate").tools(&[Requirement::SteamCmd]))

@@ -19,7 +19,7 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceRootKind {
-    /// Vapor application/depot source root.
+    /// Vapor application source/depot root.
     Root,
     /// Normal source workspace.
     Workspace,

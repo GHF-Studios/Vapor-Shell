@@ -52,19 +52,29 @@ impl MetadataReport {
 
 #[derive(Debug, Clone, Serialize)]
 struct SourceReport {
-    source_id: String,
-    root: PathBuf,
-    current_directory: PathBuf,
+    status: SourceState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_directory: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<ContentReport>,
 }
 
 impl SourceReport {
     fn new(state: &ShellState) -> Self {
+        let source = state.source();
         Self {
-            source_id: state.source().id().to_owned(),
-            root: state.source().root().to_path_buf(),
-            current_directory: state.current_dir().to_path_buf(),
+            status: if source.is_some() {
+                SourceState::Open
+            } else {
+                SourceState::Closed
+            },
+            source_id: source.map(|source| source.id().to_owned()),
+            root: source.map(|source| source.root().to_path_buf()),
+            current_directory: state.current_dir().ok().map(PathBuf::from),
             content: state.content().map(|content| ContentReport {
                 id: content.id().to_owned(),
                 kind: content.kind().to_string(),
@@ -72,6 +82,13 @@ impl SourceReport {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SourceState {
+    Open,
+    Closed,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -95,7 +112,7 @@ struct InstallationReport {
 
 impl InstallationReport {
     fn new(state: &ShellState, location: &Result<LocationStatus, String>) -> Self {
-        let installation = state.paths().installation();
+        let installation = state.installation();
         Self {
             root: installation.root().to_path_buf(),
             executable: installation.executable().to_path_buf(),
@@ -163,9 +180,7 @@ struct ToolchainReport {
     rust: ToolReport,
     git: ToolReport,
     steamcmd: ToolReport,
-    package_complete: bool,
-    package_root: PathBuf,
-    package_missing: Vec<String>,
+    package: PackageReport,
 }
 
 impl ToolchainReport {
@@ -175,9 +190,11 @@ impl ToolchainReport {
             rust: ToolReport::new(status.rust()),
             git: ToolReport::new(status.git()),
             steamcmd: ToolReport::new(status.steamcmd()),
-            package_complete: status.packages_complete(),
-            package_root: status.packages_root().to_path_buf(),
-            package_missing: status.missing_packages().to_vec(),
+            package: PackageReport {
+                complete: status.package_complete(),
+                root: status.package_root().to_path_buf(),
+                missing: status.missing_package_entries().to_vec(),
+            },
         }
     }
 }
@@ -187,6 +204,13 @@ struct ToolReport {
     label: String,
     installed: bool,
     path: PathBuf,
+    missing: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PackageReport {
+    complete: bool,
+    root: PathBuf,
     missing: Vec<String>,
 }
 
@@ -429,7 +453,7 @@ fn diagnostics(
             level: DiagnosticLevel::Warning,
             scope: "vapor_home",
             message: format!(
-                "'{}' has not been accepted; review `vapor toolchain status`, then run `vapor toolchain install`",
+                "'{}' has not been accepted; review `vapor setup status`, then run `vapor setup install`",
                 current.display()
             ),
         }),
@@ -437,7 +461,7 @@ fn diagnostics(
             level: DiagnosticLevel::Warning,
             scope: "vapor_home",
             message: format!(
-                "accepted location '{}' differs from current location '{}'; run `vapor toolchain repair` if the move was intentional, or restore the app",
+                "accepted location '{}' differs from current location '{}'; run `vapor setup repair` if the move was intentional, or restore the app",
                 locked.display(),
                 current.display()
             ),
@@ -455,28 +479,32 @@ fn diagnostics(
                 level: DiagnosticLevel::Warning,
                 scope: "toolchain",
                 message: format!(
-                    "{} is missing: {} (expected under {})",
+                    "{} is incomplete at {}: missing {}",
                     status.label(),
-                    status.missing().join(", "),
-                    status.path().display()
+                    status.path().display(),
+                    status.missing().join(", ")
                 ),
             });
         }
     }
-    if !toolchain.packages_complete() {
+    if !toolchain.package_complete() {
         diagnostics.push(Diagnostic {
             level: DiagnosticLevel::Warning,
-            scope: "toolchain_package",
+            scope: "setup_package",
             message: format!(
-                "vendored installation package is incomplete: {}",
-                toolchain.missing_packages().join(", ")
+                "distributable setup package is incomplete: {}; run `vapor setup package install` after active tools are healthy",
+                toolchain.missing_package_entries().join(", ")
             ),
         });
     }
     if let Err(error) = workspace {
         diagnostics.push(Diagnostic {
             level: DiagnosticLevel::Error,
-            scope: "workspace_manifest",
+            scope: if error.contains("no Vapor source is open") {
+                "source"
+            } else {
+                "workspace_manifest"
+            },
             message: error.clone(),
         });
     }

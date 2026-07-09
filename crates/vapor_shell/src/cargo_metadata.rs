@@ -4,7 +4,7 @@
 //!
 //! [`cargo metadata`](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html)
 //! reports Cargo packages, targets, the Cargo workspace root, and target
-//! directory. That data is useful but replaceable. `Vapor.toml` remains the
+//! directory. That data is useful but rebuildable. `Vapor.toml` remains the
 //! authority for Vapor workspace and content identity.
 //!
 //! # Runtime behavior
@@ -33,7 +33,7 @@ pub enum CargoIndex {
 }
 
 impl CargoIndex {
-    /// Generate a replaceable Cargo index for the source workspace.
+    /// Generate a rebuildable Cargo index for the source workspace.
     pub fn inspect(paths: &EnvironmentPaths) -> Self {
         let source_root = paths.source().root();
         let manifest = source_root.join("Cargo.toml");

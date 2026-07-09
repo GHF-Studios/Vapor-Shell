@@ -13,7 +13,7 @@ agent session fails, continue from this file before using older chat context.
 
 Current implementation intent:
 
-1. absorb public `toolchain` lifecycle into a broader `setup` command surface;
+1. replace public `toolchain` lifecycle with a broader `setup` command surface;
 2. keep backend tools hidden behind Vapor source, content, root, Steam, and setup
    goals;
 3. always attempt to provide Rust/Cargo, Git, and SteamCMD availability rather
@@ -28,6 +28,7 @@ Current implementation intent:
 - Do not expose Git, Cargo, rustup, SteamCMD, package managers, DLLs, or shared
   libraries as the primary product grammar.
 - Do not make users choose formal modes such as player, developer, or publisher.
+- Do not keep legacy public compatibility surfaces after command grammar changes.
 - Do not pretend a wrapper around host Git is a portable bundled Git.
 - Do not silently edit user source, global IDE settings, Steam authentication
   state, shell profiles, or operating-system packages.
@@ -144,8 +145,9 @@ setup downgrade [--dry-run]
 setup uninstall [--dry-run]
 ```
 
-Initial implementation may keep `toolchain` as a compatibility alias, but user
-guidance should move to `setup`.
+This is an intentionally breaking migration. Public `toolchain` commands should
+be removed instead of kept as aliases. Internal module names may lag temporarily
+only where a mechanical rename would obscure the behavioral change.
 
 The default setup target is "make the installed Vapor environment as complete as
 it reasonably can be on this machine." It should try to resolve Rust/Cargo, Git,
@@ -178,10 +180,9 @@ or opening a Vapor source, not as a general Git shell.
 Content means Workshop-installable Vapor artifacts. It includes first-party
 default engine/game/packagepack content. It excludes Vapor-Root app/depot source.
 
-The current `content install` and `content repair` operations that populate
-`packages/toolchain` are misnamed. They are setup/package operations, not
-Workshop content operations. This should move under setup or package/depot
-preparation.
+The previous content-package commands that populated `packages/toolchain` were
+misnamed. They are setup/package operations, not Workshop content operations,
+and must live under setup or package/depot preparation.
 
 ## Package metadata and dependency catalogs
 
@@ -254,15 +255,14 @@ Avoid generic "toolchain incomplete" errors when the actual blocker is narrower.
 - Add this checkpoint.
 - Link it from design docs.
 - Identify current docs and modules that overload `toolchain` and `content`.
-- Record any compatibility aliases needed for a staged migration.
+- Record removed public commands so tests and diagnostics reject them clearly.
 
 ### Phase 2: command grammar migration
 
 - Add `setup status/install/repair/uninstall` as the primary lifecycle.
-- Keep existing `toolchain` commands as aliases or compatibility wrappers until
-  docs/tests fully move.
-- Move `content install/repair` package-toolchain behavior toward setup package
-  preparation.
+- Remove the public `toolchain` command surface.
+- Move old content package-payload behavior to setup package
+  preparation and remove those public content subcommands.
 
 ### Phase 3: status model split
 
@@ -296,15 +296,14 @@ Avoid generic "toolchain incomplete" errors when the actual blocker is narrower.
 ### Phase 7: diagnostics, docs, and tests
 
 - Update command docs and topology references.
-- Add regression tests for command help, setup status, compatibility aliases,
+- Add regression tests for command help, setup status, removed command rejection,
   diagnostics, and preflight capability failures.
 - Verify deployed Steam install behavior from a fresh shell.
 
 ## Open decisions
 
 - Final exact `setup extend` and `setup downgrade` semantics.
-- Whether `toolchain` remains permanently as an expert alias or is deprecated.
-- Whether `content install/repair` becomes a compatibility alias, is renamed, or
-  is removed before release.
+- Final internal rename schedule for modules that still use `toolchain` as an
+  implementation term after public commands move to `setup`.
 - Exact location and schema for shipped provider/dependency metadata.
 - First distro/package-manager actions to support beyond detection.

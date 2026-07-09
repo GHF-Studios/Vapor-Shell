@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod content_packages;
+mod ide;
 mod prompt;
 mod terminal;
 
@@ -14,6 +16,7 @@ pub mod documentation;
 pub mod manifest;
 pub mod metadata;
 pub mod path_setup;
+pub mod source_registry;
 pub mod state;
 pub mod steam;
 pub mod toolchain;

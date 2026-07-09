@@ -4,6 +4,7 @@ use crate::{
     command::{self, Control, ShellCommand},
     discovery::EnvironmentPaths,
     prompt::VaporPrompt,
+    source_registry,
     state::ShellState,
     terminal, toolchain,
 };
@@ -45,14 +46,25 @@ pub fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let paths = EnvironmentPaths::discover()?;
-    let mut state = ShellState::new(paths)?;
-    command::print_warnings(state.refresh_context());
+    let installation = EnvironmentPaths::discover_installation()?;
+    let mut state = ShellState::closed(installation);
+    if let Some(source) = source_registry::active_source(state.installation())? {
+        match EnvironmentPaths::from_installation_and_invocation(
+            state.installation().clone(),
+            &source,
+        ) {
+            Ok(paths) => command::print_warnings(state.open_paths(paths)?),
+            Err(error) => {
+                eprintln!("warning: active source is invalid: {error}");
+                eprintln!("hint: choose another source with `open NAME` or clear it with `close`");
+            }
+        }
+    }
 
     if let Some(command) = one_shot {
-        if !matches!(command, ShellCommand::Script { .. }) {
+        if !one_shot_allowed(&command) {
             return Err(
-                "one-shot commands are disabled; run `vapor` for the interactive shell or use `vapor script run NAME`"
+                "this command must run inside the interactive Vapor shell\nhelp: allowed direct facades are `vapor script run NAME`, `vapor setup ...`, `vapor content status`, `vapor sources ...`, `vapor open SOURCE`, `vapor close`, and read-only app inspection"
                     .to_owned(),
             );
         }
@@ -60,35 +72,59 @@ pub fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let toolchain = toolchain::inspect(state.paths().installation());
-    match toolchain::location_status(state.paths().installation()) {
+    let toolchain = toolchain::inspect(state.installation());
+    match toolchain::location_status(state.installation()) {
         Ok(toolchain::LocationStatus::Registered { .. }) => {}
         Ok(toolchain::LocationStatus::Unregistered { current }) => {
             eprintln!("notice: app root is not registered: {}", current.display());
-            eprintln!("hint: review `toolchain status`, then choose `toolchain install`");
+            eprintln!("hint: review `setup status`, then choose `setup install`");
         }
         Ok(toolchain::LocationStatus::Moved { locked, current }) => {
             eprintln!("notice: app root moved and requires explicit confirmation");
             eprintln!("  previous: {}", locked.display());
             eprintln!("  current:   {}", current.display());
-            eprintln!("hint: review `toolchain status`, then choose `toolchain repair`");
+            eprintln!("hint: review `setup status`, then choose `setup repair`");
         }
         Err(error) => eprintln!("warning: app-root location state is invalid: {error}"),
     }
     if !toolchain.complete() {
-        eprintln!("notice: the app-local Rust, Git, and SteamCMD toolchain is not complete");
-        if toolchain.packages_complete() {
-            eprintln!("hint: inspect it with `toolchain status`, then choose `toolchain install`");
-        } else {
-            eprintln!("hint: vendored packages are incomplete; verify the Steam app files");
-        }
+        eprintln!("notice: Vapor setup is missing Rust, Git, or SteamCMD readiness");
+        eprintln!("hint: inspect it with `setup status`, then choose `setup install`");
+    }
+    if !toolchain.package_complete() {
+        eprintln!("notice: distributable setup package payloads are incomplete");
+        eprintln!(
+            "hint: inspect them with `setup package status`, then choose `setup package install`"
+        );
     }
 
     println!("Vapor shell");
-    println!("Working directory: {}", state.current_dir().display());
+    match state.current_dir() {
+        Ok(directory) => println!("Working directory: {}", directory.display()),
+        Err(_) => {
+            println!("Source: closed");
+            println!("Hint: run `sources list`, `sources add PATH`, or `open SOURCE`");
+        }
+    }
 
     run_shell(state);
     Ok(())
+}
+
+fn one_shot_allowed(command: &ShellCommand) -> bool {
+    matches!(
+        command,
+        ShellCommand::Script { .. }
+            | ShellCommand::Setup { .. }
+            | ShellCommand::Content { .. }
+            | ShellCommand::Sources { .. }
+            | ShellCommand::Open { .. }
+            | ShellCommand::Close
+            | ShellCommand::Installation
+            | ShellCommand::Binaries
+            | ShellCommand::Libraries
+            | ShellCommand::Metadata { .. }
+    )
 }
 
 fn run_shell(mut state: ShellState) {

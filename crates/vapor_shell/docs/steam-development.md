@@ -6,50 +6,76 @@ Steam does not provide Linux/SteamOS install-script execution. Vapor therefore
 does not attach location mutation to any Steam launch option. The Shell, SDK,
 Launcher, and future game launch entries only launch their configured programs.
 
-After installation or movement, open Vapor from an external source root, review
-`toolchain status`, and explicitly choose `toolchain install` or
-`toolchain repair`. No executable is copied into a user-data directory.
+After installation or movement, run Vapor from the Steam app directory, review
+`setup status`, and explicitly choose `setup install` or
+`setup repair`. No executable is copied into a user-data directory, and the
+source checkout must stay outside the Steam app directory.
 
 The bootstrap sequence is:
 
-1. build the initial app and complete `packages/toolchain` payload with the host
-   environment;
-2. place that build in Steam's app directory;
-3. from external Vapor-Root, run `/path/to/app/bin/vapor` to enter the shell;
-4. run `toolchain status`;
-5. run `toolchain install`;
-6. open a new terminal so PATH changes are visible;
-7. run `vapor`, then `workspace remember` from Vapor-Root if needed;
-8. run `validate` using the installed toolchain;
-9. run `self rebuild`, `self stage`, `self smoke`, and a dry-run publish;
-10. upload the rebuilt app with `steam publish ... --yes` from the interactive
-    shell.
+1. build only the initial `vapor` shell binary with the host environment;
+2. copy the minimal shell bootstrap into Steam's app directory:
 
-From step 8 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
-application. Publishing never installs missing tools; it reports the failed
-precondition and leaves that decision to the operator.
+   ```text
+   crates/vapor_shell/scripts/bootstrap-local-app-deploy.sh \
+     --binary /path/to/built/vapor \
+     --target "$HOME/.local/share/Steam/steamapps/common/Loo Cast" \
+     --yes
+   ```
+
+   This writes only `Vapor.toml` and `bin/vapor`.
+3. run `/path/to/app/bin/vapor open /path/to/Vapor-Root` to register and open
+   the external application source without moving that source into the app dir;
+4. run `setup status`;
+5. run `setup install`;
+6. open a new terminal so PATH changes are visible;
+7. run `vapor`; it should discover the app from its own executable and reopen
+   the last active source;
+8. run `validate` using the installed toolchain;
+9. run `root build`, `root package`, and `root publish --dry-run`;
+10. upload the rebuilt app with `root publish --account NAME --yes` from the
+    interactive shell.
+
+From step 5 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
+application. `setup install` is the explicit bootstrap operation that
+installs tools into the app root. Final depot staging uses that installed
+app-local layout with credential/cache exclusions. Publishing never installs
+missing tools; it reports the failed precondition and leaves that decision to
+the operator.
+
+The bootstrap script is intentionally not a full depot installer. It does not
+copy source repos, Cargo workspaces, staged package trees, or generated outputs.
+Its only job is to place the first runnable shell inside the Steam app root so
+that every serious operation happens through the installed `bin/vapor`.
+
+For a later local self-deploy loop, after `root package` exists and is trusted,
+use a separate package/depot deployment path rather than this shell-bootstrap
+script.
 
 ## Authentication
 
-`steam login --account NAME` starts the installation-owned SteamCMD with
-inherited stdin/stdout. It waits while SteamCMD owns authentication prompts,
-then returns to the REPL. Vapor never accepts a password argument and never
-copies SteamCMD's `config/` into staging.
+Vapor does not expose a standalone SteamCMD login workflow. Real publication is
+the authentication boundary: `root publish --account NAME --yes` starts the
+installation-owned SteamCMD with inherited stdin/stdout, lets Steam own any
+password or mobile-authenticator prompts, and returns to the REPL after SteamCMD
+exits. Vapor never accepts a password argument and never copies SteamCMD's
+`config/` into staging.
 
-Steam authentication is session-scoped by policy. Commands that publish must be
-typed manually in the interactive shell; scripts may stage and dry-run but may
-not authenticate or perform real uploads.
+Steam authentication is session-scoped by policy. Commands that publish for real
+must be typed manually in the interactive shell; scripts may dry-run but may not
+authenticate or perform real uploads.
 
 ## Preview and publish
 
-Use `steam publish --account NAME --dry-run` first. It builds docs, stages and
-smoke-tests the complete app, and writes an app-build VDF with `Preview = 1` and
-`SetLive = vapor-dev`; it performs no upload.
+Use `root publish --dry-run` first. It validates, builds, promotes app binaries,
+builds docs, stages and smoke-tests the complete app, and writes an app-build
+VDF with `Preview = 1` and `SetLive = vapor-dev`; it performs no upload and
+does not require active SteamCMD.
 
 A real upload requires both a non-default branch and explicit confirmation:
 
 ```text
-steam publish --account NAME --branch vapor-dev --yes
+root publish --account NAME --branch vapor-dev --yes
 ```
 
 SteamCMD runs in the foreground so progress, prompts, exit status, and failure

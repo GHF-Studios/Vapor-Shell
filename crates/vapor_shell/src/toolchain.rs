@@ -1,10 +1,11 @@
-//! Explicit installation and inspection of app-local development tools.
+//! Explicit installation and inspection of the app-local Vapor toolchain.
 //!
-//! Tool packages are delivered under the app root's `packages/toolchain`. Nothing
-//! is acquired from the host operating system, and normal workflow commands
-//! never invoke installation implicitly.
+//! `setup install` creates the one mandatory app-local tool bundle inside the
+//! Steam app root. Normal workflow commands never invoke installation
+//! implicitly.
 
 use crate::{
+    content_packages,
     discovery::{InstallationPaths, ensure_contained},
     path_setup::{PathSetup, PathSetupReport},
 };
@@ -15,7 +16,13 @@ use std::{
     process::Command,
 };
 
-const LOCATION_LOCK: &str = "state/vapor-home.toml";
+const LOCATION_LOCK: &str = "vapor-home.toml";
+const RUSTUP_INIT_X86_64_LINUX: &str =
+    "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init";
+const RUSTUP_INIT_AARCH64_LINUX: &str =
+    "https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-gnu/rustup-init";
+const STEAMCMD_LINUX: &str =
+    "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
 
 /// Relationship between the running app root and its explicitly accepted path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,13 +148,13 @@ impl ToolStatus {
     }
 }
 
-/// Complete status of Rust, Git, SteamCMD, and their install packages.
+/// Complete status of active Rust, Git, SteamCMD, and package content.
 #[derive(Debug, Clone)]
 pub struct ToolchainStatus {
     rust: ToolStatus,
     git: ToolStatus,
     steamcmd: ToolStatus,
-    packages: PackageStatus,
+    package: content_packages::ToolchainPackageStatus,
 }
 
 impl ToolchainStatus {
@@ -171,19 +178,19 @@ impl ToolchainStatus {
         self.rust.installed && self.git.installed && self.steamcmd.installed
     }
 
-    /// Whether all vendored packages required by `toolchain install` exist.
-    pub fn packages_complete(&self) -> bool {
-        self.packages.missing.is_empty()
+    /// Whether the distributable package content required for app staging exists.
+    pub fn package_complete(&self) -> bool {
+        self.package.complete()
     }
 
-    /// Missing vendored package entries.
-    pub fn missing_packages(&self) -> &[String] {
-        &self.packages.missing
+    /// Root of the distributable toolchain package content.
+    pub fn package_root(&self) -> &Path {
+        self.package.root()
     }
 
-    /// Root of the immutable package used by installation and repair.
-    pub fn packages_root(&self) -> &Path {
-        &self.packages.root
+    /// Missing package content entries.
+    pub fn missing_package_entries(&self) -> &[String] {
+        self.package.missing()
     }
 
     /// Status of one requested tool group.
@@ -196,13 +203,7 @@ impl ToolchainStatus {
     }
 }
 
-#[derive(Debug, Clone)]
-struct PackageStatus {
-    root: PathBuf,
-    missing: Vec<String>,
-}
-
-/// Result of an explicit toolchain installation or repair.
+/// Result of an explicit setup installation or repair.
 #[derive(Debug, Clone)]
 pub struct InstallReport {
     installed_groups: Vec<&'static str>,
@@ -229,7 +230,7 @@ impl UninstallReport {
 }
 
 impl InstallReport {
-    /// Tool groups whose package files were applied.
+    /// Tool groups installed or repaired during this run.
     pub fn installed_groups(&self) -> &[&'static str] {
         &self.installed_groups
     }
@@ -247,7 +248,7 @@ impl InstallReport {
 /// Fails when an existing lock cannot be read or parsed.
 pub fn location_status(installation: &InstallationPaths) -> Result<LocationStatus, String> {
     let current = installation.root().to_path_buf();
-    let path = installation.root().join(LOCATION_LOCK);
+    let path = installation.state_dir().join(LOCATION_LOCK);
     if !path.is_file() {
         return Ok(LocationStatus::Unregistered { current });
     }
@@ -299,7 +300,7 @@ pub fn register_location_with_setup(
     setup: &PathSetup,
 ) -> Result<LocationChange, String> {
     let path_setup = setup.install()?;
-    let lock_path = installation.root().join(LOCATION_LOCK);
+    let lock_path = installation.state_dir().join(LOCATION_LOCK);
     if let Some(parent) = lock_path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
@@ -338,7 +339,7 @@ pub fn clear_location_registration(
 ) -> Result<LocationChange, String> {
     let setup = PathSetup::from_installation(installation)?;
     let path_setup = setup.uninstall()?;
-    let lock_path = installation.root().join(LOCATION_LOCK);
+    let lock_path = installation.state_dir().join(LOCATION_LOCK);
     if lock_path.exists() {
         fs::remove_file(&lock_path).map_err(|error| {
             format!(
@@ -377,18 +378,18 @@ pub fn require_registered_status(status: &LocationStatus, action: &str) -> Resul
     match status {
         LocationStatus::Registered { .. } => Ok(()),
         LocationStatus::Unregistered { current } => Err(format!(
-            "cannot {action}: the app root has not been accepted\n  current: {}\nhelp: review this location with `vapor toolchain status`\nhelp: accept it explicitly with `vapor toolchain install`\nnote: no location or PATH state was changed",
+            "cannot {action}: the app root has not been accepted\n  current: {}\nhelp: review this location with `vapor setup status`\nhelp: accept it explicitly with `vapor setup install`\nnote: no location or PATH state was changed",
             current.display()
         )),
         LocationStatus::Moved { locked, current } => Err(format!(
-            "cannot {action}: the app root no longer matches its accepted location\n  previous: {}\n  current:  {}\nhelp: if this move was intentional, run `vapor toolchain repair`\nhelp: otherwise move the Steam app back or verify its library location\nnote: no location or PATH state was changed",
+            "cannot {action}: the app root no longer matches its accepted location\n  previous: {}\n  current:  {}\nhelp: if this move was intentional, run `vapor setup repair`\nhelp: otherwise move the Steam app back or verify its library location\nnote: no location or PATH state was changed",
             locked.display(),
             current.display()
         )),
     }
 }
 
-/// Inspect active tools and vendored install packages.
+/// Inspect the mandatory app-local toolchain.
 pub fn inspect(installation: &InstallationPaths) -> ToolchainStatus {
     inspect_root(installation.root())
 }
@@ -397,19 +398,19 @@ pub fn inspect(installation: &InstallationPaths) -> ToolchainStatus {
 ///
 /// # Errors
 ///
-/// Fails when the app location is not accepted, packages are incomplete, a path
-/// escapes the installation, copying fails, or verification remains incomplete.
+/// Fails when the app location is not accepted, acquisition fails, a path
+/// escapes the installation, or verification remains incomplete.
 pub fn install(installation: &InstallationPaths) -> Result<InstallReport, String> {
-    apply_packages(installation, false)
+    apply_toolchain_install(installation, false)
 }
 
-/// Reapply every vendored tool package.
+/// Reinstall every app-local tool group.
 ///
 /// # Errors
 ///
 /// Fails under the same conditions as [`install`].
 pub fn repair(installation: &InstallationPaths) -> Result<InstallReport, String> {
-    apply_packages(installation, true)
+    apply_toolchain_install(installation, true)
 }
 
 /// Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and location lock.
@@ -442,56 +443,37 @@ pub fn uninstall(installation: &InstallationPaths) -> Result<UninstallReport, St
     })
 }
 
-/// Install missing tools, or reapply every package when `repair` is true.
-///
-/// Packages are copied only within the Steam application root. Existing extra
-/// state, including SteamCMD authentication data, is preserved.
+/// Install missing tools, or reacquire every tool when `repair` is true.
 ///
 /// # Errors
 ///
-/// Fails when a vendored package is incomplete, a path escapes the installation,
-/// copying fails, or post-install verification remains incomplete.
-fn apply_packages(installation: &InstallationPaths, repair: bool) -> Result<InstallReport, String> {
-    require_registered_location(installation, "install the toolchain")?;
+/// Fails when acquisition fails, a path escapes the installation, copying fails,
+/// or post-install verification remains incomplete.
+fn apply_toolchain_install(
+    installation: &InstallationPaths,
+    repair: bool,
+) -> Result<InstallReport, String> {
+    require_registered_location(installation, "install setup")?;
     let before = inspect(installation);
-    if !before.packages_complete() {
-        return Err(format!(
-            "the Steam application does not contain a complete toolchain package\nmissing package entries:\n  - {}\nhelp: verify the app's files in Steam; bootstrap builds must populate '{}'",
-            before.missing_packages().join("\n  - "),
-            before.packages.root.display()
-        ));
-    }
 
     let root = installation.root();
-    let package = &before.packages.root;
-    let mut installed_groups = Vec::new();
-    if repair || !before.rust.installed() {
-        copy_package(root, &package.join("rustup"), &root.join("rustup"))?;
-        copy_package(
+    let installed_groups = if before.package_complete() {
+        content_packages::copy_toolchain_package_to_active(
             root,
-            &package.join("rustup-home"),
-            &root.join("rustup-home"),
-        )?;
-        copy_package(root, &package.join("cargo-home"), &root.join("cargo-home"))?;
-        installed_groups.push("Rust toolchain");
-    }
-    if repair || !before.git.installed() {
-        copy_package(root, &package.join("git"), &root.join("tools/git"))?;
-        installed_groups.push("Git");
-    }
-    if repair || !before.steamcmd.installed() {
-        copy_package(
-            root,
-            &package.join("steamcmd"),
-            &root.join("tools/steamcmd"),
-        )?;
-        installed_groups.push("SteamCMD");
-    }
+            &before.package,
+            repair,
+            before.rust.installed(),
+            before.git.installed(),
+            before.steamcmd.installed(),
+        )?
+    } else {
+        bootstrap_tools(root, &before, repair)?
+    };
 
     let status = inspect(installation);
     if !status.complete() {
         return Err(format!(
-            "toolchain package application completed, but verification still fails\n{}",
+            "setup installation completed, but verification still fails\n{}",
             format_missing(&status)
         ));
     }
@@ -499,6 +481,167 @@ fn apply_packages(installation: &InstallationPaths, repair: bool) -> Result<Inst
         installed_groups,
         status,
     })
+}
+
+fn bootstrap_tools(
+    root: &Path,
+    before: &ToolchainStatus,
+    repair: bool,
+) -> Result<Vec<&'static str>, String> {
+    if !cfg!(target_os = "linux") {
+        return Err("setup installation is currently implemented only for Linux".to_owned());
+    }
+    let mut installed_groups = Vec::new();
+    if repair || !before.rust.installed() {
+        bootstrap_rust(root)?;
+        installed_groups.push("Rust toolchain");
+    }
+    if repair || !before.git.installed() {
+        return Err(format!(
+            "cannot install Git: no complete app-owned Git package is available at '{}'\nhelp: verify Steam app files, or create setup package payloads with `vapor setup package install` from an app root that already contains real Git\nnote: Vapor no longer installs a wrapper around host Git",
+            before.package_root().display()
+        ));
+    }
+    if repair || !before.steamcmd.installed() {
+        bootstrap_steamcmd(root)?;
+        installed_groups.push("SteamCMD");
+    }
+    Ok(installed_groups)
+}
+
+fn bootstrap_rust(root: &Path) -> Result<(), String> {
+    let downloads = downloads_dir(root)?;
+    let rustup_init = downloads.join("rustup-init");
+    download(rustup_init_url()?, &rustup_init)?;
+    make_executable(&rustup_init)?;
+    let status = Command::new(&rustup_init)
+        .args([
+            "-y",
+            "--no-modify-path",
+            "--profile",
+            "default",
+            "--default-toolchain",
+            "stable",
+        ])
+        .env("RUSTUP_HOME", root.join("rustup-home"))
+        .env("CARGO_HOME", root.join("cargo-home"))
+        .status()
+        .map_err(|error| format!("failed to start rustup-init: {error}"))?;
+    if !status.success() {
+        return Err(format!("rustup-init exited with {status}"));
+    }
+    let source = root.join("cargo-home/bin").join(executable("rustup"));
+    let target = root.join("rustup/bin").join(executable("rustup"));
+    copy_file(root, &source, &target)?;
+    Ok(())
+}
+
+fn bootstrap_steamcmd(root: &Path) -> Result<(), String> {
+    let archive = downloads_dir(root)?.join("steamcmd_linux.tar.gz");
+    download(STEAMCMD_LINUX, &archive)?;
+    let target = root.join("tools/steamcmd");
+    ensure_contained(root, &target)?;
+    fs::create_dir_all(&target)
+        .map_err(|error| format!("failed to create '{}': {error}", target.display()))?;
+    let status = Command::new("tar")
+        .args(["-xzf"])
+        .arg(&archive)
+        .arg("-C")
+        .arg(&target)
+        .status()
+        .map_err(|error| format!("failed to start tar for SteamCMD archive: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("SteamCMD archive extraction exited with {status}"))
+    }
+}
+
+fn rustup_init_url() -> Result<&'static str, String> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("linux", "x86_64") => Ok(RUSTUP_INIT_X86_64_LINUX),
+        ("linux", "aarch64") => Ok(RUSTUP_INIT_AARCH64_LINUX),
+        (os, arch) => Err(format!(
+            "Rust toolchain installation is not configured for {arch}-{os}"
+        )),
+    }
+}
+
+fn downloads_dir(root: &Path) -> Result<PathBuf, String> {
+    let path = root.join(".vapor/downloads");
+    ensure_contained(root, &path)?;
+    fs::create_dir_all(&path).map_err(|error| {
+        format!(
+            "failed to create downloads directory '{}': {error}",
+            path.display()
+        )
+    })?;
+    Ok(path)
+}
+
+fn download(url: &str, destination: &Path) -> Result<(), String> {
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
+    }
+    let curl_status = Command::new("curl")
+        .args(["--proto", "=https", "--tlsv1.2", "-fL", "-o"])
+        .arg(destination)
+        .arg(url)
+        .status();
+    match curl_status {
+        Ok(status) if status.success() => return Ok(()),
+        Ok(status) => {
+            eprintln!("warning: curl download exited with {status}; trying wget");
+        }
+        Err(error) => {
+            eprintln!("warning: failed to start curl: {error}; trying wget");
+        }
+    }
+    let status = Command::new("wget")
+        .arg("-O")
+        .arg(destination)
+        .arg(url)
+        .status()
+        .map_err(|error| format!("failed to start curl or wget for '{url}': {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to download '{url}': wget exited with {status}"
+        ))
+    }
+}
+
+fn copy_file(root: &Path, source: &Path, target: &Path) -> Result<(), String> {
+    ensure_contained(root, source)?;
+    ensure_contained(root, target)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
+    }
+    fs::copy(source, target).map_err(|error| {
+        format!(
+            "failed to copy '{}' to '{}': {error}",
+            source.display(),
+            target.display()
+        )
+    })?;
+    make_executable(target)
+}
+
+fn make_executable(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)
+            .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?
+            .permissions();
+        permissions.set_mode(permissions.mode() | 0o755);
+        fs::set_permissions(path, permissions)
+            .map_err(|error| format!("failed to make '{}' executable: {error}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Require selected tools without attempting repair or installation.
@@ -515,7 +658,7 @@ pub fn require(
     require_status(&status, requirements, action)
 }
 
-/// Require selected tools using an already-resolved toolchain status.
+/// Require selected tools using an already-resolved setup status.
 ///
 /// # Errors
 ///
@@ -534,7 +677,7 @@ pub fn require_status(
         return Ok(());
     }
     Err(format!(
-        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: inspect the installation with `vapor toolchain status`\nhelp: install the vendored tools explicitly with `vapor toolchain install`\nnote: this command will not install or repair prerequisites automatically",
+        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: inspect setup with `vapor setup status`\nhelp: install setup explicitly with `vapor setup install`\nnote: this command will not install or repair prerequisites automatically",
         missing
             .iter()
             .map(|requirement| requirement.label())
@@ -545,31 +688,13 @@ pub fn require_status(
     ))
 }
 
-/// Validate the immutable package used for fresh app-local installations.
-///
-/// # Errors
-///
-/// Lists missing package directories or executables.
-pub fn validate_package(package: &Path) -> Result<(), String> {
-    let status = inspect_package_at(package);
-    if status.missing.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "vendored toolchain package is incomplete at '{}'\nmissing package entries:\n  - {}\nhelp: verify the Steam app files or rebuild the bootstrap package",
-            package.display(),
-            status.missing.join("\n  - ")
-        ))
-    }
-}
-
 fn inspect_root(root: &Path) -> ToolchainStatus {
     let rustup = root.join("rustup/bin").join(executable("rustup"));
     let toolchains = root.join("rustup-home/toolchains");
     let (rust_bin, rust_missing) = inspect_rust(&toolchains, Some(root));
     let mut missing = rust_missing;
     if !is_healthy_executable(&rustup, root) {
-        missing.push("rustup".to_owned());
+        missing.push(format!("rustup (expected at {})", rustup.display()));
     }
     let rust = ToolStatus {
         label: "Rust toolchain",
@@ -579,13 +704,16 @@ fn inspect_root(root: &Path) -> ToolchainStatus {
     };
 
     let git_path = root.join("tools/git/bin").join(executable("git"));
-    let git_installed = is_healthy_executable(&git_path, root);
+    let git_is_wrapper = content_packages::is_host_git_wrapper(&git_path);
+    let git_installed = !git_is_wrapper && is_healthy_executable(&git_path, root);
     let git = ToolStatus {
         label: "Git",
         installed: git_installed,
         path: git_path,
         missing: if git_installed {
             Vec::new()
+        } else if git_is_wrapper {
+            vec!["app-owned git (host Git wrapper is not accepted)".to_owned()]
         } else {
             vec!["git".to_owned()]
         },
@@ -608,7 +736,7 @@ fn inspect_root(root: &Path) -> ToolchainStatus {
         rust,
         git,
         steamcmd,
-        packages: inspect_packages(root),
+        package: content_packages::inspect_toolchain_package(root),
     }
 }
 
@@ -644,106 +772,6 @@ fn inspect_rust(toolchains: &Path, active_root: Option<&Path>) -> (Option<PathBu
     )
 }
 
-fn inspect_packages(root: &Path) -> PackageStatus {
-    inspect_package_at(&root.join("packages/toolchain"))
-}
-
-fn inspect_package_at(package: &Path) -> PackageStatus {
-    let mut missing = Vec::new();
-    for directory in [
-        "rustup",
-        "rustup-home",
-        "cargo-home",
-        "cargo-home/registry",
-        "git",
-        "steamcmd",
-    ] {
-        if !package.join(directory).is_dir() {
-            missing.push(directory.to_owned());
-        }
-    }
-    let package_status = inspect_package_tools(package);
-    missing.extend(package_status);
-    missing.sort();
-    missing.dedup();
-    PackageStatus {
-        root: package.to_path_buf(),
-        missing,
-    }
-}
-
-fn inspect_package_tools(package: &Path) -> Vec<String> {
-    let mut missing = Vec::new();
-    if !is_executable(&package.join("rustup/bin").join(executable("rustup"))) {
-        missing.push(format!("rustup/bin/{}", executable("rustup")));
-    }
-    let (_, rust_missing) = inspect_rust(&package.join("rustup-home/toolchains"), None);
-    missing.extend(
-        rust_missing
-            .into_iter()
-            .map(|name| format!("rustup-home/toolchains/*/bin/{}", executable(&name))),
-    );
-    if !is_executable(&package.join("git/bin").join(executable("git"))) {
-        missing.push(format!("git/bin/{}", executable("git")));
-    }
-    if !steam_candidates(&package.join("steamcmd"))
-        .iter()
-        .any(|path| is_executable(path))
-    {
-        missing.push("steamcmd/steamcmd[.sh|.exe]".to_owned());
-    }
-    missing
-}
-
-fn copy_package(installation: &Path, source: &Path, destination: &Path) -> Result<(), String> {
-    ensure_contained(installation, source)?;
-    ensure_contained(installation, destination)?;
-    copy_tree(source, destination, source)
-}
-
-fn copy_tree(source: &Path, destination: &Path, package_root: &Path) -> Result<(), String> {
-    let canonical = fs::canonicalize(source)
-        .map_err(|error| format!("failed to resolve package '{}': {error}", source.display()))?;
-    ensure_contained(package_root, &canonical)?;
-    let metadata = fs::metadata(&canonical)
-        .map_err(|error| format!("failed to inspect package '{}': {error}", source.display()))?;
-    if metadata.is_dir() {
-        fs::create_dir_all(destination).map_err(|error| {
-            format!(
-                "failed to create tool directory '{}': {error}",
-                destination.display()
-            )
-        })?;
-        for entry in fs::read_dir(&canonical)
-            .map_err(|error| format!("failed to read package '{}': {error}", canonical.display()))?
-        {
-            let entry = entry.map_err(|error| format!("failed to read package entry: {error}"))?;
-            copy_tree(
-                &entry.path(),
-                &destination.join(entry.file_name()),
-                package_root,
-            )?;
-        }
-    } else if metadata.is_file() {
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                format!(
-                    "failed to create tool directory '{}': {error}",
-                    parent.display()
-                )
-            })?;
-        }
-        fs::copy(&canonical, destination).map_err(|error| {
-            format!(
-                "failed to install '{}' at '{}': {error}",
-                canonical.display(),
-                destination.display()
-            )
-        })?;
-    }
-    Ok(())
-}
-
 fn format_missing(status: &ToolchainStatus) -> String {
     format_missing_selected(
         status,
@@ -758,7 +786,7 @@ fn format_missing_selected(status: &ToolchainStatus, requirements: &[Requirement
             let tool = status.requirement(*requirement);
             (!tool.installed()).then(|| {
                 format!(
-                    "  - {}: missing {} (expected under {})",
+                    "  - {}: missing {} (primary path {})",
                     tool.label(),
                     tool.missing().join(", "),
                     tool.path().display()

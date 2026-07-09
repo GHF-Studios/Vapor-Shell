@@ -80,6 +80,60 @@ fn discovers_cargo_inside_the_managed_rustup_toolchain() {
 }
 
 #[test]
+fn installation_discovery_ignores_manifest_beside_bin_vapor() {
+    let installation = TestTree::new("installation-bin-marker");
+    installation.write(
+        manifest::FILE_NAME,
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    installation.write("bin/Vapor.toml", "");
+    let executable = installation.write("bin/vapor", "binary");
+
+    let paths = InstallationPaths::from_executable(&executable).unwrap();
+
+    assert_eq!(paths.root(), installation.root());
+    assert_eq!(paths.binaries(), installation.root().join("bin"));
+}
+
+#[test]
+fn installation_discovery_requires_manifest_at_app_root() {
+    let installation = TestTree::new("installation-missing-root-marker");
+    installation.write(
+        "bin/Vapor.toml",
+        "[root]\nname = \"wrong\"\norganization = \"example\"\n",
+    );
+    let executable = installation.write("bin/vapor", "binary");
+
+    let error = InstallationPaths::from_executable(&executable).unwrap_err();
+
+    assert!(error.contains("missing its root manifest"), "{error}");
+    assert!(error.contains("expected:"), "{error}");
+    assert!(error.contains("Vapor.toml"), "{error}");
+}
+
+#[test]
+fn installation_discovery_rejects_vapor_at_app_root() {
+    let installation = TestTree::new("installation-root-binary");
+    installation.write(
+        manifest::FILE_NAME,
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    let executable = installation.write("vapor", "binary");
+
+    let error = InstallationPaths::from_executable(&executable).unwrap_err();
+
+    assert!(
+        error.contains("not laid out as an installed Vapor application"),
+        "{error}"
+    );
+    assert!(error.contains("expected command:"), "{error}");
+    assert!(
+        error.contains(&installation.root().join("bin/vapor").display().to_string()),
+        "{error}"
+    );
+}
+
+#[test]
 fn rejects_source_inside_the_installation() {
     let (installation, executable) = installation_fixture();
     fs::create_dir_all(installation.root().join("source")).unwrap();

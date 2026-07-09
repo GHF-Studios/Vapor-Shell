@@ -2,7 +2,7 @@
 
 ## Required structural relationship
 
-Vapor source roots are Rust-governed, but `[root]` and `[workspace]` have
+Vapor source roots are Cargo-aware, but `[root]` and `[workspace]` have
 different shapes.
 
 ```text
@@ -14,13 +14,13 @@ app root/
 ├── Vapor.toml    # [root]
 ├── .gitmodules
 └── Vapor-Shell/
-    ├── Vapor.toml
+    ├── Vapor.toml    # [workspace]
     └── Cargo.toml
 ```
 
 `[workspace]` roots must contain a root `Cargo.toml`. `[root]` is not itself a
-Cargo workspace; its direct submodules that contain `Cargo.toml` are routed as
-Cargo workspaces.
+Cargo workspace; its direct submodules that declare `[workspace]` and contain
+`Cargo.toml` are routed as Cargo workspaces.
 
 Inside a Cargo workspace, `[project]` and content `Vapor.toml` files describe
 Cargo packages/content packages. They are not standalone source roots.
@@ -41,7 +41,7 @@ graph. Vapor workflows use Cargo facts where Cargo is authoritative.
 
 `cargo metadata` is the canonical machine-readable projection of a Cargo
 manifest. It reports workspace members, package manifests, targets, the Cargo
-workspace root, and target directory. The command output is replaceable; the
+workspace root, and target directory. The command output is rebuildable; the
 `Cargo.toml` that produces it is not.
 
 Vapor invokes its bundled Cargo for a discovered Cargo workspace:

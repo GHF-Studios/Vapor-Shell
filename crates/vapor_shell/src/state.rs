@@ -10,11 +10,11 @@
 //!
 //! Installation paths remain available through [`ShellState::paths`] for
 //! explicit tool execution and diagnostics. They are not valid navigation
-//! targets because authored source must remain outside the replaceable app.
+//! targets because authored source must remain outside the app root.
 
 use crate::{
     cargo_metadata::{CargoIndex, CargoWorkspace},
-    discovery::{EnvironmentPaths, ensure_contained},
+    discovery::{EnvironmentPaths, InstallationPaths, ensure_contained},
     manifest::{self, ContentKind, VaporEntity},
 };
 use std::{
@@ -27,7 +27,7 @@ const EMPTY_CONTEXT: &str = "none";
 /// Kind of source root selected for this session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceRootKind {
-    /// The Vapor application/depot source root.
+    /// The Vapor application source/depot root.
     Root,
     /// A normal source workspace.
     Workspace,
@@ -86,21 +86,45 @@ impl ContentContext {
 /// State owned by one interactive shell session.
 #[derive(Debug, Clone)]
 pub struct ShellState {
-    paths: EnvironmentPaths,
-    current_dir: PathBuf,
-    source: SourceContext,
+    installation: InstallationPaths,
+    paths: Option<EnvironmentPaths>,
+    current_dir: Option<PathBuf>,
+    source: Option<SourceContext>,
     content: Option<ContentContext>,
     cargo: CargoIndex,
 }
 
 impl ShellState {
-    /// Validate the source root and build derived, replaceable indexes.
+    /// Start a shell session with no active source root.
+    pub fn closed(installation: InstallationPaths) -> Self {
+        Self {
+            installation,
+            paths: None,
+            current_dir: None,
+            source: None,
+            content: None,
+            cargo: CargoIndex::NotPresent,
+        }
+    }
+
+    /// Validate the source root and build derived runtime indexes.
     ///
     /// # Errors
     ///
     /// Fails only when the authoritative source `Vapor.toml` is invalid. Cargo
     /// metadata failure is retained as [`CargoIndex::Unavailable`].
     pub fn new(paths: EnvironmentPaths) -> Result<Self, String> {
+        let mut state = Self::closed(paths.installation().clone());
+        state.open_paths(paths)?;
+        Ok(state)
+    }
+
+    /// Activate a source root and rebuild derived runtime indexes.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the authoritative source `Vapor.toml` is invalid.
+    pub fn open_paths(&mut self, paths: EnvironmentPaths) -> Result<Vec<String>, String> {
         let source_root = paths.source().root();
         let marker = source_root.join(manifest::FILE_NAME);
         let source = match manifest::read(&marker, source_root)? {
@@ -131,28 +155,50 @@ impl ShellState {
         };
         let cargo = CargoIndex::inspect(&paths);
 
-        Ok(Self {
-            current_dir: source_root.to_path_buf(),
-            paths,
-            source,
-            content: None,
-            cargo,
-        })
+        self.installation = paths.installation().clone();
+        self.current_dir = Some(source_root.to_path_buf());
+        self.paths = Some(paths);
+        self.source = Some(source);
+        self.content = None;
+        self.cargo = cargo;
+        Ok(self.refresh_context())
+    }
+
+    /// Close the active source root while keeping the app session alive.
+    pub fn close_source(&mut self) {
+        self.paths = None;
+        self.current_dir = None;
+        self.source = None;
+        self.content = None;
+        self.cargo = CargoIndex::NotPresent;
+    }
+
+    /// Steam installation/app root for this session.
+    pub fn installation(&self) -> &InstallationPaths {
+        &self.installation
     }
 
     /// Installation and external-source roots.
-    pub fn paths(&self) -> &EnvironmentPaths {
-        &self.paths
+    ///
+    /// # Errors
+    ///
+    /// Returns an actionable diagnostic when no source is open.
+    pub fn active_paths(&self) -> Result<&EnvironmentPaths, String> {
+        self.paths.as_ref().ok_or_else(no_source_error)
     }
 
     /// Current internal directory, always inside the source root.
-    pub fn current_dir(&self) -> &Path {
-        &self.current_dir
+    ///
+    /// # Errors
+    ///
+    /// Returns an actionable diagnostic when no source is open.
+    pub fn current_dir(&self) -> Result<&Path, String> {
+        self.current_dir.as_deref().ok_or_else(no_source_error)
     }
 
     /// Validated source-root identity.
-    pub fn source(&self) -> &SourceContext {
-        &self.source
+    pub fn source(&self) -> Option<&SourceContext> {
+        self.source.as_ref()
     }
 
     /// Nearest active content identity, if any.
@@ -165,9 +211,12 @@ impl ShellState {
         &self.cargo
     }
 
-    /// Rebuild Cargo-derived state after an explicit toolchain installation.
+    /// Rebuild Cargo-derived state after an explicit setup installation.
     pub fn refresh_cargo_index(&mut self) {
-        self.cargo = CargoIndex::inspect(&self.paths);
+        self.cargo = self
+            .paths
+            .as_ref()
+            .map_or(CargoIndex::NotPresent, CargoIndex::inspect);
     }
 
     /// Successfully loaded Cargo metadata, if available.
@@ -184,7 +233,10 @@ impl ShellState {
             .content
             .as_ref()
             .map_or(EMPTY_CONTEXT, |item| item.id());
-        format!("[{}::{content_id}] ", self.source.id())
+        self.source.as_ref().map_or_else(
+            || "[closed::none] ".to_owned(),
+            |source| format!("[{}::{content_id}] ", source.id()),
+        )
     }
 
     /// Recompute nearest-content context from the current source directory.
@@ -194,8 +246,14 @@ impl ShellState {
     pub fn refresh_context(&mut self) -> Vec<String> {
         self.content = None;
         let mut warnings = Vec::new();
-        let source = self.paths.source();
-        let mut cursor = Some(self.current_dir.as_path());
+        let Some(paths) = self.paths.as_ref() else {
+            return warnings;
+        };
+        let Some(current_dir) = self.current_dir.as_deref() else {
+            return warnings;
+        };
+        let source = paths.source();
+        let mut cursor = Some(current_dir);
 
         while let Some(directory) = cursor {
             if !source.contains(directory) {
@@ -214,7 +272,9 @@ impl ShellState {
                     }
                     Ok(VaporEntity::Workspace { .. })
                         if directory != source.root()
-                            && self.source.kind() == SourceRootKind::Workspace =>
+                            && self.source.as_ref().is_some_and(|source| {
+                                source.kind() == SourceRootKind::Workspace
+                            }) =>
                     {
                         warnings.push(format!(
                             "nested workspace manifest '{}' is not allowed inside source workspace '{}'",
@@ -255,7 +315,7 @@ impl ShellState {
         let candidate = if target.is_absolute() {
             target.to_path_buf()
         } else {
-            self.current_dir.join(target)
+            self.current_dir()?.join(target)
         };
         let canonical = fs::canonicalize(&candidate).map_err(|error| {
             format!(
@@ -267,7 +327,7 @@ impl ShellState {
             return Err(format!("not a directory: {}", canonical.display()));
         }
 
-        ensure_contained(self.paths.source().root(), &canonical)?;
+        ensure_contained(self.active_paths()?.source().root(), &canonical)?;
         Ok(canonical)
     }
 
@@ -287,8 +347,8 @@ impl ShellState {
     ///
     /// Fails when `target` is outside the source root.
     pub fn change_directory_to(&mut self, target: PathBuf) -> Result<Vec<String>, String> {
-        ensure_contained(self.paths.source().root(), &target)?;
-        self.current_dir = target;
+        ensure_contained(self.active_paths()?.source().root(), &target)?;
+        self.current_dir = Some(target);
         Ok(self.refresh_context())
     }
 
@@ -298,8 +358,8 @@ impl ShellState {
     ///
     /// Fails rather than moving above the source root.
     pub fn move_up(&mut self, levels: usize) -> Result<Vec<String>, String> {
-        let source_root = self.paths.source().root();
-        let mut target = self.current_dir.clone();
+        let source_root = self.active_paths()?.source().root();
+        let mut target = self.current_dir()?.to_path_buf();
 
         for _ in 0..levels {
             if target == source_root {
@@ -315,4 +375,9 @@ impl ShellState {
 
         self.change_directory_to(target)
     }
+}
+
+fn no_source_error() -> String {
+    "no Vapor source is open\nhelp: open an indexed source with `open NAME`, open a path with `open PATH`, or index one with `sources add PATH`"
+        .to_owned()
 }

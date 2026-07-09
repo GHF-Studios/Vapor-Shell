@@ -1,7 +1,7 @@
 //! Registration of the app-owned `bin` directory in the user's `PATH`.
 //!
 //! Vapor never copies an executable into a user-data directory. The actual
-//! `vapor` binary remains under the movable Steam application root; only a
+//! `vapor` binary remains under the movable Steam installation/app root; only a
 //! marked shell-profile entry lives outside the application.
 
 use crate::discovery::InstallationPaths;

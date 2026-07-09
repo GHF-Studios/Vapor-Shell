@@ -6,6 +6,7 @@
 crates/vapor_shell/
 ├── README.md
 ├── docs/
+├── scripts/
 ├── src/
 │   ├── lib.rs
 │   ├── main.rs
@@ -15,6 +16,7 @@ crates/vapor_shell/
 │   ├── distribution.rs
 │   ├── documentation.rs
 │   ├── discovery.rs
+│   ├── ide.rs
 │   ├── manifest.rs
 │   ├── metadata/
 │   │   ├── mod.rs
@@ -24,17 +26,21 @@ crates/vapor_shell/
 │   │   └── validation.rs
 │   ├── path_setup.rs
 │   ├── prompt.rs
+│   ├── source_registry.rs
 │   ├── steam.rs
 │   ├── terminal.rs
 │   ├── toolchain.rs
 │   ├── workflow.rs
 │   ├── workspace.rs
 │   └── state.rs
+├── templates/
+│   └── ide/
 └── tests/
     ├── common/
     ├── cargo_metadata.rs
     ├── command.rs
     ├── discovery.rs
+    ├── ide.rs
     ├── installation_commands.rs
     ├── manifest.rs
     ├── metadata.rs
@@ -52,15 +58,15 @@ contracts as downstream code would.
 ## Running locally
 
 A direct `cargo run` places the executable under the same repository that acts
-as authored source, intentionally violating the disjoint-root invariant. For a
-manual session, build the binary, copy it beneath a staging installation with a
-`[root]` `Vapor.toml` and bundled Cargo layout, then invoke that staged
-binary while the process directory is a separate Vapor source root. The
-integration fixtures automate this topology for tests.
+as authored source, intentionally violating the product surface. For a manual
+session, build the `vapor` binary once with host Cargo, copy that binary and a
+`[root]` `Vapor.toml` into the Steam app directory with
+`scripts/bootstrap-local-app-deploy.sh`, then invoke only that installed
+`bin/vapor`. The integration fixtures automate this topology for tests.
 
-After the staged or installed binary works from Vapor-Root, run `workspace
-remember`. This persists the external source selection for future Steam GUI
-launches without moving source into the app installation.
+After the installed binary works, run `open /path/to/source` from the installed
+shell. This validates and registers the external source selection for future
+Steam GUI launches without moving source into the app installation.
 
 ## Documentation policy
 
@@ -72,10 +78,14 @@ items should include whichever sections clarify their contract:
 - `# Errors` for fallible functions;
 - `# Panics` only when unavoidable;
 - security or boundary invariants;
-- relationship to replaceable versus critical state.
+- relationship to app-owned versus critical source state.
 
 Long-form concepts belong in `docs/`; API-specific contracts stay beside code.
 README links provide the entry path instead of duplicating every detail.
+
+Design checkpoints define vocabulary and product intent. User-facing docs and
+command references must distinguish implemented behavior from planned behavior
+instead of presenting design goals as already shipped commands.
 
 ## Adding a command
 
@@ -86,8 +96,11 @@ README links provide the entry path instead of duplicating every detail.
    targeted `ValidationPlan` when the command depends on environment state.
 5. Decide explicitly whether it reads source, reads installation state, or
    mutates source state. Installation navigation is not allowed implicitly.
-6. Add integration coverage in `tests/command.rs` or a focused new file.
-7. Update `docs/commands.md`.
+6. If the command mutates source, installation, IDE settings, Steam state, or
+   publication state, decide whether it needs status and `--dry-run` preview
+   support before implementation is considered complete.
+7. Add integration coverage in `tests/command.rs` or a focused new file.
+8. Update `docs/commands.md`.
 
 ## Adding a manifest identity
 

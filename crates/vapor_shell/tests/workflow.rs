@@ -12,7 +12,7 @@ use vapor_shell::{
 
 #[cfg(unix)]
 #[test]
-fn test_workflow_uses_installed_cargo_and_replaceable_output() {
+fn test_workflow_uses_installed_cargo_and_app_owned_output() {
     let installation = TestTree::new("workflow-installation");
     installation.write(
         "Vapor.toml",

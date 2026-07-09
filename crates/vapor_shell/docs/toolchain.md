@@ -1,60 +1,77 @@
-# App-local toolchain
+# Vapor setup
 
-The Vapor toolchain lives inside the Steam application root. Vapor does not use
-system Rust, system Git, system SteamCMD, or user-data shim directories as
-authoritative tooling.
+Vapor setup lives inside the Steam installation/app root. Vapor does not
+use system Rust, system SteamCMD, or user-data shim directories as authoritative
+tooling.
 
-The public lifecycle is intentionally small:
+There is one mandatory installed toolchain bundle:
 
-- `toolchain status` reports app-root registration, active tools, and vendored
-  package health.
-- `toolchain install` accepts the current app root, registers its `bin`
+- Rust/Cargo through app-local `rustup`, `rustup-home`, and `cargo-home`;
+- Git through `tools/git`;
+- SteamCMD through `tools/steamcmd`.
+
+Git must be an app-owned distribution. A script that delegates to host `git`,
+for example `/usr/bin/git`, is rejected by toolchain health checks and cannot be
+used as distributable package content.
+
+The public lifecycle is intentionally small and intentionally breaking from the
+older `toolchain` command surface:
+
+- `setup status` reports app-root registration and installed Rust/Cargo,
+  Git, and SteamCMD health.
+- `setup install` accepts the current app root, registers its `bin`
   directory for PATH setup, and installs missing Rust/Cargo, Git, and SteamCMD.
-- `toolchain repair` accepts the current app root and reapplies every vendored
-  package. Use it after an intentional Steam app move or suspected tool damage.
-- `toolchain uninstall` removes app-local tools, PATH registration, and the
+- `setup repair` accepts the current app root and reinstalls setup components.
+  Use it after an intentional Steam app move or suspected tool damage.
+- `setup uninstall` removes app-local tools, PATH registration, and the
   app-root location record.
+- `setup package install` and `setup package repair` populate
+  `packages/toolchain`, the
+  distributable package content used by app/depot staging. They are separate
+  from active setup installation and are never run implicitly after
+  bootstrap.
 
 No workflow command installs or repairs prerequisites implicitly. Premature
-commands stop with an actionable diagnostic and point to `toolchain status`,
-`toolchain install`, or `toolchain repair`.
+commands stop with an actionable diagnostic and point to `setup status`,
+`setup install`, or `setup repair`.
 
-Mutating toolchain commands are intended to follow Vapor's broader
-status-preview-repair model. The implemented baseline is explicit and manual;
-the next command-surface pass should add dry-run previews for install, repair,
-and uninstall before they mutate active tool directories, PATH registration, or
-app-root location state.
+Mutating setup commands follow Vapor's status-preview-repair model. Use
+`--dry-run` with `setup install`, `setup repair`, or `setup
+uninstall` to preview active tool directories, PATH registration, and app-root
+location changes before applying them.
 
 ## App-root registration
 
 Vapor persists the accepted app-root path at:
 
 ```text
-state/vapor-home.toml
+.vapor/state/vapor-home.toml
 ```
 
-The file lives inside the app root. If Steam moves the app, the file moves with
-it while still recording the previous absolute path. `toolchain status` reports
-that mismatch. `toolchain repair` is the explicit “yes, this move is intended”
-operation.
+The file lives inside the app root's `.vapor` metadata area. If Steam moves the
+app, the file moves with it while still recording the previous absolute path.
+`setup status` reports that mismatch. `setup repair` is the explicit
+“yes, this move is intended” operation.
 
 Launching the Shell, SDK GUI, Launcher GUI, or a game never updates this state
 implicitly.
 
-## Vendored package layout
+## Setup installation
 
-Steam delivers immutable install inputs beneath:
+Explicit `setup install` performs app-local installation into the app root:
 
-```text
-packages/toolchain/
-├── rustup/bin/rustup
-├── rustup-home/toolchains/<toolchain>-<host>/bin/
-├── cargo-home/
-├── git/bin/git
-└── steamcmd/steamcmd
-```
+- Rust is installed through `rustup-init` with `RUSTUP_HOME` and `CARGO_HOME`
+  pointing inside the app root.
+- Git is applied from a complete app-owned `packages/toolchain/git` package.
+  Host Git wrappers are not accepted.
+- SteamCMD is downloaded and extracted under `tools/steamcmd`.
 
-`toolchain install` and `toolchain repair` copy them to active app-local paths:
+This is still app-local operation: active tools and build outputs live under the
+Steam app root, and no workflow command performs this installation implicitly.
+
+## Installed layout
+
+The installed toolchain uses these app-owned paths:
 
 ```text
 rustup/
@@ -64,9 +81,16 @@ tools/git/
 tools/steamcmd/
 ```
 
-Steam verification repairs the immutable package inputs. Vapor owns activation
-from those packages.
+Distributable package content lives separately:
 
-The first bootstrap build must populate all package directories before it is
-placed in Steam. Subsequent depots carry `packages/toolchain`, not one
-developer machine's activated tool state or credentials.
+```text
+packages/toolchain/
+```
+
+Commands that need Cargo, Git, or SteamCMD validate these installed paths
+directly. If anything is missing, the command stops and tells the operator to run
+`setup status`, `setup install`, or `setup repair`.
+
+Final app/depot staging copies `packages/toolchain`, not the live active
+tool directories. Populate or refresh that package content explicitly with
+`setup package install` or `setup package repair`.

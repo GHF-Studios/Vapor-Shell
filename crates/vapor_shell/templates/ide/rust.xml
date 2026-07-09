@@ -1,0 +1,5 @@
+<project version="4">
+  <component name="RsProjectSettings">
+    <option name="toolchainHomeDirectory" value="{{toolchain_home_directory}}" />
+{{stdlib_option}}  </component>
+</project>

@@ -3,7 +3,7 @@
 ## Purpose
 
 Vapor Shell gives authored source a stable command environment without making
-that source part of the replaceable Steam installation. The executable may be
+that source part of the Steam installation/app root. The executable may be
 globally reachable through PATH; process invocation does not determine source
 ownership or widen filesystem access.
 
@@ -25,15 +25,18 @@ qualified IDs.
 
 Vapor accepts two source-root kinds:
 
-- `[root]`: the pure Vapor application/depot super-repository. It is not a
-  Cargo workspace. Direct submodules that contain `Cargo.toml` become routed
-  Cargo workspaces.
+- `[root]`: the pure Vapor application source/depot super-repository. It is not a
+  Cargo workspace. Direct submodules that declare `[workspace]` and contain
+  `Cargo.toml` become routed Cargo workspaces.
 - `[workspace]`: a normal Vapor/Cargo source workspace rooted in the same
   directory as its `Cargo.toml`.
 
 `[project]` and content manifests cannot be standalone source roots. Starting
 inside Vapor-Shell, a game, an engine, or another nested artifact escalates to
 the highest containing `[root]` or `[workspace]`.
+
+The Steam installation is the app root, not a source root. It is discovered from
+the running executable.
 
 ## Session startup
 
@@ -83,17 +86,19 @@ app-root registration state, tool health, and Cargo-derived state once.
 
 Before an action mutates state or launches a child process, its handler supplies
 a targeted `ValidationPlan`. A Cargo build requires an accepted app root, Rust,
-Git, and valid source-root policy. Steam login requires an accepted app root and
-SteamCMD. Commands never install or repair failed prerequisites implicitly.
+Git, and valid source-root policy. A real root publish additionally requires
+SteamCMD; `root publish --dry-run` does not. Commands never install or repair
+failed prerequisites implicitly.
 
 ## Command surface
 
 The interactive shell is the primary interface. Ad-hoc one-shot commands are
-disabled. `vapor script run NAME` is the supported direct CLI facade for
-repeatable non-auth sequences.
+disabled. Direct CLI facades are reserved for bootstrap, app inspection,
+source selection, toolchain lifecycle, metadata reporting, and repeatable
+non-auth scripts.
 
-Scripts may dry-run publish staging, but they may not authenticate Steam or
-perform real uploads.
+Scripts may dry-run publish staging and IDE repair, but they may not
+authenticate Steam, perform real uploads, or apply project-local IDE changes.
 
 ## Module map
 
@@ -101,8 +106,10 @@ perform real uploads.
 - `command`: Clap grammar and command effects.
 - `cargo_metadata`: invocation and typed projection of Cargo's JSON output.
 - `discovery`: installation/source discovery and disjoint-root validation.
+- `ide`: explicit project-local RustRover/JetBrains status and repair.
 - `manifest`: strict Vapor identity vocabulary.
 - `metadata`: shared environment resolution, reporting, and targeted preflight.
+- `source_registry`: app-local index and active selection for external sources.
 - `workspace`: source-root Cargo workspace discovery.
 - `workflow`: Steam-toolchain formatting, checking, testing, and validation.
 - `path_setup`: marked registration of the app-owned `bin` directory in PATH.

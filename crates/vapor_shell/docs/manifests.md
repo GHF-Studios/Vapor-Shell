@@ -3,22 +3,27 @@
 `Vapor.toml` is the Vapor manifest. `Cargo.toml` is the Cargo manifest. Avoid
 unqualified “manifest” when both could be meant.
 
-## Identity rule
+Vapor manifests describe Vapor-owned information: identity, content role,
+composition, capabilities, publication policy, authority, and managed
+relationships. They do not duplicate Cargo package membership, Rust
+dependencies, crate targets, or generated Cargo metadata.
+
+## One file, one declared identity
 
 Every `Vapor.toml` declares exactly one identity-bearing section.
-Declarations use local `name`; full IDs are inferred.
 
 - `[root]`, `[workspace]`, and `[registry]` require `name` and `organization`.
-- `[project]` and content sections require only `name`.
+- `[project]` and content sections require local `name`.
 - Declaration-side `id` is invalid.
 - `[project].kind` is invalid; the table name selects the role.
+- References still use fully-qualified `id`.
 
-References still use fully-qualified IDs. In a reference, `id` means “the thing
-being referenced,” not “the thing being declared here.”
+In declarations, `name` means “the local segment declared here.” In references,
+`id` means “the already-declared thing being referenced.”
 
 ## Source roots
 
-### App/depot root
+### Application source root
 
 ```toml
 schema = 1
@@ -35,11 +40,14 @@ depot-id = 2122621
 development-branch = "vapor-dev"
 ```
 
-`[root]` is the pure Vapor super-repository for the Steam app/depot. It is not a
-Cargo workspace. Direct Git submodules that contain `Cargo.toml` become the
-Cargo workspaces routed by root workflows.
+`[root]` declares a Vapor application source root: a pure Vapor-managed Git
+super-repository that assembles and publishes a Steam app/depot. It is not a
+Cargo workspace. Direct Git submodules that contain `[workspace]` manifests and
+`Cargo.toml` become app member workspaces.
 
-### Normal workspace
+This is source, not the Steam installation/app root.
+
+### Normal source workspace
 
 ```toml
 schema = 1
@@ -51,12 +59,16 @@ version = "0.1.0"
 repository = "https://github.com/GHF-Studios/Loo-Cast"
 ```
 
-`[workspace]` is a normal Vapor/Cargo source workspace. Its root must also
-contain `Cargo.toml`.
+`[workspace]` declares one source repository that is also one Cargo workspace.
+Its root must contain `Cargo.toml`.
 
-## Projects and content
+A workspace may contain several Cargo packages, several Vapor projects, and
+several publishable Workshop artifacts.
 
-Non-content Cargo packages use `[project]`:
+## Projects and content packages
+
+Every source-authored Vapor project is a Cargo package inside a Vapor workspace.
+Non-content packages use `[project]`:
 
 ```toml
 schema = 1
@@ -66,7 +78,7 @@ name = "cli"
 version.workspace = true
 ```
 
-Content Cargo packages use a content section:
+Content packages use their content role:
 
 ```toml
 schema = 1
@@ -88,12 +100,16 @@ Supported content sections are:
 - `[game-mod]`
 - `[extension-mod]`
 
-For source root `ghf-studios/loo-cast`, `[engine] name = "spacetime-engine"`
-declares `ghf-studios/loo-cast/spacetime-engine`.
+For source root `ghf-studios/loo-cast`, `[engine] name =
+"spacetime-engine"` declares:
 
-## Composition references
+```text
+ghf-studios/loo-cast/spacetime-engine
+```
 
-Composition uses full IDs because it references other artifacts:
+## Composition
+
+Composition references other artifacts, so it uses full IDs:
 
 ```toml
 [packagepack.engine]
@@ -103,9 +119,45 @@ id = "ghf-studios/loo-cast/spacetime-engine"
 id = "ghf-studios/loo-cast/loo-cast-game"
 ```
 
-Cargo dependencies remain separate Rust build dependencies. Vapor dependencies
-describe content composition, packaging, compatibility, and publication
+Cargo dependencies remain Rust build dependencies. Vapor dependencies describe
+content composition, packaging, compatibility, publication, and installation
 relationships.
+
+Packagepacks, Enginepacks, Gamepacks, and Modpacks can also exist as simpler
+Vapor metadata assembled by the Launcher or runtime UI when no source-backed
+Rust package is needed. Those dynamic pack manifests are installed/content
+state, not Cargo workspace membership.
+
+Current design rules:
+
+- an enginepack contains exactly one engine and zero or more engine mods;
+- a gamepack contains exactly one game and zero or more game mods;
+- a modpack contains engine mods, game mods, and extension mods;
+- a packagepack contains either one engine or one enginepack, either one game
+  or one gamepack, zero or more modpacks, and optional direct mods;
+- extension mods can extend any mod, including another extension mod.
+
+There is no separate `binding` declaration in the design model. Composition
+edges and slot/provider relationships are resolved relationships between
+declared artifacts and capabilities.
+
+## Packagepack workspace shape
+
+A packagepack that bundles an engine and a game should live beside those
+constituents in a composition workspace instead of being nested under either
+constituent:
+
+```text
+Loo-Cast/
+├── Vapor.toml                 [workspace]
+├── Cargo.toml                 Cargo workspace
+├── spacetime-engine/          [engine]
+├── loo-cast-game/             [game]
+└── loo-cast-packagepack/      [packagepack]
+```
+
+That workspace is Workshop/content source. It is separate from Vapor-Root,
+which is app/depot source.
 
 ## Traits and slots
 
@@ -125,9 +177,31 @@ name = "replacement-render-backend"
 trait = "ghf-studios/loo-cast/spacetime-engine/replacement-render-backend"
 ```
 
-Shared traits belong to a dedicated contracts project, not to workspace scope.
-Slots do not own cardinality. The referenced trait owns it as part of the
-capability contract.
+Rules:
+
+- traits are marker capabilities, not content roles;
+- content kinds such as engine and game are not traits;
+- shared traits belong in a contracts project when they are genuinely shared;
+- slots do not own cardinality;
+- the referenced trait owns cardinality as part of the capability contract;
+- provider declaration syntax is intentionally not finalized yet.
+
+## Names, IDs, and versions
+
+Declarations use local names. Full IDs are inferred:
+
+```text
+workspace: ghf-studios/loo-cast
+project:   ghf-studios/loo-cast/spacetime-engine
+trait:     ghf-studios/loo-cast/spacetime-engine/replacement-render-backend
+```
+
+Public references use stable fully-qualified IDs. Relative paths are reserved
+for private, local, or bundled relationships.
+
+Versions are artifact-owned and inheritance-friendly. `version.workspace = true`
+is the normal default. A project or content artifact should own an explicit
+semantic version only when its release lifecycle diverges from the workspace.
 
 ## Invalid combinations
 
@@ -149,6 +223,13 @@ name = "loo-cast-game"
 name = "campaign-expansion"
 ```
 
-Nested entities each get their own directory and `Vapor.toml`.
+This is rejected at a source root because content belongs in a Cargo package
+directory, not as the source-root identity:
 
-See `docs/design/manifest-schema.md` for the fuller schema checkpoint.
+```toml
+[engine]
+name = "spacetime-engine"
+```
+
+See `docs/design/manifest-schema.md` for the fuller schema checkpoint and
+`docs/design/product-topology.md` for the product model behind it.

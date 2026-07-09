@@ -1,9 +1,8 @@
-//! SteamCMD terminal handoff and beta-branch SteamPipe publishing.
+//! SteamCMD-backed beta-branch SteamPipe publishing.
 
 use crate::{
     discovery::EnvironmentPaths,
     distribution::{self, DistributionManifest},
-    toolchain,
 };
 use std::{
     fs,
@@ -24,21 +23,6 @@ pub fn executable(paths: &EnvironmentPaths) -> Result<PathBuf, String> {
         .flat_map(|directory| names.iter().map(move |name| directory.join(name)))
         .find(|path| path.is_file())
         .ok_or_else(|| "SteamCMD is not installed in the Vapor app root".to_owned())
-}
-
-/// Temporarily hand the terminal to SteamCMD for interactive authentication.
-pub fn login(paths: &EnvironmentPaths, account: &str) -> Result<(), String> {
-    let steamcmd = executable(paths)?;
-    let status = Command::new(&steamcmd)
-        .args(["+login", account, "+quit"])
-        .current_dir(steamcmd.parent().expect("SteamCMD has a parent"))
-        .status()
-        .map_err(|error| format!("failed to start SteamCMD: {error}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("SteamCMD login exited with {status}"))
-    }
 }
 
 /// Stage, validate, and publish the development beta through SteamCMD.
@@ -81,7 +65,17 @@ pub fn publish(
 
 /// Validate essential staged self-hosting inputs.
 pub fn smoke(stage: &Path) -> Result<(), String> {
-    for required in ["Vapor.toml", "bin", "docs", "packages/toolchain"] {
+    for required in [
+        "Vapor.toml",
+        "bin",
+        "docs",
+        "packages/toolchain",
+        "packages/toolchain/rustup",
+        "packages/toolchain/rustup-home",
+        "packages/toolchain/cargo-home",
+        "packages/toolchain/git",
+        "packages/toolchain/steamcmd",
+    ] {
         let path = stage.join(required);
         if !path.exists() {
             return Err(format!(
@@ -90,13 +84,30 @@ pub fn smoke(stage: &Path) -> Result<(), String> {
             ));
         }
     }
-    toolchain::validate_package(&stage.join("packages/toolchain"))?;
     let has_shell = fs::read_dir(stage.join("bin"))
         .map_err(|e| e.to_string())?
         .filter_map(Result::ok)
         .any(|entry| entry.file_name().to_string_lossy().starts_with("vapor"));
     if !has_shell {
         return Err("staged application has no vapor binary".to_owned());
+    }
+    for forbidden in [
+        "packages/toolchain/cargo-home/credentials",
+        "packages/toolchain/cargo-home/credentials.toml",
+        "packages/toolchain/cargo-home/registry/cache",
+        "packages/toolchain/cargo-home/registry/src",
+        "packages/toolchain/steamcmd/config",
+        "packages/toolchain/steamcmd/logs",
+        "packages/toolchain/steamcmd/steamapps",
+        "packages/toolchain/steamcmd/dumps",
+    ] {
+        let path = stage.join(forbidden);
+        if path.exists() {
+            return Err(format!(
+                "staged application includes SteamCMD session state: {}",
+                path.display()
+            ));
+        }
     }
     Ok(())
 }

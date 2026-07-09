@@ -73,15 +73,15 @@ impl CargoWorkflow {
             Self::Fmt => "formatting completed; next run `vapor test`",
             Self::Check => "checking completed; next run `vapor test`",
             Self::Test => "tests completed; next run `vapor validate`",
-            Self::Build => "build completed; use `vapor self rebuild` to promote app binaries",
-            Self::Validate => "validation passed; next run `vapor self rebuild`",
+            Self::Build => "build completed; use `vapor root build` to promote app binaries",
+            Self::Validate => "validation passed; next run `vapor root build`",
         }
     }
 }
 
 /// Execute a workflow for the selected Cargo workspace or all workspaces.
 ///
-/// Build artifacts are written beneath the replaceable installation at
+/// Build artifacts are written beneath the app root at
 /// `output/dev/<project>`. The host `PATH` is retained only for non-Rust host
 /// tools such as a system linker; Cargo and Rustc resolve from the installation.
 ///

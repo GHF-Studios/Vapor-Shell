@@ -2,7 +2,7 @@
 
 use super::{
     CargoReport, CargoState, DistributionManifestReport, LocationReport, LocationState,
-    MetadataReport, ResourceState, ToolReport, WorkspaceManifestReport,
+    MetadataReport, ResourceState, SourceState, ToolReport, WorkspaceManifestReport,
 };
 use std::{fmt::Write, path::PathBuf};
 
@@ -11,20 +11,38 @@ impl MetadataReport {
         let mut output = String::new();
         writeln!(output, "Vapor metadata (schema {})", self.schema_version).unwrap();
         writeln!(output, "source:").unwrap();
-        writeln!(output, "  source:    {}", self.source.source_id).unwrap();
-        writeln!(output, "  root:      {}", self.source.root.display()).unwrap();
-        writeln!(
-            output,
-            "  directory: {}",
-            self.source.current_directory.display()
-        )
-        .unwrap();
-        match &self.source.content {
-            Some(content) => {
-                writeln!(output, "  content:   {} ({})", content.id, content.kind).unwrap();
-                writeln!(output, "  content root: {}", content.root.display()).unwrap();
+        match self.source.status {
+            SourceState::Open => {
+                writeln!(
+                    output,
+                    "  source:    {}",
+                    self.source.source_id.as_deref().unwrap_or("unknown")
+                )
+                .unwrap();
+                writeln!(
+                    output,
+                    "  root:      {}",
+                    optional_path(self.source.root.as_ref())
+                )
+                .unwrap();
+                writeln!(
+                    output,
+                    "  directory: {}",
+                    optional_path(self.source.current_directory.as_ref())
+                )
+                .unwrap();
+                match &self.source.content {
+                    Some(content) => {
+                        writeln!(output, "  content:   {} ({})", content.id, content.kind).unwrap();
+                        writeln!(output, "  content root: {}", content.root.display()).unwrap();
+                    }
+                    None => writeln!(output, "  content:   none").unwrap(),
+                }
             }
-            None => writeln!(output, "  content:   none").unwrap(),
+            SourceState::Closed => {
+                writeln!(output, "  status:    closed").unwrap();
+                writeln!(output, "  hint:      open a source with `open NAME`").unwrap();
+            }
         }
 
         writeln!(output, "installation:").unwrap();
@@ -61,12 +79,12 @@ impl MetadataReport {
         write_tool(&mut output, &self.toolchain.steamcmd);
         writeln!(
             output,
-            "  install package: {} ({})",
-            status_word(self.toolchain.package_complete),
-            self.toolchain.package_root.display()
+            "  package content: {} ({})",
+            status_word(self.toolchain.package.complete),
+            self.toolchain.package.root.display()
         )
         .unwrap();
-        for missing in &self.toolchain.package_missing {
+        for missing in &self.toolchain.package.missing {
             writeln!(output, "    missing: {missing}").unwrap();
         }
 
@@ -177,7 +195,7 @@ fn write_workspace_manifest(output: &mut String, report: &WorkspaceManifestRepor
             )
             .unwrap();
         }
-        ResourceState::Absent => unreachable!("workspace policy is authoritative"),
+        ResourceState::Absent => writeln!(output, "  workspace: not open").unwrap(),
     }
 }
 

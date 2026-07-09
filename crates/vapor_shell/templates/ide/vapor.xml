@@ -1,0 +1,14 @@
+<project version="4">
+  <component name="VaporProjectSettings">
+    <option name="schemaVersion" value="1" />
+    <option name="sourceRoot" value="$PROJECT_DIR$" />
+    <option name="sourceId" value="{{source_id}}" />
+    <option name="appRoot" value="{{app_root}}" />
+    <option name="cargoHome" value="{{cargo_home}}" />
+    <option name="rustupHome" value="{{rustup_home}}" />
+    <option name="cargoPath" value="{{cargo_path}}" />
+    <option name="rustcPath" value="{{rustc_path}}" />
+    <option name="rustupPath" value="{{rustup_path}}" />
+    <option name="gitPath" value="{{git_path}}" />
+{{stdlib_option}}  </component>
+</project>

@@ -1,0 +1,4 @@
+<project version="4">
+  <component name="CargoProjects">
+{{cargo_projects}}  </component>
+</project>

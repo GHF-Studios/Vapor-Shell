@@ -1,37 +1,45 @@
 # Vapor manifest schema
 
-Status: **implemented baseline; subject to extension as workflows harden**
+Status: **implemented baseline; extended by design constraints as workflows harden**
 
-This is the minimal schema that the implementation refactor targets. It keeps
-Cargo facts in `Cargo.toml` and records only Vapor-owned identity, composition,
-capability, publication, and application policy in `Vapor.toml`.
+This document describes the current Vapor manifest model. The implementation
+validates the baseline identity shape today; later passes will add deeper
+semantic validation for composition, traits, slots, publication, and authority.
+
+`Cargo.toml` remains authoritative for Cargo packages, workspace membership,
+Rust dependencies, features, crate targets, and build behavior. `Vapor.toml`
+records Vapor-owned identity, content role, composition, capability,
+publication, installation, and authority metadata.
 
 ## Universal rules
 
 - Every manifest starts with `schema = 1`.
 - Every manifest declares exactly one primary identity section.
 - Declaration names and organization names use lowercase kebab-case.
-- Root, workspace, registry, project, content, and trait declarations use a
-  local `name`; they do not repeat their fully qualified identifier.
+- Root, workspace, registry, project, content, and trait declarations use local
+  `name`; they do not repeat their fully-qualified identifier.
+- Declaration-side `id` is invalid.
+- `[project].kind` is invalid; the identity section chooses the role.
 - A root, workspace, or registry identifier is inferred as
   `organization/name`.
 - A project or content identifier is inferred as
   `organization/workspace/project`.
 - A trait identifier is inferred as
   `organization/workspace/project/trait`.
-- Repository URLs preserve the canonical GitHub owner and repository spelling.
-- Inferred identifiers are globally unique across identity kinds.
-- References use fully qualified identifiers. An `id` field therefore denotes
-  a reference, never the declaration containing that field.
-- A publishable reference uses a stable identifier. Relative paths are reserved for
-  private, local, or otherwise non-publishable relationships.
+- Repository URLs preserve canonical GitHub owner and repository spelling.
+- References use fully-qualified identifiers. An `id` field therefore denotes a
+  reference, never the declaration containing that field.
+- Publishable references use stable identifiers.
+- Relative paths are reserved for private, local, or bundled relationships.
 - Generated resolution, hashes, receipts, and installed state do not belong in
-  a source manifest.
+  source manifests.
 
-## Application root
+## Source-root manifests
 
-The application root is a pure Vapor-managed Git super-repository, not a Cargo
-workspace:
+### Application source root
+
+The application source root is a pure Vapor-managed Git super-repository, not
+the Steam installation/app root and not a Cargo workspace:
 
 ```toml
 schema = 1
@@ -48,32 +56,54 @@ depot-id = 2122621
 development-branch = "vapor-dev"
 ```
 
-Direct Git submodules define its app/depot workspace membership. Workshop
-compositions such as Loo-Cast live in separate `[workspace]` repositories and
-are not submodules of Vapor-Root.
+Direct Git submodules define its application/depot workspace membership. Each
+member must be a `[workspace]` repository with a root `Cargo.toml`.
 
-## Workspace
+Workshop compositions such as Loo-Cast live in separate `[workspace]`
+repositories and are not submodules of Vapor-Root merely because they are
+first-party content.
 
-A source repository is one Vapor workspace and one Cargo workspace rooted in
-the same directory:
+### Workspace
+
+A workspace source repository is one Vapor workspace and one Cargo workspace
+rooted in the same directory:
 
 ```toml
 schema = 1
 
 [workspace]
-name = "vapor-examples"
+name = "loo-cast"
 organization = "ghf-studios"
-version = "0.5.0"
-repository = "https://github.com/GHF-Studios/Vapor-Examples"
+version = "0.1.0"
+repository = "https://github.com/GHF-Studios/Loo-Cast"
 ```
 
-Cargo metadata defines the package membership. The Vapor manifest does not
-repeat Cargo member paths.
+Cargo metadata defines package membership. The Vapor manifest does not repeat
+Cargo member paths.
 
-## Project and content package
+### Registry
 
-Every Cargo package in a Vapor workspace has a colocated `Vapor.toml`. A
-non-content package uses `[project]`:
+The registry is infrastructure authority, not a workspace and not a Cargo
+package:
+
+```toml
+schema = 1
+
+[registry]
+name = "vapor-registry"
+organization = "ghf-studios"
+repository = "https://github.com/GHF-Studios/Vapor-Registry"
+authority = "github.com/GHF-Studios/Vapor-Registry"
+```
+
+Registry data verifies declared organization, inferred identity, containment,
+and first-party authority. Naming an organization in a source manifest is a
+namespace claim, not authorization.
+
+## Project and content package manifests
+
+Every Vapor project is a Cargo package in a Vapor workspace. A non-content
+package uses `[project]`:
 
 ```toml
 schema = 1
@@ -83,7 +113,7 @@ name = "cli"
 version.workspace = true
 ```
 
-A content package uses its content kind instead of `[project]`:
+A content package uses its content kind instead:
 
 ```toml
 schema = 1
@@ -93,16 +123,26 @@ name = "spacetime-engine"
 version.workspace = true
 ```
 
-The content identity sections are `[engine]`, `[game]`, `[engine-mod]`,
-`[game-mod]`, `[extension-mod]`, `[enginepack]`, `[gamepack]`, `[modpack]`, and
-`[packagepack]`. Their containing Cargo manifest remains authoritative for
-package names, targets, crate types, Rust dependencies, and features.
+Supported content identity sections:
+
+- `[engine]`
+- `[game]`
+- `[engine-mod]`
+- `[game-mod]`
+- `[extension-mod]`
+- `[enginepack]`
+- `[gamepack]`
+- `[modpack]`
+- `[packagepack]`
+
+Their containing Cargo manifest remains authoritative for package names,
+targets, crate types, Rust dependencies, and features.
 
 Workspace version inheritance is the default. A separately versioned artifact
 may own an explicit semantic version when its release lifecycle actually
 diverges.
 
-## Composition
+## Composition schema
 
 Composition is declared on the containing artifact with kind-qualified child
 fields:
@@ -115,9 +155,17 @@ id = "ghf-studios/loo-cast/spacetime-engine"
 id = "ghf-studios/loo-cast/loo-cast-game"
 ```
 
-The field shape and content-kind rules imply structural cardinality. These
-relationships are real content edges; no separate `binding` object is created.
-Cargo dependencies remain a separate Rust build graph.
+The design model constrains composition by artifact role:
+
+- an enginepack contains exactly one engine and zero or more engine mods;
+- a gamepack contains exactly one game and zero or more game mods;
+- a modpack contains engine mods, game mods, and extension mods;
+- a packagepack contains either one engine or one enginepack, either one game
+  or one gamepack, zero or more modpacks, and optional direct mods;
+- extension mods may extend any mod, including another extension mod.
+
+These relationships are real content edges. Cargo dependencies remain a
+separate Rust build graph. No separate `binding` object is created.
 
 ## Traits and slots
 
@@ -144,38 +192,39 @@ name = "replacement-render-backend"
 trait = "ghf-studios/loo-cast/spacetime-engine/replacement-render-backend"
 ```
 
-Traits describe capabilities; content kinds describe structural roles.
+Traits describe capabilities. Content kinds describe structural roles.
 Cardinality belongs to the trait because it is part of the capability contract:
 a `replacement-render-backend` permits zero or one selected provider wherever
-that trait is accepted. Slots name extension points and reference traits; they
-do not redefine trait cardinality. A generally shared trait belongs to a
-dedicated contracts project rather than floating at workspace scope.
-Provider-declaration syntax and trait composition remain unset until a concrete
-provider example forces those fields; the schema does not invent them
-prematurely.
+that trait is accepted.
 
-## Registry authority
+Slots name extension points and reference traits. They do not redefine trait
+cardinality.
 
-The registry is infrastructure authority, not a source workspace and not a
-Cargo package:
+A generally shared trait belongs to a dedicated contracts project rather than
+floating at workspace scope. Provider-declaration syntax and trait composition
+remain unset until concrete provider examples force those fields.
 
-```toml
-schema = 1
+## Loo-Cast-style composition workspace
 
-[registry]
-name = "vapor-registry"
-organization = "ghf-studios"
-repository = "https://github.com/GHF-Studios/Vapor-Registry"
-authority = "github.com/GHF-Studios/Vapor-Registry"
+A packagepack that bundles a game and engine should not live under either
+constituent. It belongs in a workspace that owns the composition:
+
+```text
+Loo-Cast/
+├── Vapor.toml                 [workspace]
+├── Cargo.toml                 Cargo workspace
+├── spacetime-engine/          [engine]
+├── loo-cast-game/             [game]
+└── loo-cast-packagepack/      [packagepack]
 ```
 
-Registry data verifies the declared organization, inferred identity, and
-containment. Naming an organization in a source manifest is a namespace claim,
-not authorization; a repository cannot grant itself first-party authority.
+The workspace may be first-party content without being part of Vapor-Root.
+Vapor-Root is app/depot source; Loo-Cast is Workshop/content source.
 
 ## Deliberate omissions
 
 The bootstrap schema does not duplicate Cargo members, package names, targets,
-dependencies, documentation paths, promoted binaries, or Git submodules. It
-also does not define installation receipts, Steam authentication state, a
-public `VAPOR_HOME`, manual toolchain locks, or backend pipeline stages.
+Rust dependencies, documentation paths, promoted binaries, or Git submodules.
+It also does not define installation receipts, Steam authentication state, a
+public `VAPOR_HOME`, manual toolchain locks, backend pipeline stages, or
+provider syntax that has not been forced by a real example.

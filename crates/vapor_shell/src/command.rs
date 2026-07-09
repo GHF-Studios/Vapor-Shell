@@ -3,12 +3,15 @@
 //! Static finite argument domains use Clap enums. Dynamic domains, such as
 //! discovered Cargo workspace names, are validated by Vapor metadata.
 //!
-//! Installation commands report replaceable resource paths; they never move
+//! Installation commands report app-root resource paths; they never move
 //! the source cursor into the Steam application directory.
 
 use crate::{
-    distribution, documentation,
+    content_packages,
+    discovery::EnvironmentPaths,
+    documentation, ide,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
+    source_registry,
     state::ShellState,
     steam,
     toolchain::{self, Requirement},
@@ -49,10 +52,17 @@ pub enum ShellCommand {
         path: Option<PathBuf>,
     },
 
-    /// Jump to the Vapor source root.
-    Root,
+    /// Open an indexed source name or external source path.
+    Open {
+        /// Indexed source name, full source ID, or filesystem path.
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
 
-    /// Print the replaceable Steam application root.
+    /// Close the active source while keeping the app shell alive.
+    Close,
+
+    /// Print the Steam installation/app root.
     Installation,
 
     /// Print the directory containing the running Vapor shell binary.
@@ -61,35 +71,35 @@ pub enum ShellCommand {
     /// Print the installation's conventional library directory, when present.
     Libraries,
 
-    /// Show resolved source, installation, toolchain, and Cargo metadata.
+    /// Show resolved source, installation, setup, and Cargo metadata.
     Metadata {
         /// Output representation for people or automation.
         #[arg(long, value_enum, default_value_t)]
         format: MetadataFormat,
     },
 
-    /// Format Cargo workspaces through the Steam-installed toolchain.
+    /// Format Cargo workspaces through the Steam-installed setup.
     Fmt {
         /// Cargo workspace name to format, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
         project: ProjectSelection,
     },
 
-    /// Check Cargo workspaces through the Steam-installed toolchain.
+    /// Check Cargo workspaces through the Steam-installed setup.
     Check {
         /// Cargo workspace name to check, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
         project: ProjectSelection,
     },
 
-    /// Test Cargo workspaces through the Steam-installed toolchain.
+    /// Test Cargo workspaces through the Steam-installed setup.
     Test {
         /// Cargo workspace name to test, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
         project: ProjectSelection,
     },
 
-    /// Build Cargo workspaces through the Steam-installed toolchain.
+    /// Build Cargo workspaces through the Steam-installed setup.
     Build {
         /// Cargo workspace name to build, or `all`.
         #[arg(long, value_name = "PROJECT", default_value = "all")]
@@ -103,18 +113,18 @@ pub enum ShellCommand {
         project: ProjectSelection,
     },
 
-    /// Inspect, install, repair, or remove app-local Rust, Git, and SteamCMD.
-    Toolchain {
-        /// Toolchain operation.
+    /// Inspect, install, repair, or remove Vapor setup.
+    Setup {
+        /// Setup operation.
         #[command(subcommand)]
-        command: ToolchainCommand,
+        command: SetupCommand,
     },
 
-    /// Persist or clear the source root used by Steam GUI launches.
-    Workspace {
-        /// Workspace selection operation.
+    /// Manage the app-local index of external source roots.
+    Sources {
+        /// Source index operation.
         #[command(subcommand)]
-        command: WorkspaceCommand,
+        command: SourcesCommand,
     },
 
     /// Build, locate, or open installed documentation.
@@ -124,12 +134,25 @@ pub enum ShellCommand {
         command: DocsCommand,
     },
 
-    /// Assemble or validate the self-hosting Steam application.
-    #[command(name = "self")]
-    SelfHost {
-        /// Self-hosting operation.
+    /// Inspect or repair project-local IDE settings.
+    Ide {
+        /// IDE setup operation.
         #[command(subcommand)]
-        command: SelfCommand,
+        command: IdeCommand,
+    },
+
+    /// Build, package, or publish the application/depot root.
+    Root {
+        /// Root application operation.
+        #[command(subcommand)]
+        command: RootCommand,
+    },
+
+    /// Inspect or operate on typed Workshop/content nodes.
+    Content {
+        /// Content operation.
+        #[command(subcommand)]
+        command: ContentCommand,
     },
 
     /// Run a source-controlled sequence of Vapor commands.
@@ -137,13 +160,6 @@ pub enum ShellCommand {
         /// Script operation.
         #[command(subcommand)]
         command: ScriptCommand,
-    },
-
-    /// Authenticate or publish through installation-owned SteamCMD.
-    Steam {
-        /// Steam operation.
-        #[command(subcommand)]
-        command: SteamCommand,
     },
 
     /// Exit the Vapor sub-shell.
@@ -168,66 +184,100 @@ pub enum DocsCommand {
     },
 }
 
-/// Persisted source-root selection.
+/// App-local source index operations.
 #[derive(Debug, Subcommand)]
-pub enum WorkspaceCommand {
-    /// Remember the current source root for future Steam launches.
-    Remember,
-    /// Remove the remembered source root.
-    Forget,
+pub enum SourcesCommand {
+    /// List indexed source roots.
+    List,
+    /// Index a source root without opening it.
+    Add {
+        /// Source path; defaults to the process working directory.
+        #[arg(value_name = "SOURCE_PATH")]
+        path: Option<PathBuf>,
+    },
+    /// Remove an indexed source by local name or full ID.
+    Remove {
+        /// Indexed source name or full source ID.
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
 }
 
-/// App-local toolchain lifecycle operations.
+/// Project-local IDE setup operations.
 #[derive(Debug, Subcommand)]
-pub enum ToolchainCommand {
-    /// Report the app root, active tools, and vendored install packages.
+pub enum IdeCommand {
+    /// Report RustRover/JetBrains project-local setup state.
     Status,
-    /// Install missing Rust, Git, and SteamCMD packages inside the app root.
-    Install,
-    /// Remove app-local Rust, Git, SteamCMD, PATH registration, and location state.
-    Uninstall,
-    /// Reapply vendored Rust, Git, and SteamCMD packages inside the app root.
-    Repair,
-}
-
-/// Self-hosting application operations.
-#[derive(Debug, Subcommand)]
-pub enum SelfCommand {
-    /// Build every project and promote declared binaries into the installation.
-    Rebuild,
-    /// Build docs and assemble a clean allowlisted depot tree.
-    Stage,
-    /// Validate the currently staged application.
-    Smoke,
-}
-
-/// Vapor command-script operations.
-#[derive(Debug, Subcommand)]
-pub enum ScriptCommand {
-    /// Run `.vapor/scripts/<NAME>.vapor`.
-    Run {
-        /// Script filename stem under `.vapor/scripts`.
-        name: String,
-        /// Print commands without executing them.
+    /// Write project-local settings for the Steam-installed Vapor toolchain.
+    Repair {
+        /// Preview IDE files without writing them.
         #[arg(long)]
         dry_run: bool,
     },
 }
 
-/// SteamCMD operations.
+/// Vapor setup lifecycle operations.
 #[derive(Debug, Subcommand)]
-pub enum SteamCommand {
-    /// Hand the terminal to SteamCMD for interactive login.
-    Login {
-        /// Dedicated Steam build account.
+pub enum SetupCommand {
+    /// Report app-root, PATH, backend tool, and package-payload readiness.
+    Status,
+    /// Install missing setup components inside the app root.
+    Install {
+        /// Preview registration and file changes without applying them.
         #[arg(long)]
-        account: String,
+        dry_run: bool,
     },
-    /// Stage and publish to a non-default Steam beta branch.
-    Publish {
-        /// Dedicated Steam build account.
+    /// Remove app-local setup components, PATH registration, and location state.
+    Uninstall {
+        /// Preview removal without deleting files or registration state.
         #[arg(long)]
-        account: String,
+        dry_run: bool,
+    },
+    /// Reapply or reacquire setup components inside the app root.
+    Repair {
+        /// Preview registration and repair changes without applying them.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Manage distributable setup package payloads used for app/depot staging.
+    Package {
+        /// Setup package operation.
+        #[command(subcommand)]
+        command: SetupPackageCommand,
+    },
+}
+
+/// Distributable setup package operations.
+#[derive(Debug, Subcommand)]
+pub enum SetupPackageCommand {
+    /// Report distributable setup package-payload readiness.
+    Status,
+    /// Populate missing distributable setup package payloads from active tools.
+    Install {
+        /// Preview package writes without changing files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Rebuild distributable setup package payloads from active tools.
+    Repair {
+        /// Preview package rebuild without changing files.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+/// Complete application/depot root operations.
+#[derive(Debug, Subcommand)]
+pub enum RootCommand {
+    /// Build every project and promote declared binaries into the installation.
+    Build,
+    /// Assemble and smoke-check the local application/depot package.
+    Package,
+    /// Validate, build, stage, preview, or upload the complete Steam app/depot.
+    Publish {
+        /// Dedicated Steam build account. Required for real uploads.
+        #[arg(long)]
+        account: Option<String>,
         /// Existing non-default beta branch; defaults to the distribution manifest.
         #[arg(long)]
         branch: Option<String>,
@@ -240,6 +290,26 @@ pub enum SteamCommand {
         /// Confirm the real network upload.
         #[arg(long)]
         yes: bool,
+    },
+}
+
+/// Typed content-node operations.
+#[derive(Debug, Subcommand)]
+pub enum ContentCommand {
+    /// Report the active Workshop/content node.
+    Status,
+}
+
+/// Vapor command-script operations.
+#[derive(Debug, Subcommand)]
+pub enum ScriptCommand {
+    /// Run `.vapor/scripts/<NAME>.vapor`.
+    Run {
+        /// Script filename stem under `.vapor/scripts`.
+        name: String,
+        /// Print commands without executing them.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -260,31 +330,32 @@ pub enum Control {
 pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control, String> {
     match command {
         ShellCommand::Cd { path } => {
-            let target = path.unwrap_or_else(|| state.paths().source().root().to_path_buf());
+            let target = match path {
+                Some(path) => path,
+                None => state.active_paths()?.source().root().to_path_buf(),
+            };
             print_warnings(state.change_directory(&target)?);
         }
         ShellCommand::Up { levels } => {
             print_warnings(state.move_up(levels.get())?);
         }
-        ShellCommand::Pwd => println!("{}", state.current_dir().display()),
+        ShellCommand::Pwd => println!("{}", state.current_dir()?.display()),
         ShellCommand::Ls { path } => {
             list_directory(state, path.as_deref().unwrap_or_else(|| Path::new(".")))?;
         }
-        ShellCommand::Root => {
-            let target = state.paths().source().root().to_path_buf();
-            print_warnings(state.change_directory_to(target)?);
-        }
+        ShellCommand::Open { source } => execute_open(&source, state)?,
+        ShellCommand::Close => execute_close(state)?,
         ShellCommand::Installation => {
-            println!("{}", state.paths().installation().root().display());
+            println!("{}", state.installation().root().display());
         }
         ShellCommand::Binaries => {
-            println!("{}", state.paths().installation().binaries().display());
+            println!("{}", state.installation().binaries().display());
         }
         ShellCommand::Libraries => {
-            let target = state.paths().installation().libraries().ok_or_else(|| {
+            let target = state.installation().libraries().ok_or_else(|| {
                 format!(
                     "Steam installation '{}' has no library directory",
-                    state.paths().installation().root().display()
+                    state.installation().root().display()
                 )
             })?;
             println!("{}", target.display());
@@ -303,52 +374,162 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
         ShellCommand::Validate { project } => {
             execute_workflow(CargoWorkflow::Validate, project, state)?;
         }
-        ShellCommand::Toolchain { command } => execute_toolchain(command, state)?,
-        ShellCommand::Workspace { command } => execute_workspace(command, state)?,
+        ShellCommand::Setup { command } => execute_setup(command, state)?,
+        ShellCommand::Sources { command } => execute_sources(command, state)?,
         ShellCommand::Docs { command } => execute_docs(command, state)?,
-        ShellCommand::SelfHost { command } => execute_self(command, state)?,
+        ShellCommand::Ide { command } => execute_ide(command, state)?,
+        ShellCommand::Root { command } => execute_root(command, state)?,
+        ShellCommand::Content { command } => execute_content(command, state)?,
         ShellCommand::Script { command } => execute_script_command(command, state)?,
-        ShellCommand::Steam { command } => execute_steam(command, state)?,
         ShellCommand::Exit => return Ok(Control::Exit),
     }
 
     Ok(Control::Continue)
 }
 
-fn execute_workspace(command: WorkspaceCommand, state: &ShellState) -> Result<(), String> {
-    let metadata = ResolvedMetadata::resolve(state);
-    metadata.validate(
-        &ValidationPlan::new("change the remembered source root").registered_location(),
-    )?;
-    let path = state
-        .paths()
-        .installation()
-        .root()
-        .join("state/source-workspace");
+fn execute_open(source: &str, state: &mut ShellState) -> Result<(), String> {
+    let path = source_registry::resolve_target(state.installation(), source)?;
+    let paths =
+        EnvironmentPaths::from_installation_and_invocation(state.installation().clone(), &path)?;
+    let (name, entry) = source_registry::add(state.installation(), paths.source())?;
+    source_registry::set_active(state.installation(), paths.source())?;
+    print_warnings(state.open_paths(paths)?);
+    println!("opened source {name}: {}", entry.path().display());
+    println!("  id: {}", entry.id());
+    println!("hint: inspect it with `metadata`, then run `validate`");
+    Ok(())
+}
+
+fn execute_close(state: &mut ShellState) -> Result<(), String> {
+    source_registry::clear_active(state.installation())?;
+    state.close_source();
+    println!("closed active source");
+    println!("hint: open another source with `open NAME` or inspect sources with `sources list`");
+    Ok(())
+}
+
+fn execute_sources(command: SourcesCommand, state: &ShellState) -> Result<(), String> {
     match command {
-        WorkspaceCommand::Remember => {
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        SourcesCommand::List => {
+            let registry = source_registry::load(state.installation())?;
+            if registry.sources().is_empty() {
+                println!("no indexed Vapor sources");
+                println!("hint: add one with `sources add PATH`");
+            } else {
+                for (name, entry) in registry.sources() {
+                    println!("{name}: {}", entry.path().display());
+                    println!("  id: {}", entry.id());
+                }
             }
-            fs::write(&path, state.paths().source().root().display().to_string())
-                .map_err(|e| e.to_string())?;
-            println!(
-                "remembered source root: {}",
-                state.paths().source().root().display()
-            );
-            println!("hint: next inspect prerequisites with `vapor toolchain status`");
         }
-        WorkspaceCommand::Forget => {
-            if path.exists() {
-                fs::remove_file(&path).map_err(|e| e.to_string())?;
+        SourcesCommand::Add { path } => {
+            let path = path
+                .unwrap_or(std::env::current_dir().map_err(|error| {
+                    format!("failed to read the invocation directory: {error}")
+                })?);
+            let paths = EnvironmentPaths::from_installation_and_invocation(
+                state.installation().clone(),
+                &path,
+            )?;
+            let (name, entry) = source_registry::add(state.installation(), paths.source())?;
+            println!("indexed source {name}: {}", entry.path().display());
+            println!("  id: {}", entry.id());
+            println!("hint: open it with `open {name}`");
+        }
+        SourcesCommand::Remove { source } => {
+            if let Some(name) = source_registry::remove(state.installation(), &source)? {
+                println!("removed indexed source: {name}");
+            } else {
+                println!("source was not indexed: {source}");
             }
-            println!("forgot remembered source root");
-            println!(
-                "hint: run Vapor inside another source root and use `vapor workspace remember`"
-            );
         }
     }
     Ok(())
+}
+
+fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
+    let metadata = ResolvedMetadata::resolve(state);
+    match command {
+        IdeCommand::Status => {
+            metadata.validate(&ValidationPlan::new("inspect IDE setup").workspace())?;
+            let status = ide::inspect(
+                state.active_paths()?,
+                metadata.workspace_manifest()?,
+                metadata.toolchain_status(),
+            )?;
+            print_ide_status(&status);
+            if status.complete() {
+                println!("hint: IDE settings are current; next run `vapor validate`");
+            } else {
+                println!(
+                    "hint: preview project-local IDE repair with `vapor ide repair --dry-run`"
+                );
+            }
+        }
+        IdeCommand::Repair { dry_run } => {
+            metadata.validate(
+                &ValidationPlan::new("repair IDE setup")
+                    .registered_location()
+                    .tools(&[Requirement::Rust])
+                    .workspace(),
+            )?;
+            let report = if dry_run {
+                ide::preview(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    metadata.toolchain_status(),
+                )?
+            } else {
+                ide::repair(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    metadata.toolchain_status(),
+                )?
+            };
+            print_ide_status(report.status());
+            if report.written().is_empty() {
+                println!(
+                    "{}: IDE settings are already current",
+                    if dry_run { "dry-run" } else { "repair" }
+                );
+            } else {
+                for path in report.written() {
+                    println!(
+                        "{}: {}",
+                        if dry_run { "would write" } else { "wrote" },
+                        path.display()
+                    );
+                }
+            }
+            if dry_run {
+                println!("dry-run: no IDE files were changed");
+                println!("hint: apply with `vapor ide repair`");
+            } else {
+                println!("hint: restart or refresh RustRover so project settings are reloaded");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_ide_status(status: &ide::IdeStatus) {
+    println!("source root: {}", status.source_root().display());
+    println!("IDE directory: {}", status.idea_dir().display());
+    println!("Rust toolchain bin: {}", status.rust_bin().display());
+    match status.stdlib_source() {
+        Some(path) => println!("Rust standard library source: {}", path.display()),
+        None => println!(
+            "Rust standard library source: missing\nhint: include rust-src in the app-local Rust package for full IDE indexing"
+        ),
+    }
+    for file in status.files() {
+        let state = match file.state() {
+            ide::IdeFileState::Missing => "missing",
+            ide::IdeFileState::Outdated => "outdated",
+            ide::IdeFileState::Current => "current",
+        };
+        println!("{state}: {}", file.path().display());
+    }
 }
 
 fn execute_workflow(
@@ -364,7 +545,7 @@ fn execute_workflow(
             .workspace(),
     )?;
     workflow::run(
-        state.paths(),
+        state.active_paths()?,
         metadata.workspace_manifest()?,
         project,
         command,
@@ -373,64 +554,66 @@ fn execute_workflow(
     Ok(())
 }
 
-fn execute_toolchain(command: ToolchainCommand, state: &mut ShellState) -> Result<(), String> {
-    let installation = state.paths().installation();
+fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), String> {
+    let installation = state.installation();
     match command {
-        ToolchainCommand::Status => {
+        SetupCommand::Status => {
             let location = toolchain::location_status(installation)?;
             print_location_status(&location);
             let status = toolchain::inspect(installation);
             print_tool_status(status.rust());
             print_tool_status(status.git());
             print_tool_status(status.steamcmd());
-            println!(
-                "vendored packages: {}",
-                if status.packages_complete() {
-                    "complete"
-                } else {
-                    "incomplete"
-                }
-            );
-            for missing in status.missing_packages() {
-                println!("  missing: {missing}");
-            }
+            print_package_status(&status);
             if !location.registered() {
-                println!("hint: accept this app root explicitly with `vapor toolchain install`");
+                println!("hint: accept this app root explicitly with `vapor setup install`");
             } else if status.complete() {
-                println!("hint: toolchain is ready; next run `vapor validate`");
-            } else if status.packages_complete() {
-                println!("hint: install explicitly with `vapor toolchain install`");
+                println!(
+                    "hint: setup is ready; package depot payloads with `vapor setup package install`"
+                );
             } else {
-                println!("hint: verify the Steam app files before attempting installation");
+                println!("hint: install missing setup components with `vapor setup install`");
             }
         }
-        ToolchainCommand::Install => {
+        SetupCommand::Install { dry_run } => {
+            if dry_run {
+                preview_setup_install(installation, false)?;
+                return Ok(());
+            }
             let change = toolchain::register_location(installation)?;
             print_location_status(change.status());
             let report = toolchain::install(installation)?;
             state.refresh_cargo_index();
             if report.installed_groups().is_empty() {
-                println!("toolchain is already installed; no files changed");
+                println!("setup is already installed; no files changed");
             } else {
                 println!("installed: {}", report.installed_groups().join(", "));
             }
             print_path_hint(change.path_setup());
-            println!("hint: confirm with `vapor toolchain status`, then run `vapor validate`");
+            println!("hint: confirm with `vapor setup status`, then run `vapor validate`");
         }
-        ToolchainCommand::Repair => {
+        SetupCommand::Repair { dry_run } => {
+            if dry_run {
+                preview_setup_install(installation, true)?;
+                return Ok(());
+            }
             let change = toolchain::register_location(installation)?;
             print_location_status(change.status());
             let report = toolchain::repair(installation)?;
             state.refresh_cargo_index();
             if report.installed_groups().is_empty() {
-                println!("toolchain repair found all groups already installed");
+                println!("setup repair found all components already installed");
             } else {
                 println!("repaired: {}", report.installed_groups().join(", "));
             }
             print_path_hint(change.path_setup());
-            println!("hint: confirm with `vapor toolchain status`, then run `vapor validate`");
+            println!("hint: confirm with `vapor setup status`, then run `vapor validate`");
         }
-        ToolchainCommand::Uninstall => {
+        SetupCommand::Uninstall { dry_run } => {
+            if dry_run {
+                preview_setup_uninstall(installation)?;
+                return Ok(());
+            }
             let report = toolchain::uninstall(installation)?;
             state.refresh_cargo_index();
             print_location_status(report.location().status());
@@ -439,10 +622,113 @@ fn execute_toolchain(command: ToolchainCommand, state: &mut ShellState) -> Resul
                 report.removed_paths()
             );
             print_path_hint(report.location().path_setup());
-            println!("hint: reinstall later with `vapor toolchain install`");
+            println!("hint: reinstall later with `vapor setup install`");
         }
+        SetupCommand::Package { command } => match command {
+            SetupPackageCommand::Status => {
+                let status = toolchain::inspect(installation);
+                print_package_status(&status);
+                if status.package_complete() {
+                    println!("hint: assemble the app package with `vapor root package`");
+                } else {
+                    println!("hint: populate package payloads with `vapor setup package install`");
+                }
+            }
+            SetupPackageCommand::Install { dry_run } => {
+                execute_setup_package(false, dry_run, state)?;
+            }
+            SetupPackageCommand::Repair { dry_run } => {
+                execute_setup_package(true, dry_run, state)?;
+            }
+        },
     }
     Ok(())
+}
+
+fn preview_setup_install(
+    installation: &crate::discovery::InstallationPaths,
+    repair: bool,
+) -> Result<(), String> {
+    let location = toolchain::location_status(installation)?;
+    let status = toolchain::inspect(installation);
+    println!(
+        "dry-run: would {} Vapor setup",
+        if repair { "repair" } else { "install" }
+    );
+    print_location_status(&location);
+    println!("would accept app root: {}", installation.root().display());
+    println!(
+        "would ensure PATH directory: {}",
+        installation.binaries().display()
+    );
+    print_tool_action(status.rust(), repair);
+    print_tool_action(status.git(), repair);
+    print_tool_action(status.steamcmd(), repair);
+    print_package_status(&status);
+    println!(
+        "would download Rust through rustup-init into {} and {} when Rust is missing or repair is requested",
+        installation.root().join("rustup-home").display(),
+        installation.root().join("cargo-home").display()
+    );
+    println!(
+        "would apply app-owned Git from {} when a complete package exists",
+        status.package_root().display()
+    );
+    println!("would not install a host-Git wrapper");
+    println!(
+        "would download and extract SteamCMD into {} when SteamCMD is missing or repair is requested",
+        installation.root().join("tools/steamcmd").display()
+    );
+    println!("dry-run: no files, PATH registration, or app-root lock were changed");
+    Ok(())
+}
+
+fn preview_setup_uninstall(
+    installation: &crate::discovery::InstallationPaths,
+) -> Result<(), String> {
+    let location = toolchain::location_status(installation)?;
+    let status = toolchain::inspect(installation);
+    println!("dry-run: would uninstall Vapor setup");
+    print_location_status(&location);
+    for path in [
+        installation.root().join("rustup"),
+        installation.root().join("rustup-home"),
+        installation.root().join("cargo-home"),
+        installation.root().join("tools/git"),
+        installation.root().join("tools/steamcmd"),
+    ] {
+        println!(
+            "would remove {}: {}",
+            if path.exists() {
+                "present path"
+            } else {
+                "absent path"
+            },
+            path.display()
+        );
+    }
+    println!("would clear app-root location lock and PATH registration");
+    print_tool_status(status.rust());
+    print_tool_status(status.git());
+    print_tool_status(status.steamcmd());
+    print_package_status(&status);
+    println!("dry-run: no files, PATH registration, or app-root lock were changed");
+    Ok(())
+}
+
+fn print_tool_action(status: &toolchain::ToolStatus, repair: bool) {
+    let action = if repair {
+        "reapply"
+    } else if status.installed() {
+        "keep"
+    } else {
+        "install"
+    };
+    println!("would {action}: {}", status.label());
+    println!("  path: {}", status.path().display());
+    for missing in status.missing() {
+        println!("  missing: {missing}");
+    }
 }
 
 fn print_location_status(status: &toolchain::LocationStatus) {
@@ -464,7 +750,11 @@ fn print_location_status(status: &toolchain::LocationStatus) {
 }
 
 fn print_path_hint(report: &crate::path_setup::PathSetupReport) {
+    println!("PATH command: {}", report.command().display());
     println!("PATH directory: {}", report.binaries().display());
+    for profile in report.profiles() {
+        println!("PATH profile: {}", profile.display());
+    }
     if report.changed() || !report.path_active() {
         println!("hint: open a new terminal to apply PATH changes");
     }
@@ -486,6 +776,21 @@ fn print_tool_status(status: &toolchain::ToolStatus) {
     }
 }
 
+fn print_package_status(status: &toolchain::ToolchainStatus) {
+    println!(
+        "package content: {}",
+        if status.package_complete() {
+            "ready"
+        } else {
+            "missing"
+        }
+    );
+    println!("  path: {}", status.package_root().display());
+    for missing in status.missing_package_entries() {
+        println!("  missing: {missing}");
+    }
+}
+
 fn execute_docs(command: DocsCommand, state: &ShellState) -> Result<(), String> {
     match command {
         DocsCommand::Build => {
@@ -498,26 +803,27 @@ fn execute_docs(command: DocsCommand, state: &ShellState) -> Result<(), String> 
             )?;
             println!(
                 "{}",
-                documentation::build(state.paths(), metadata.workspace_manifest()?)?.display()
+                documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?
+                    .display()
             );
             println!("hint: open it with `vapor docs open`");
         }
         DocsCommand::Path { topic } => println!(
             "{}",
-            documentation::path(state.paths(), topic.as_deref())?.display()
+            documentation::path(state.active_paths()?, topic.as_deref())?.display()
         ),
         DocsCommand::Open { topic } => println!(
             "{}",
-            documentation::open(state.paths(), topic.as_deref())?.display()
+            documentation::open(state.active_paths()?, topic.as_deref())?.display()
         ),
     }
     Ok(())
 }
 
-fn execute_self(command: SelfCommand, state: &ShellState) -> Result<(), String> {
+fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> {
     let metadata = ResolvedMetadata::resolve(state);
     match command {
-        SelfCommand::Rebuild => {
+        RootCommand::Build => {
             metadata.validate(
                 &ValidationPlan::new("rebuild the Vapor application")
                     .registered_location()
@@ -525,52 +831,156 @@ fn execute_self(command: SelfCommand, state: &ShellState) -> Result<(), String> 
                     .workspace(),
             )?;
             workflow::run(
-                state.paths(),
+                state.active_paths()?,
                 metadata.workspace_manifest()?,
                 ProjectSelection::All,
                 CargoWorkflow::Build,
             )?;
-            let promoted = workflow::promote(state.paths(), metadata.workspace_manifest()?)?;
+            let promoted =
+                workflow::promote(state.active_paths()?, metadata.workspace_manifest()?)?;
             println!("promoted {promoted} installation binaries");
-            println!("hint: next run `vapor self stage` or preview a Steam publish");
+            println!("hint: assemble the app package with `vapor root package`");
         }
-        SelfCommand::Stage => {
+        RootCommand::Package => {
             metadata.validate(
-                &ValidationPlan::new("stage the Vapor application")
+                &ValidationPlan::new("package the Vapor application")
                     .registered_location()
-                    .tools(&[Requirement::Rust])
+                    .tools(&[Requirement::Rust, Requirement::Git, Requirement::SteamCmd])
                     .workspace()
-                    .distribution()
-                    .toolchain_package(),
+                    .distribution(),
             )?;
-            documentation::build(state.paths(), metadata.workspace_manifest()?)?;
-            let report = distribution::stage(state.paths(), metadata.distribution_manifest()?)?;
+            content_packages::validate_toolchain_package(state.installation().root())?;
+            documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
+            let report = crate::distribution::stage(
+                state.active_paths()?,
+                metadata.distribution_manifest()?,
+            )?;
+            steam::smoke(report.root())?;
             println!(
-                "staged {} files at {}",
+                "packaged {} files at {}",
                 report.files(),
                 report.root().display()
             );
-            println!("hint: validate staging with `vapor self smoke`");
+            println!("hint: preview Steam upload with `vapor root publish --dry-run`");
         }
-        SelfCommand::Smoke => {
+        RootCommand::Publish {
+            account,
+            branch,
+            description,
+            dry_run,
+            yes,
+        } => {
+            if !dry_run && account.as_deref().is_none_or(str::is_empty) {
+                return Err(
+                    "real app publication requires --account ACCOUNT after reviewing --dry-run"
+                        .to_owned(),
+                );
+            }
             metadata.validate(
-                &ValidationPlan::new("smoke-test the staged Vapor application")
-                    .registered_location(),
+                &ValidationPlan::new("publish the Vapor application")
+                    .registered_location()
+                    .tools(&[Requirement::Rust, Requirement::Git, Requirement::SteamCmd])
+                    .workspace()
+                    .distribution(),
             )?;
-            let root = state
-                .paths()
-                .installation()
-                .root()
-                .join("output/root/content");
-            steam::smoke(&root)?;
+            content_packages::validate_toolchain_package(state.installation().root())?;
+            workflow::run(
+                state.active_paths()?,
+                metadata.workspace_manifest()?,
+                ProjectSelection::All,
+                CargoWorkflow::Validate,
+            )?;
+            workflow::run(
+                state.active_paths()?,
+                metadata.workspace_manifest()?,
+                ProjectSelection::All,
+                CargoWorkflow::Build,
+            )?;
+            let promoted =
+                workflow::promote(state.active_paths()?, metadata.workspace_manifest()?)?;
+            println!("promoted {promoted} installation binaries");
+            documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
+            let script = steam::publish(
+                state.active_paths()?,
+                metadata.distribution_manifest()?,
+                account.as_deref().unwrap_or("dry-run"),
+                branch.as_deref(),
+                &description,
+                dry_run,
+                yes,
+            )?;
+            println!("SteamPipe build script: {}", script.display());
+            if dry_run {
+                println!(
+                    "hint: review the staged app, then run `vapor root publish --account ACCOUNT --yes`"
+                );
+            } else {
+                println!("hint: Steam accepted the app upload; verify the target beta branch");
+            }
+        }
+    }
+    Ok(())
+}
+
+fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), String> {
+    match command {
+        ContentCommand::Status => {
+            if let Some(content) = state.content() {
+                println!("content: {}", content.id());
+                println!("  kind: {}", content.kind());
+                println!("  root: {}", content.root().display());
+            } else {
+                println!("content: none");
+                println!(
+                    "hint: cd into a typed content node, or use metadata to inspect the source root"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn execute_setup_package(repair: bool, dry_run: bool, state: &ShellState) -> Result<(), String> {
+    let action = if repair {
+        "repair setup package payloads"
+    } else {
+        "install setup package payloads"
+    };
+    let location = toolchain::location_status(state.installation())?;
+    toolchain::require_registered_status(&location, action)?;
+    let toolchain = toolchain::inspect(state.installation());
+    toolchain::require_status(
+        &toolchain,
+        &[Requirement::Rust, Requirement::Git, Requirement::SteamCmd],
+        action,
+    )?;
+    if dry_run {
+        println!(
+            "dry-run: would {} distributable setup package payloads",
+            if repair { "repair" } else { "install" }
+        );
+        print_package_status(&toolchain);
+        println!(
+            "would copy active tools into {}",
+            toolchain.package_root().display()
+        );
+        println!("dry-run: no package files were changed");
+    } else {
+        let report =
+            content_packages::install_toolchain_package(state.installation().root(), repair)?;
+        if report.changed() {
             println!(
-                "staged application passed smoke validation: {}",
-                root.display()
+                "{} package content at {}",
+                if repair { "repaired" } else { "installed" },
+                report.status().root().display()
             );
+        } else {
             println!(
-                "hint: preview publication with `vapor steam publish --account ACCOUNT --dry-run`"
+                "package content is already installed at {}",
+                report.status().root().display()
             );
         }
+        println!("hint: assemble the app package with `vapor root package`");
     }
     Ok(())
 }
@@ -581,7 +991,7 @@ fn execute_script_command(command: ScriptCommand, state: &mut ShellState) -> Res
         return Err("script name must be a simple filename stem".to_owned());
     }
     let path = state
-        .paths()
+        .active_paths()?
         .source()
         .root()
         .join(".vapor/scripts")
@@ -605,7 +1015,7 @@ fn execute_script_command(command: ScriptCommand, state: &mut ShellState) -> Res
         .map_err(|error| error.to_string())?;
         if !script_command_allowed(&parsed) {
             return Err(
-                "scripts may not invoke scripts, exit the host shell, authenticate Steam, or perform real publishes"
+                "scripts may not invoke scripts, exit the host shell, authenticate Steam, perform real publishes, or apply IDE repairs"
                     .to_owned(),
             );
         }
@@ -619,79 +1029,13 @@ fn script_command_allowed(command: &ShellCommand) -> bool {
         command,
         ShellCommand::Script { .. }
             | ShellCommand::Exit
-            | ShellCommand::Steam {
-                command: SteamCommand::Login { .. }
+            | ShellCommand::Root {
+                command: RootCommand::Publish { dry_run: false, .. }
             }
-            | ShellCommand::Steam {
-                command: SteamCommand::Publish { dry_run: false, .. }
+            | ShellCommand::Ide {
+                command: IdeCommand::Repair { dry_run: false },
             }
     )
-}
-
-fn execute_steam(command: SteamCommand, state: &ShellState) -> Result<(), String> {
-    let metadata = ResolvedMetadata::resolve(state);
-    match command {
-        SteamCommand::Login { account } => {
-            metadata.validate(
-                &ValidationPlan::new("authenticate SteamCMD")
-                    .registered_location()
-                    .tools(&[Requirement::SteamCmd]),
-            )?;
-            steam::login(state.paths(), &account)?;
-            println!(
-                "hint: authentication returned successfully; preview with `vapor steam publish --account {account} --dry-run`"
-            );
-            Ok(())
-        }
-        SteamCommand::Publish {
-            account,
-            branch,
-            description,
-            dry_run,
-            yes,
-        } => {
-            metadata.validate(
-                &ValidationPlan::new("publish the Vapor application")
-                    .registered_location()
-                    .tools(&[Requirement::Rust, Requirement::Git, Requirement::SteamCmd])
-                    .workspace()
-                    .distribution()
-                    .toolchain_package(),
-            )?;
-            workflow::run(
-                state.paths(),
-                metadata.workspace_manifest()?,
-                ProjectSelection::All,
-                CargoWorkflow::Validate,
-            )?;
-            workflow::run(
-                state.paths(),
-                metadata.workspace_manifest()?,
-                ProjectSelection::All,
-                CargoWorkflow::Build,
-            )?;
-            workflow::promote(state.paths(), metadata.workspace_manifest()?)?;
-            documentation::build(state.paths(), metadata.workspace_manifest()?)?;
-            let script = steam::publish(
-                state.paths(),
-                metadata.distribution_manifest()?,
-                &account,
-                branch.as_deref(),
-                &description,
-                dry_run,
-                yes,
-            )?;
-            println!("SteamPipe build script: {}", script.display());
-            if dry_run {
-                println!(
-                    "hint: review the staged build, then rerun with `--yes` and without `--dry-run`"
-                );
-            } else {
-                println!("hint: SteamCMD accepted the build; verify the vapor-dev branch in Steam");
-            }
-            Ok(())
-        }
-    }
 }
 
 fn list_directory(state: &ShellState, target: &Path) -> Result<(), String> {

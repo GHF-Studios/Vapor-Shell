@@ -4,7 +4,7 @@ use common::TestTree;
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
-fn one_shot_facade_allows_scripts_only() {
+fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     let installation = TestTree::new("installation-command");
     installation.write(
         "Vapor.toml",
@@ -15,19 +15,20 @@ fn one_shot_facade_allows_scripts_only() {
     fs::copy(vapor_binary(), &executable).unwrap();
     let outside = TestTree::new("outside-source-root");
 
-    let rejected = Command::new(&executable)
-        .args(["toolchain", "status"])
+    let setup = Command::new(&executable)
+        .args(["setup", "status"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
-    assert!(!rejected.status.success());
-    let stderr = String::from_utf8(rejected.stderr).unwrap();
     assert!(
-        stderr.contains("not inside an external Vapor source root"),
-        "{stderr}"
+        setup.status.success(),
+        "{}",
+        String::from_utf8_lossy(&setup.stderr)
     );
+    let stdout = String::from_utf8(setup.stdout).unwrap();
+    assert!(stdout.contains("app root:"), "{stdout}");
 
     let source = TestTree::new("external-source-root");
     source.write(
@@ -38,7 +39,7 @@ fn one_shot_facade_allows_scripts_only() {
     source.write(".vapor/scripts/status.vapor", "metadata --format json\n");
 
     let rejected_one_shot = Command::new(&executable)
-        .args(["toolchain", "status"])
+        .args(["validate"])
         .current_dir(source.root())
         .env("HOME", outside.root())
         .env("SHELL", "/bin/bash")
@@ -47,13 +48,39 @@ fn one_shot_facade_allows_scripts_only() {
     assert!(!rejected_one_shot.status.success());
     let stderr = String::from_utf8(rejected_one_shot.stderr).unwrap();
     assert!(
-        stderr.contains("one-shot commands are disabled"),
+        stderr.contains("must run inside the interactive Vapor shell"),
         "{stderr}"
+    );
+
+    let add = Command::new(&executable)
+        .args(["sources", "add", source.root().to_str().unwrap()])
+        .current_dir(outside.root())
+        .env("HOME", outside.root())
+        .env("SHELL", "/bin/bash")
+        .output()
+        .unwrap();
+    assert!(
+        add.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    let open = Command::new(&executable)
+        .args(["open", "source"])
+        .current_dir(outside.root())
+        .env("HOME", outside.root())
+        .env("SHELL", "/bin/bash")
+        .output()
+        .unwrap();
+    assert!(
+        open.status.success(),
+        "{}",
+        String::from_utf8_lossy(&open.stderr)
     );
 
     let script = Command::new(&executable)
         .args(["script", "run", "status"])
-        .current_dir(source.root())
+        .current_dir(outside.root())
         .env("HOME", outside.root())
         .env("SHELL", "/bin/bash")
         .output()

@@ -1,10 +1,10 @@
 //! Shared runtime metadata and command preflight validation.
 //!
 //! Metadata is resolved once from authoritative `Vapor.toml` policy and
-//! replaceable runtime indexes. Commands validate only the capabilities they
+//! app-owned runtime indexes. Commands validate only the capabilities they
 //! need, then consume the same resolved manifests and tool state. Reporting a
-//! broken optional capability therefore remains possible without blocking an
-//! unrelated workflow.
+//! broken capability therefore remains possible without blocking an unrelated
+//! workflow.
 
 use crate::{
     distribution::DistributionManifest,
@@ -35,7 +35,7 @@ pub enum MetadataFormat {
 #[derive(Debug, Clone)]
 pub struct ResolvedMetadata {
     report: MetadataReport,
-    source_root: PathBuf,
+    source_root: Option<PathBuf>,
     workspace: Result<WorkspaceManifest, String>,
     distribution: Result<Option<DistributionManifest>, String>,
     location: Result<LocationStatus, String>,
@@ -45,14 +45,24 @@ pub struct ResolvedMetadata {
 impl ResolvedMetadata {
     /// Resolve source, installation, manifest, Cargo, and toolchain state.
     pub fn resolve(state: &ShellState) -> Self {
-        let workspace = WorkspaceManifest::load(state.paths());
-        let distribution = DistributionManifest::load_optional(state.paths());
-        let location = toolchain::location_status(state.paths().installation());
-        let toolchain = toolchain::inspect(state.paths().installation());
+        let active_paths = state.active_paths();
+        let workspace = active_paths.as_ref().map_or_else(
+            |error| Err(error.clone()),
+            |paths| WorkspaceManifest::load(paths),
+        );
+        let distribution = active_paths.as_ref().map_or_else(
+            |error| Err(error.clone()),
+            |paths| DistributionManifest::load_optional(paths),
+        );
+        let location = toolchain::location_status(state.installation());
+        let toolchain = toolchain::inspect(state.installation());
         let report = MetadataReport::new(state, &workspace, &distribution, &location, &toolchain);
         Self {
             report,
-            source_root: state.paths().source().root().to_path_buf(),
+            source_root: state
+                .active_paths()
+                .ok()
+                .map(|paths| paths.source().root().to_path_buf()),
             workspace,
             distribution,
             location,
@@ -101,14 +111,6 @@ impl ResolvedMetadata {
         if plan.distribution {
             self.distribution_manifest()?;
         }
-        if plan.toolchain_package && !self.toolchain.packages_complete() {
-            return Err(format!(
-                "cannot {}: the vendored toolchain package is incomplete at '{}'\nmissing package entries:\n  - {}\nhelp: verify the Steam app files or rebuild the bootstrap package",
-                plan.action,
-                self.toolchain.packages_root().display(),
-                self.toolchain.missing_packages().join("\n  - ")
-            ));
-        }
         Ok(())
     }
 
@@ -119,6 +121,11 @@ impl ResolvedMetadata {
     /// Returns the workspace parsing or policy error captured during resolution.
     pub fn workspace_manifest(&self) -> Result<&WorkspaceManifest, String> {
         self.workspace.as_ref().map_err(Clone::clone)
+    }
+
+    /// App-local Rust, Git, and SteamCMD status from this snapshot.
+    pub fn toolchain_status(&self) -> &ToolchainStatus {
+        &self.toolchain
     }
 
     /// Validated Steam distribution policy from this snapshot.
@@ -133,10 +140,15 @@ impl ResolvedMetadata {
             .map_err(Clone::clone)?
             .as_ref()
             .ok_or_else(|| {
-                format!(
-                    "source root '{}' does not declare [root.steam]",
-                    self.source_root.display()
-                )
+                if let Some(source_root) = &self.source_root {
+                    format!(
+                        "source root '{}' does not declare [root.steam]",
+                        source_root.display()
+                    )
+                } else {
+                    "cannot load distribution policy: no Vapor source is open\nhelp: open an application source root with `open NAME` or `open PATH`"
+                        .to_owned()
+                }
             })
     }
 }

@@ -1,23 +1,28 @@
 # Vapor Shell
 
-Vapor Shell is the interactive boundary between a replaceable Steam-installed
-toolchain and an external workspace containing critical authored source.
+Vapor Shell is the interactive boundary between the Steam-installed app root
+and an external source root containing critical authored source.
 
-It intentionally has two roots:
+At runtime, the shell works with two active filesystem roots:
 
 ```text
-Steam app root (replaceable)          Source workspace (critical)
+Steam installation / app root         Active source root (critical)
 ├── bin/vapor                         ├── Vapor.toml
-├── packages/toolchain/               ├── Cargo.toml      (required)
-├── rustup-home / cargo-home          └── Cargo packages and Vapor content
+├── .vapor/state/                     ├── Cargo.toml      (workspace roots)
+├── rustup-home / cargo-home
 ├── tools/git / tools/steamcmd
 ├── lib / state / output
 └── installed custom content
 ```
 
 The roots must not overlap. Vapor discovers the installation from the running
-executable and the source workspace from the invocation directory. Interactive
-filesystem navigation is confined to the source workspace.
+executable. Source roots are opened explicitly by path or app-local registered
+name, and the last active source is remembered under the app root. Interactive
+filesystem navigation is confined to the opened source root.
+
+The product model also distinguishes a third concept: a Vapor application
+source root such as Vapor-Root. That is source for building the Steam app/depot,
+not the installed Steam directory itself.
 
 ## Documentation
 
@@ -25,20 +30,20 @@ filesystem navigation is confined to the source workspace.
   and failure behavior.
 - [Discovery and boundaries](docs/discovery.md): both discovery algorithms,
   expected installation layout, canonicalization, and overlap rejection.
-- [Vapor manifests](docs/manifests.md): every supported workspace and content
-  identity, required Cargo companions, examples, and intended use.
+- [Vapor manifests](docs/manifests.md): root, workspace, project, content,
+  composition, trait, and slot syntax.
 - [Commands](docs/commands.md): command behavior, arguments, and which root each
   command can affect.
 - [Cargo integration](docs/cargo-metadata.md): required Rust workspaces,
   authority boundaries, nested-workspace consequences, and derived metadata.
-- [Toolchain](docs/toolchain.md): explicit app-local installation of Rust, Git,
+- [Setup](docs/toolchain.md): explicit app-local installation of Rust, Git,
   and SteamCMD with prerequisite diagnostics.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
-  toolchain payload, and smoke validation.
-- [Steam development](docs/steam-development.md): authentication handoff,
-  preview builds, confirmation, beta publishing, and persistent cache state.
+  installed toolchain layout, and smoke validation.
+- [Steam development](docs/steam-development.md): root publish previews, manual
+  upload confirmation, beta publishing, and persistent cache state.
 - [Command scripts](docs/scripts.md): reusable REPL command sequences exposed
-  through the supported direct CLI facade.
+  through the script CLI facade.
 - [Development](docs/development.md): source layout, extension checklists, tests,
   and documentation policy.
 - [Design checkpoints](docs/design/README.md): owner-reviewed direction that is
@@ -47,8 +52,10 @@ filesystem navigation is confined to the source workspace.
 ## Core guarantees
 
 - Authored source never needs to live in the Steam application directory.
-- Every source workspace has a Vapor manifest and Cargo workspace manifest at
+- Every source workspace has a Vapor manifest and Cargo manifest at
   the same root; every Vapor project is represented by a Cargo package.
+- Vapor application source roots are source super-repositories; they are not
+  the same thing as the Steam installation/app root.
 - Deleting or rebuilding `cargo metadata` output does not lose authored source;
   deleting either source manifest invalidates the workspace or project.
 - Missing app-local Cargo remains diagnosable and explicitly repairable, but
@@ -57,21 +64,34 @@ filesystem navigation is confined to the source workspace.
 - Commands validate only their own prerequisites and never repair them implicitly.
 - User paths are canonicalized before source-boundary checks, including symlinks.
 - Nested content markers update context; nested workspace markers are rejected.
-- Vapor Shell refuses to target a standalone shell workspace; invocation inside
-  the shell repository escalates to a containing Vapor workspace or fails.
+- Vapor Shell can start closed with only an app root. Source work begins only
+  after `open SOURCE`, and invocation inside a nested shell checkout opens the
+  highest containing Vapor source root.
 
 ## Bootstrap and validate
 
-Inside the interactive shell:
+The only host-built artifact allowed in the initial local bootstrap is the
+Vapor shell executable. Deploy it into the Steam app directory first:
 
 ```text
-toolchain status
-toolchain install
+crates/vapor_shell/scripts/bootstrap-local-app-deploy.sh \
+  --binary /path/to/built/vapor \
+  --target "$HOME/.local/share/Steam/steamapps/common/Loo Cast" \
+  --yes
+```
+
+Then run the installed app-local command:
+
+```text
+/home/.../steamapps/common/Loo Cast/bin/vapor open /path/to/source
+/home/.../steamapps/common/Loo Cast/bin/vapor setup status
+/home/.../steamapps/common/Loo Cast/bin/vapor setup install
 fmt
 test
 validate
 ```
 
-The initial bootstrap may use host Cargo once to construct the first Steam app.
-After that app is installed, all normal builds and checks are routed through its
-bundled toolchain and write outputs beneath the replaceable app root.
+After that shell is installed, all normal builds and checks are routed through
+the Steam app's own `bin/vapor`. `setup install` explicitly installs tools
+into the app root. Final app packaging stages that installed app-local
+toolchain layout; there is no second source tree for the toolchain.

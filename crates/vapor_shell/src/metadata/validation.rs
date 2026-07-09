@@ -10,7 +10,6 @@ pub struct ValidationPlan<'a> {
     pub(super) tools: Vec<Requirement>,
     pub(super) workspace: bool,
     pub(super) distribution: bool,
-    pub(super) toolchain_package: bool,
 }
 
 impl<'a> ValidationPlan<'a> {
@@ -22,7 +21,6 @@ impl<'a> ValidationPlan<'a> {
             tools: Vec::new(),
             workspace: false,
             distribution: false,
-            toolchain_package: false,
         }
     }
 
@@ -51,13 +49,6 @@ impl<'a> ValidationPlan<'a> {
     #[must_use]
     pub fn distribution(mut self) -> Self {
         self.distribution = true;
-        self
-    }
-
-    /// Require a complete immutable toolchain installation package.
-    #[must_use]
-    pub fn toolchain_package(mut self) -> Self {
-        self.toolchain_package = true;
         self
     }
 }

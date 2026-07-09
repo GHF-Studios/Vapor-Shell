@@ -2,21 +2,21 @@
 
 ## Steam installation discovery
 
-Vapor canonicalizes `current_exe()` and walks every ancestor directory. The
-highest `Vapor.toml` becomes the installation manifest and must declare
-`[root]`. The executable must be laid out as:
+Vapor canonicalizes `current_exe()`, requires the executable to be laid out as
+`<app-root>/bin/vapor[.exe]`, and then validates exactly
+`<app-root>/Vapor.toml`. That manifest must declare `[root]`.
 
 ```text
 <app-root>/bin/vapor[.exe]
 ```
 
-The app root may contain replaceable resources including:
+The app root may contain app-owned resources including:
 
 ```text
 <app-root>/
 ├── Vapor.toml
 ├── bin/vapor[.exe]
-├── packages/toolchain/
+├── rustup/
 ├── cargo-home/
 ├── lib/
 ├── rustup-home/
@@ -28,30 +28,33 @@ The app root may contain replaceable resources including:
 Only the `[root]` manifest and running executable are required for installation
 discovery. The installed app is not a Cargo workspace.
 
-## Source root discovery
+## Source root selection
 
-Vapor chooses the source location in this order:
+Starting Vapor discovers the installed app first. The app can then start with an
+active source or in a closed, app-only shell state. Source selection is explicit:
 
 1. `VAPOR_WORKSPACE`, when set;
-2. the path stored in `<app-root>/state/source-workspace` by
-   `workspace remember`;
-3. the process invocation directory.
+2. the path stored in `<app-root>/.vapor/state/source-workspace` by `open`;
+3. no source, leaving the shell closed until `open SOURCE` succeeds.
 
-The selected directory is canonicalized independently. Vapor walks its
-ancestors, chooses the highest `Vapor.toml`, and accepts `[root]` or
-`[workspace]`.
+`open PATH` and `sources add PATH` canonicalize the selected directory
+independently. Vapor walks its ancestors, chooses the highest `Vapor.toml`, and
+accepts `[root]` or `[workspace]`.
 
-- `[root]` is the Vapor application/depot source root. It may contain direct
+- `[root]` is the Vapor application source/depot root. It may contain direct
   Vapor workspace submodules such as Vapor-Shell.
 - `[workspace]` is a normal Vapor/Cargo source workspace rooted in the same
   directory as its `Cargo.toml`.
 
 Starting inside a nested game, engine, mod, pack, or the Vapor-Shell checkout
-still selects the highest containing source root. A standalone `[project]` or
-content manifest is rejected as a source root.
+and then opening that path still selects the highest containing source root. A
+standalone `[project]` or content manifest is rejected as a source root.
 
-Invoking the global shell outside a Vapor source root fails with a direct
-diagnostic. Vapor does not fall back to a home directory or the Steam app root.
+Invoking the app-owned `vapor` command from any terminal directory is valid as
+long as the executable itself is still `<app-root>/bin/vapor`: the shell starts
+closed, reports the app root, and waits for `open NAME`, `open PATH`, or
+`sources add PATH`. Vapor does not fall back to a home directory or treat the
+Steam installation as source.
 
 ## Steam and desktop launches
 
@@ -61,23 +64,26 @@ terminal emulator. On Linux the shell tries `x-terminal-emulator`, Konsole,
 GNOME Terminal, and XTerm in that order. The launcher process exits immediately;
 the REPL runs in the terminal child.
 
-Run `workspace remember` once from an installed shell already opened in the
-desired source root. A later Steam launch can then resolve that external source
-before the REPL starts. If the saved path is absent or invalid, discovery fails
-visibly in the newly opened terminal.
+Run `open /path/to/source` or `sources add /path/to/source` from the installed
+shell to register external source roots under the app root. A later Steam launch
+can reopen the last active external source. If the saved path is absent or
+invalid, Vapor reports that problem and continues in the closed app-only shell.
 
-Ad-hoc one-shot commands are disabled. `vapor script run NAME` remains available
-as the script facade and does not trigger terminal relaunch.
+Ad-hoc one-shot commands are disabled. Direct facades are limited to bootstrap
+and automation-safe commands such as `open`, `close`, `sources`, `toolchain`,
+`metadata`, app inspection, and `script run`. They do not trigger terminal
+relaunch.
 
 ## Disjoint-root invariant
 
 The source root may not be equal to, inside, or contain the installed app root.
-Rejecting overlap prevents accidental authoring in replaceable Steam state and
+Rejecting overlap prevents accidental authoring inside the Steam installation and
 prevents installation machinery from becoming source-visible through `cd`.
 
-The Steam app is a replaceable installed realization of Vapor-Root. The external
-Vapor-Root checkout is the authoritative source. They can declare related
-identities, but they must be separate filesystem roots.
+The Steam installation/app root is the installed realization produced from an
+application source root such as Vapor-Root. The external Vapor-Root checkout is
+the authoritative source. They can declare related identities, but they must be
+separate filesystem roots.
 
 ## Navigation confinement
 
