@@ -98,4 +98,4 @@ done
 
 echo "PATH directory: $bin_dir"
 echo "PATH command: $command_path"
-echo "hint: open a new terminal, then run: vapor toolchain status"
+echo "hint: open a new terminal, then run: vapor setup status"

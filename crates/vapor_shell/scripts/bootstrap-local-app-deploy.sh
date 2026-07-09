@@ -13,7 +13,7 @@ Installs the minimum local Vapor shell bootstrap into a Steam app directory:
 
 This intentionally does not copy authored source, Cargo workspaces, staged
 payloads, or full depot contents. After this, run the installed
-<target>/bin/vapor and let that app-local shell install toolchains, open
+<target>/bin/vapor and let that app-local shell run setup, open
 external source repos, build, package, and eventually self-deploy.
 
 Default mode is a dry run. Add --yes to write files.
@@ -124,6 +124,6 @@ echo "  manifest: $manifest -> $dest_manifest"
 echo "  binary:   $binary -> $dest_binary"
 echo
 echo "next:"
-echo "  \"$dest_binary\" toolchain status"
-echo "  \"$dest_binary\" toolchain install"
+echo "  \"$dest_binary\" setup status"
+echo "  \"$dest_binary\" setup install"
 echo "  \"$dest_binary\" open /path/to/external/source"
