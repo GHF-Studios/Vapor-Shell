@@ -22,7 +22,8 @@ The app root may contain app-owned resources including:
 ├── rustup-home/
 ├── tools/git/
 ├── tools/steamcmd/
-└── installed-content/
+├── content/
+└── output/
 ```
 
 Only the `[root]` manifest and running executable are required for installation
@@ -34,10 +35,11 @@ Starting Vapor discovers the installed app first. The app can then start with an
 active source or in a closed, app-only shell state. Source selection is explicit:
 
 1. `VAPOR_WORKSPACE`, when set;
-2. the path stored in `<app-root>/.vapor/state/source-workspace` by `open`;
-3. no source, leaving the shell closed until `open SOURCE` succeeds.
+2. the path stored in `<app-root>/.vapor/state/source-workspace` by
+   `source open`;
+3. no source, leaving the shell closed until `source open SOURCE` succeeds.
 
-`open PATH` and `sources add PATH` canonicalize the selected directory
+`source open PATH` and `source add PATH` canonicalize the selected directory
 independently. Vapor walks its ancestors, chooses the highest `Vapor.toml`, and
 accepts `[root]` or `[workspace]`.
 
@@ -54,7 +56,7 @@ Invoking the app-owned `vapor` command from any terminal directory is valid as
 long as the executable itself is still `<app-root>/bin/vapor`: the shell starts
 from `VAPOR_WORKSPACE`, the remembered source, or a closed app-only state. Vapor
 does not infer source context from arbitrary host-shell cwd for source-bound
-commands; use `open PATH` or a Vapor script when source context matters.
+commands; use `source open PATH` or a Vapor script when source context matters.
 
 ## Steam and desktop launches
 
@@ -64,16 +66,17 @@ terminal emulator. On Linux the shell tries `x-terminal-emulator`, Konsole,
 GNOME Terminal, and XTerm in that order. The launcher process exits immediately;
 the REPL runs in the terminal child.
 
-Run `open /path/to/source` or `sources add /path/to/source` from the installed
-shell to register external source roots under the app root. A later Steam launch
-can reopen the last active external source. If the saved path is absent or
-invalid, Vapor reports that problem and continues in the closed app-only shell.
+Run `source open /path/to/source` or `source add /path/to/source` from the
+installed shell to register external source roots under the app root. A later
+Steam launch can reopen the last active external source. If the saved path is
+absent or invalid, Vapor reports that problem and continues in the closed
+app-only shell.
 
 Host-level direct facades do not trigger terminal relaunch. They are limited to
-bootstrap, source selection, app inspection, metadata, content status, and
-`script run`. Source-bound workflows such as `validate`, `build`, `root
-package`, and `root publish --dry-run` run inside the interactive shell or a
-Vapor script.
+bootstrap, source selection, app inspection, metadata, read-only content
+inspection, and `script run`. Source-bound workflows such as `validate`,
+`build`, `root package`, `root publish --dry-run`, and mutating content
+lifecycle operations run inside the interactive shell or a Vapor script.
 
 ## Disjoint-root invariant
 

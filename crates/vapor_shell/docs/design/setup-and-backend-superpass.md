@@ -168,9 +168,8 @@ current self-setup payload commands intentionally do not occupy that grammar.
 
 ## Source command direction
 
-The existing `open`, `close`, and `sources` commands are source-domain
-operations. A future source surface can absorb Git-backed source operations
-without exposing raw Git as the primary interface:
+Source-domain operations now live under `source *`. This surface can absorb
+Git-backed source operations without exposing raw Git as the primary interface:
 
 ```text
 source status

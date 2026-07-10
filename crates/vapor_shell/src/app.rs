@@ -2,7 +2,7 @@
 
 use crate::{
     command::{
-        self, ContentCommand, Control, ScriptCommand, SetupCommand, ShellCommand, SourcesCommand,
+        self, ContentCommand, Control, ScriptCommand, SetupCommand, ShellCommand, SourceCommand,
     },
     discovery::EnvironmentPaths,
     metadata::MetadataFormat,
@@ -80,7 +80,7 @@ pub fn run() -> Result<(), String> {
         Ok(directory) => println!("Working directory: {}", directory.display()),
         Err(_) => {
             println!("Source: closed");
-            println!("Hint: run `sources list`, `sources add PATH`, or `open SOURCE`");
+            println!("Hint: run `source list`, `source add PATH`, or `source open SOURCE`");
         }
     }
 
@@ -151,15 +151,11 @@ enum HostSubcommand {
         #[command(subcommand)]
         command: SetupCommand,
     },
-    /// Manage the app-local source index.
-    Sources {
+    /// Manage authored source roots.
+    Source {
         #[command(subcommand)]
-        command: SourcesCommand,
+        command: SourceCommand,
     },
-    /// Open an indexed source name or external source path.
-    Open { source: String },
-    /// Close the active source while keeping app state.
-    Close,
     /// Print the Steam installation/app root.
     Installation,
     /// Print the app-local binary directory.
@@ -174,7 +170,7 @@ enum HostSubcommand {
     /// Report the remembered/open source's active content node.
     Content {
         #[command(subcommand)]
-        command: ContentCommand,
+        command: HostContentCommand,
     },
     /// Run a source-controlled Vapor script.
     Script {
@@ -183,18 +179,42 @@ enum HostSubcommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum HostContentCommand {
+    /// Report the remembered/open source's active content node.
+    Status,
+    /// List source and installed content without mutating state.
+    List,
+    /// Verify installed content fingerprints and receipts.
+    Verify {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID. Omit to verify all.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: Option<String>,
+    },
+}
+
+impl HostContentCommand {
+    fn into_content_command(self) -> ContentCommand {
+        match self {
+            Self::Status => ContentCommand::Status,
+            Self::List => ContentCommand::List,
+            Self::Verify { target } => ContentCommand::Verify { target },
+        }
+    }
+}
+
 impl HostCommand {
     fn into_shell_command(self) -> ShellCommand {
         match self.command {
             HostSubcommand::Setup { command } => ShellCommand::Setup { command },
-            HostSubcommand::Sources { command } => ShellCommand::Sources { command },
-            HostSubcommand::Open { source } => ShellCommand::Open { source },
-            HostSubcommand::Close => ShellCommand::Close,
+            HostSubcommand::Source { command } => ShellCommand::Source { command },
             HostSubcommand::Installation => ShellCommand::Installation,
             HostSubcommand::Binaries => ShellCommand::Binaries,
             HostSubcommand::Libraries => ShellCommand::Libraries,
             HostSubcommand::Metadata { format } => ShellCommand::Metadata { format },
-            HostSubcommand::Content { command } => ShellCommand::Content { command },
+            HostSubcommand::Content { command } => ShellCommand::Content {
+                command: command.into_content_command(),
+            },
             HostSubcommand::Script { command } => ShellCommand::Script { command },
         }
     }
@@ -209,7 +229,9 @@ fn open_saved_source(state: &mut ShellState) -> Result<(), String> {
             Ok(paths) => command::print_warnings(state.open_paths(paths)?),
             Err(error) => {
                 eprintln!("warning: active source is invalid: {error}");
-                eprintln!("hint: choose another source with `open NAME` or clear it with `close`");
+                eprintln!(
+                    "hint: choose another source with `source open NAME` or clear it with `source close`"
+                );
             }
         }
     }

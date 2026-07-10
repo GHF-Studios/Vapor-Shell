@@ -147,7 +147,7 @@ impl ResolvedMetadata {
                         source_root.display()
                     )
                 } else {
-                    "cannot load distribution policy: no Vapor source is open\nhelp: open an application source root with `open NAME` or `open PATH`"
+                    "cannot load distribution policy: no Vapor source is open\nhelp: open an application source root with `source open NAME` or `source open PATH`"
                         .to_owned()
                 }
             })

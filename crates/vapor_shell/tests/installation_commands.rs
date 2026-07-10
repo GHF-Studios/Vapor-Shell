@@ -28,8 +28,14 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         String::from_utf8_lossy(&host_help.stderr)
     );
     let stdout = String::from_utf8(host_help.stdout).unwrap();
-    for command in ["setup", "sources", "open", "script"] {
+    for command in ["setup", "source", "script"] {
         assert!(stdout.contains(command), "missing {command}: {stdout}");
+    }
+    for legacy in ["\n  sources", "\n  open", "\n  close"] {
+        assert!(
+            !stdout.contains(legacy),
+            "host help should not list legacy command {legacy}: {stdout}"
+        );
     }
     for shell_only in ["validate", "build", "root", "cd"] {
         assert!(
@@ -80,7 +86,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     );
 
     let add = Command::new(&executable)
-        .args(["sources", "add", source.root().to_str().unwrap()])
+        .args(["source", "add", source.root().to_str().unwrap()])
         .current_dir(outside.root())
         .env("HOME", outside.root())
         .env("SHELL", "/bin/bash")
@@ -93,7 +99,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     );
 
     let open = Command::new(&executable)
-        .args(["open", "source"])
+        .args(["source", "open", "source"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
         .env("SHELL", "/bin/bash")

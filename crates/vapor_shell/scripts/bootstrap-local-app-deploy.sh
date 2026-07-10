@@ -126,4 +126,4 @@ echo
 echo "next:"
 echo "  \"$dest_binary\" setup self status"
 echo "  \"$dest_binary\" setup self install"
-echo "  \"$dest_binary\" open /path/to/external/source"
+echo "  \"$dest_binary\" source open /path/to/external/source"

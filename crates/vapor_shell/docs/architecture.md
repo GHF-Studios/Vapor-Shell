@@ -95,16 +95,20 @@ failed prerequisites implicitly.
 The interactive shell is the primary command environment. Source-bound commands
 derive authority from the shell's active source, current source cursor,
 accepted app root, and setup status. Host-level direct facades are narrow:
-bootstrap, app inspection, source selection, metadata reporting, content status,
-and script entry.
+bootstrap, app inspection, source selection, metadata reporting, read-only
+content inspection, and script entry.
 
-Scripts may dry-run publish staging and IDE repair, but they may not
-authenticate Steam, perform real uploads, or apply project-local IDE changes.
+Scripts may run local content lifecycle operations and dry-run publication
+staging or IDE repair, but they may not authenticate Steam, perform real
+uploads, create or delete real Workshop authority, or apply project-local IDE
+changes.
 
 ## Module map
 
 - `app`: startup and REPL control flow.
 - `command`: Clap grammar and command effects.
+- `content`: Workshop/content discovery, package/cache/install state,
+  fingerprints, receipts, repair, and provider publication previews.
 - `cargo_metadata`: invocation and typed projection of Cargo's JSON output.
 - `discovery`: installation/source discovery and disjoint-root validation.
 - `ide`: explicit project-local RustRover/JetBrains status and repair.

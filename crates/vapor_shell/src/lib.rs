@@ -10,6 +10,7 @@ mod terminal;
 
 pub mod cargo_metadata;
 pub mod command;
+pub mod content;
 pub mod discovery;
 pub mod distribution;
 pub mod documentation;

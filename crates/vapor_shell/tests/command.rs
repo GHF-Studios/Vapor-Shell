@@ -14,9 +14,10 @@ fn help_uses_defined_argument_domains() {
     assert!(help.contains("root"), "{help}");
     assert!(help.contains("content"), "{help}");
     assert!(help.contains("script"), "{help}");
-    assert!(help.contains("open"), "{help}");
-    assert!(help.contains("close"), "{help}");
-    assert!(help.contains("sources"), "{help}");
+    assert!(help.contains("source"), "{help}");
+    assert!(!help.contains("\n  open"), "{help}");
+    assert!(!help.contains("\n  close"), "{help}");
+    assert!(!help.contains("\n  sources"), "{help}");
     assert!(help.contains("validate"), "{help}");
     assert!(help.contains("setup"), "{help}");
     assert!(!help.contains("\n  workspace"), "{help}");
@@ -101,17 +102,50 @@ fn help_uses_defined_argument_domains() {
     let content_help = ShellCommand::try_parse_from(["", "content", "--help"])
         .expect_err("content help should exit through Clap")
         .to_string();
-    assert!(content_help.contains("status"), "{content_help}");
-    assert!(!content_help.contains("install"), "{content_help}");
-    assert!(!content_help.contains("repair"), "{content_help}");
-
-    let sources_help = ShellCommand::try_parse_from(["", "sources", "--help"])
-        .expect_err("sources help should exit through Clap")
-        .to_string();
-    for command in ["list", "add", "remove"] {
+    for command in [
+        "status",
+        "list",
+        "validate",
+        "build",
+        "package",
+        "acquire",
+        "subscribe",
+        "download",
+        "install",
+        "update",
+        "verify",
+        "selected",
+        "select",
+        "deselect",
+        "repair",
+        "disable",
+        "enable",
+        "uninstall",
+        "create",
+        "publish",
+        "delete",
+    ] {
         assert!(
-            sources_help.contains(command),
-            "missing {command}: {sources_help}"
+            content_help.contains(command),
+            "missing {command}: {content_help}"
+        );
+    }
+    for command in ["package", "create", "publish", "delete"] {
+        let help = ShellCommand::try_parse_from(["", "content", command, "--help"])
+            .expect_err("content mutation help should exit through Clap")
+            .to_string();
+        assert!(help.contains("--dry-run"), "{help}");
+    }
+
+    let source_help = ShellCommand::try_parse_from(["", "source", "--help"])
+        .expect_err("source help should exit through Clap")
+        .to_string();
+    for command in [
+        "status", "open", "close", "list", "add", "remove", "sync", "repair",
+    ] {
+        assert!(
+            source_help.contains(command),
+            "missing {command}: {source_help}"
         );
     }
 

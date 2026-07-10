@@ -86,6 +86,12 @@ schema = 1
 [engine]
 name = "spacetime-engine"
 version.workspace = true
+
+[engine.steam]
+app-id = 2122620
+visibility = "private"
+title = "Spacetime Engine"
+tags = ["engine", "first-party", "loo-cast"]
 ```
 
 Supported content sections are:
@@ -202,6 +208,26 @@ for private, local, or bundled relationships.
 Versions are artifact-owned and inheritance-friendly. `version.workspace = true`
 is the normal default. A project or content artifact should own an explicit
 semantic version only when its release lifecycle diverges from the workspace.
+
+## Workshop fields
+
+Content artifacts declare stable Workshop intent in their own table:
+
+```toml
+[packagepack.steam]
+app-id = 2122620
+published-file-id = "1234567890"
+visibility = "private"
+title = "Loo-Cast Packagepack"
+description = "First-party playable packagepack for Loo-Cast."
+tags = ["packagepack", "first-party", "loo-cast"]
+change-note = "Vapor content update."
+```
+
+Use `published-file-id` only after the artifact has a real stable Workshop
+item. Local package fingerprints, cache locations, installed receipts, repair
+state, and last-seen provider observations are generated app-owned state and
+must stay out of source `Vapor.toml`.
 
 ## Invalid combinations
 

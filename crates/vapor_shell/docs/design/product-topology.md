@@ -467,10 +467,10 @@ metadata, and manage app-local setup.
 
 Source work starts only after explicitly opening an external source:
 
-- `open PATH` validates, indexes, and activates a source root;
-- `open NAME` activates a previously indexed source;
-- `close` returns to the app-only shell state;
-- `sources list|add|remove` manages the app-local source index.
+- `source open PATH` validates, indexes, and activates a source root;
+- `source open NAME` activates a previously indexed source;
+- `source close` returns to the app-only shell state;
+- `source list|add|remove` manages the app-local source index.
 
 The source index belongs to the Steam installation/app root because it is tool
 state. Source working trees remain authored Git repositories outside the app

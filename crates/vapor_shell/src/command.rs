@@ -7,6 +7,7 @@
 //! the source cursor into the Steam application directory.
 
 use crate::{
+    content,
     discovery::EnvironmentPaths,
     documentation, ide,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
@@ -27,7 +28,7 @@ use std::{
 #[command(
     name = "vapor",
     bin_name = "vapor",
-    after_help = "Run `vapor` with no command to enter the Vapor shell.\nThe shell owns source context, setup state, and command authority.\nHost-level direct facades are limited to setup, source selection, app inspection, metadata, content status, and `script run`."
+    after_help = "Run `vapor` with no command to enter the Vapor shell.\nThe shell owns source context, setup state, and command authority.\nHost-level direct facades are limited to setup, source selection, app inspection, metadata, read-only content inspection, and `script run`."
 )]
 /// Commands accepted by the Vapor shell and its narrow host facades.
 pub enum ShellCommand {
@@ -55,15 +56,12 @@ pub enum ShellCommand {
         path: Option<PathBuf>,
     },
 
-    /// Open an indexed source name or external source path.
-    Open {
-        /// Indexed source name, full source ID, or filesystem path.
-        #[arg(value_name = "SOURCE")]
-        source: String,
+    /// Open, index, inspect, sync, or repair authored source roots.
+    Source {
+        /// Source operation.
+        #[command(subcommand)]
+        command: SourceCommand,
     },
-
-    /// Close the active source while keeping the app shell alive.
-    Close,
 
     /// Print the Steam installation/app root.
     Installation,
@@ -123,13 +121,6 @@ pub enum ShellCommand {
         command: SetupCommand,
     },
 
-    /// Manage the app-local index of external source roots.
-    Sources {
-        /// Source index operation.
-        #[command(subcommand)]
-        command: SourcesCommand,
-    },
-
     /// Build, locate, or open installed documentation.
     Docs {
         /// Documentation operation.
@@ -187,9 +178,19 @@ pub enum DocsCommand {
     },
 }
 
-/// App-local source index operations.
+/// Authored source-root operations.
 #[derive(Debug, Subcommand)]
-pub enum SourcesCommand {
+pub enum SourceCommand {
+    /// Report active source and indexed source state.
+    Status,
+    /// Open an indexed source name or external source path.
+    Open {
+        /// Indexed source name, full source ID, or filesystem path.
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
+    /// Close the active source while keeping the app shell alive.
+    Close,
     /// List indexed source roots.
     List,
     /// Index a source root without opening it.
@@ -204,6 +205,10 @@ pub enum SourcesCommand {
         #[arg(value_name = "SOURCE")]
         source: String,
     },
+    /// Synchronize authored source through controlled source providers.
+    Sync,
+    /// Inspect source registration and explain repair actions.
+    Repair,
 }
 
 /// Project-local IDE setup operations.
@@ -313,6 +318,134 @@ pub enum RootCommand {
 pub enum ContentCommand {
     /// Report the active Workshop/content node.
     Status,
+    /// List source artifacts and installed content state.
+    List,
+    /// Validate source content metadata, dependencies, conflicts, and publication intent.
+    Validate {
+        /// Artifact ID, local name, or PublishedFileId. Omit to validate all.
+        #[arg(value_name = "ARTIFACT")]
+        artifact: Option<String>,
+    },
+    /// Build the active content workspace through app-local Cargo.
+    Build,
+    /// Stage a content package under the app root.
+    Package {
+        /// Artifact ID, local name, or PublishedFileId.
+        #[arg(value_name = "ARTIFACT")]
+        artifact: String,
+        /// Preview package output without writing it.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Acquire content into the app-owned cache.
+    Acquire {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Subscribe to or otherwise acquire content through controlled providers.
+    Subscribe {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Download content into the app-owned cache.
+    Download {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Install source or cached content into the app root.
+    Install {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Update installed content from source or cache.
+    Update {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID. Omit to update all.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: Option<String>,
+    },
+    /// Verify installed content fingerprints and receipts.
+    Verify {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID. Omit to verify all.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: Option<String>,
+    },
+    /// Report the selected packagepack.
+    Selected,
+    /// Select an installed packagepack for play.
+    Select {
+        /// Installed packagepack artifact ID or PublishedFileId.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Clear the selected packagepack.
+    Deselect,
+    /// Repair corrupted installed content from source or cache.
+    Repair {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID. Omit to repair all.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: Option<String>,
+    },
+    /// Disable installed content without deleting it.
+    Disable {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Enable disabled content.
+    Enable {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Uninstall content and remove installed-state records.
+    Uninstall {
+        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+    },
+    /// Preview creation of a new Workshop item.
+    Create {
+        /// Artifact ID or local name.
+        #[arg(value_name = "ARTIFACT")]
+        artifact: String,
+        /// Preview the SteamUGC create request without changing authority.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Publish or preview a Workshop item update.
+    Publish {
+        /// Artifact ID or local name.
+        #[arg(value_name = "ARTIFACT")]
+        artifact: String,
+        /// Dedicated Steam publishing account. Required for real uploads.
+        #[arg(long)]
+        account: Option<String>,
+        /// Workshop update note.
+        #[arg(long)]
+        change_note: Option<String>,
+        /// Generate package and provider preview without uploading.
+        #[arg(long)]
+        dry_run: bool,
+        /// Confirm the real network upload.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Preview deletion or retirement of a Workshop item.
+    Delete {
+        /// Artifact ID, local name, or PublishedFileId.
+        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
+        target: String,
+        /// Preview the SteamUGC delete request without changing authority.
+        #[arg(long)]
+        dry_run: bool,
+        /// Confirm a real authority-changing delete request.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// Vapor command-script operations.
@@ -358,8 +491,7 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
         ShellCommand::Ls { path } => {
             list_directory(state, path.as_deref().unwrap_or_else(|| Path::new(".")))?;
         }
-        ShellCommand::Open { source } => execute_open(&source, state)?,
-        ShellCommand::Close => execute_close(state)?,
+        ShellCommand::Source { command } => execute_source(command, state)?,
         ShellCommand::Installation => {
             println!("{}", state.installation().root().display());
         }
@@ -390,7 +522,6 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
             execute_workflow(CargoWorkflow::Validate, project, state)?;
         }
         ShellCommand::Setup { command } => execute_setup(command, state)?,
-        ShellCommand::Sources { command } => execute_sources(command, state)?,
         ShellCommand::Docs { command } => execute_docs(command, state)?,
         ShellCommand::Ide { command } => execute_ide(command, state)?,
         ShellCommand::Root { command } => execute_root(command, state)?,
@@ -402,7 +533,57 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
     Ok(Control::Continue)
 }
 
-fn execute_open(source: &str, state: &mut ShellState) -> Result<(), String> {
+fn execute_source(command: SourceCommand, state: &mut ShellState) -> Result<(), String> {
+    match command {
+        SourceCommand::Status => execute_source_status(state),
+        SourceCommand::Open { source } => execute_source_open(&source, state),
+        SourceCommand::Close => execute_source_close(state),
+        SourceCommand::List => execute_source_list(state),
+        SourceCommand::Add { path } => execute_source_add(state, path),
+        SourceCommand::Remove { source } => execute_source_remove(state, &source),
+        SourceCommand::Sync => {
+            let source = state.active_paths()?.source();
+            println!("source: {}", source.identity_id());
+            println!("  root: {}", source.root().display());
+            println!(
+                "sync: not yet applied; controlled Git/provider synchronization will attach here"
+            );
+            println!("hint: inspect source state with `source status`");
+            Ok(())
+        }
+        SourceCommand::Repair => {
+            let registry = source_registry::load(state.installation())?;
+            println!("source registry: {} entries", registry.sources().len());
+            if let Some(source) = state.source() {
+                println!("active source: {}", source.id());
+                println!("  root: {}", source.root().display());
+            } else {
+                println!("active source: closed");
+            }
+            println!(
+                "repair: no automatic source repair is implemented yet; remove stale entries with `source remove SOURCE` and re-add paths with `source add PATH`"
+            );
+            Ok(())
+        }
+    }
+}
+
+fn execute_source_status(state: &ShellState) -> Result<(), String> {
+    let registry = source_registry::load(state.installation())?;
+    if let Some(source) = state.source() {
+        println!("source: open");
+        println!("  id: {}", source.id());
+        println!("  root: {}", source.root().display());
+        println!("  current: {}", state.current_dir()?.display());
+    } else {
+        println!("source: closed");
+        println!("hint: open a source with `source open SOURCE`");
+    }
+    println!("indexed sources: {}", registry.sources().len());
+    Ok(())
+}
+
+fn execute_source_open(source: &str, state: &mut ShellState) -> Result<(), String> {
     let path = source_registry::resolve_target(state.installation(), source)?;
     let paths =
         EnvironmentPaths::from_installation_and_invocation(state.installation().clone(), &path)?;
@@ -415,49 +596,49 @@ fn execute_open(source: &str, state: &mut ShellState) -> Result<(), String> {
     Ok(())
 }
 
-fn execute_close(state: &mut ShellState) -> Result<(), String> {
+fn execute_source_close(state: &mut ShellState) -> Result<(), String> {
     source_registry::clear_active(state.installation())?;
     state.close_source();
     println!("closed active source");
-    println!("hint: open another source with `open NAME` or inspect sources with `sources list`");
+    println!(
+        "hint: open another source with `source open NAME` or inspect sources with `source list`"
+    );
     Ok(())
 }
 
-fn execute_sources(command: SourcesCommand, state: &ShellState) -> Result<(), String> {
-    match command {
-        SourcesCommand::List => {
-            let registry = source_registry::load(state.installation())?;
-            if registry.sources().is_empty() {
-                println!("no indexed Vapor sources");
-                println!("hint: add one with `sources add PATH`");
-            } else {
-                for (name, entry) in registry.sources() {
-                    println!("{name}: {}", entry.path().display());
-                    println!("  id: {}", entry.id());
-                }
-            }
-        }
-        SourcesCommand::Add { path } => {
-            let path = path
-                .unwrap_or(std::env::current_dir().map_err(|error| {
-                    format!("failed to read the invocation directory: {error}")
-                })?);
-            let paths = EnvironmentPaths::from_installation_and_invocation(
-                state.installation().clone(),
-                &path,
-            )?;
-            let (name, entry) = source_registry::add(state.installation(), paths.source())?;
-            println!("indexed source {name}: {}", entry.path().display());
+fn execute_source_list(state: &ShellState) -> Result<(), String> {
+    let registry = source_registry::load(state.installation())?;
+    if registry.sources().is_empty() {
+        println!("no indexed Vapor sources");
+        println!("hint: add one with `source add PATH`");
+    } else {
+        for (name, entry) in registry.sources() {
+            println!("{name}: {}", entry.path().display());
             println!("  id: {}", entry.id());
-            println!("hint: open it with `open {name}`");
         }
-        SourcesCommand::Remove { source } => {
-            if let Some(name) = source_registry::remove(state.installation(), &source)? {
-                println!("removed indexed source: {name}");
-            } else {
-                println!("source was not indexed: {source}");
-            }
-        }
+    }
+    Ok(())
+}
+
+fn execute_source_add(state: &ShellState, path: Option<PathBuf>) -> Result<(), String> {
+    let path = path.unwrap_or(
+        std::env::current_dir()
+            .map_err(|error| format!("failed to read the invocation directory: {error}"))?,
+    );
+    let paths =
+        EnvironmentPaths::from_installation_and_invocation(state.installation().clone(), &path)?;
+    let (name, entry) = source_registry::add(state.installation(), paths.source())?;
+    println!("indexed source {name}: {}", entry.path().display());
+    println!("  id: {}", entry.id());
+    println!("hint: open it with `source open {name}`");
+    Ok(())
+}
+
+fn execute_source_remove(state: &ShellState, source: &str) -> Result<(), String> {
+    if let Some(name) = source_registry::remove(state.installation(), source)? {
+        println!("removed indexed source: {name}");
+    } else {
+        println!("source was not indexed: {source}");
     }
     Ok(())
 }
@@ -965,6 +1146,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
 fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), String> {
     match command {
         ContentCommand::Status => {
+            let layout = content::ContentLayout::new(state.installation());
             if let Some(content) = state.content() {
                 println!("content: {}", content.id());
                 println!("  kind: {}", content.kind());
@@ -975,9 +1157,313 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
                     "hint: cd into a typed content node, or use metadata to inspect the source root"
                 );
             }
+            println!("installed content: {}", layout.installed().display());
+            println!("content cache: {}", layout.cache().display());
+            println!("content state: {}", layout.state().display());
+        }
+        ContentCommand::List => {
+            if let Ok(paths) = state.active_paths() {
+                let catalog = content::discover(paths)?;
+                if catalog.artifacts().is_empty() {
+                    println!("source content: none");
+                } else {
+                    println!("source content:");
+                    for artifact in catalog.artifacts() {
+                        print_artifact(artifact);
+                    }
+                }
+            } else {
+                println!("source content: unavailable (source is closed)");
+            }
+            let installed = content::installed_index(state.installation())?;
+            if installed.is_empty() {
+                println!("installed content: none");
+            } else {
+                println!("installed content:");
+                for id in installed {
+                    println!("  {id}");
+                }
+            }
+        }
+        ContentCommand::Validate { artifact } => {
+            let report = content::validate(state.active_paths()?, artifact.as_deref())?;
+            println!("validated {} content artifact(s)", report.checked().len());
+            for id in report.checked() {
+                println!("  {id}");
+            }
+            for diagnostic in report.diagnostics() {
+                println!("diagnostic: {diagnostic}");
+            }
+        }
+        ContentCommand::Build => {
+            let metadata = ResolvedMetadata::resolve(state);
+            metadata.validate(
+                &ValidationPlan::new("build content")
+                    .registered_location()
+                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+                    .workspace(),
+            )?;
+            workflow::run(
+                state.active_paths()?,
+                metadata.workspace_manifest()?,
+                ProjectSelection::All,
+                CargoWorkflow::Build,
+            )?;
+            println!("hint: stage content with `content package ARTIFACT`");
+        }
+        ContentCommand::Package { artifact, dry_run } => {
+            let report = content::package(state.active_paths()?, &artifact, dry_run)?;
+            print_package_report(&report);
+            if dry_run {
+                println!("dry-run: no package files were changed");
+            } else {
+                println!(
+                    "hint: cache it with `content acquire {}` or preview Workshop upload with `content publish {} --dry-run`",
+                    report.artifact_id(),
+                    report.artifact_id()
+                );
+            }
+        }
+        ContentCommand::Acquire { target } => {
+            let report =
+                content::acquire(state.installation(), state.active_paths().ok(), &target)?;
+            println!("acquired: {}", report.artifact_id());
+            println!("  cache: {}", report.cache_root().display());
+            print_fingerprint(report.fingerprint());
+            println!("  receipt: {}", report.receipt().display());
+            println!(
+                "hint: install it with `content install {}`",
+                report.artifact_id()
+            );
+        }
+        ContentCommand::Subscribe { target } => {
+            let report =
+                content::acquire(state.installation(), state.active_paths().ok(), &target)?;
+            println!("subscribed/acquired: {}", report.artifact_id());
+            println!("  cache: {}", report.cache_root().display());
+            print_fingerprint(report.fingerprint());
+            println!("  receipt: {}", report.receipt().display());
+            println!(
+                "hint: install it with `content install {}`",
+                report.artifact_id()
+            );
+        }
+        ContentCommand::Download { target } => {
+            let report =
+                content::acquire(state.installation(), state.active_paths().ok(), &target)?;
+            println!("downloaded/cached: {}", report.artifact_id());
+            println!("  cache: {}", report.cache_root().display());
+            print_fingerprint(report.fingerprint());
+            println!("  receipt: {}", report.receipt().display());
+            println!(
+                "hint: install it with `content install {}`",
+                report.artifact_id()
+            );
+        }
+        ContentCommand::Install { target } => {
+            let reports =
+                content::install(state.installation(), state.active_paths().ok(), &target)?;
+            print_install_reports(&reports);
+            println!("hint: verify installed content with `content verify {target}`");
+        }
+        ContentCommand::Update { target } => {
+            let reports = content::update(
+                state.installation(),
+                state.active_paths().ok(),
+                target.as_deref(),
+            )?;
+            print_install_reports(&reports);
+            println!("hint: verify updated content with `content verify`");
+        }
+        ContentCommand::Verify { target } => {
+            let reports = content::verify(state.installation(), target.as_deref())?;
+            for report in &reports {
+                println!(
+                    "{}: {}",
+                    report.artifact_id(),
+                    if report.ok() { "ok" } else { "corrupt" }
+                );
+                println!("  detail: {}", report.detail());
+                if let Some(expected) = report.expected() {
+                    println!("  expected: {}", expected.hash());
+                }
+                if let Some(observed) = report.observed() {
+                    println!("  observed: {}", observed.hash());
+                }
+            }
+            if reports.iter().any(|report| !report.ok()) {
+                println!("hint: repair corrupted content with `content repair`");
+            }
+        }
+        ContentCommand::Selected => match content::current_selection(state.installation())? {
+            Some(selection) => {
+                println!("selected packagepack: {}", selection.artifact_id());
+                println!("  root: {}", selection.installed_root().display());
+                print_fingerprint(selection.fingerprint());
+            }
+            None => {
+                println!("selected packagepack: none");
+                println!("hint: select one with `content select ARTIFACT`");
+            }
+        },
+        ContentCommand::Select { target } => {
+            let selection = content::select_packagepack(state.installation(), &target)?;
+            println!("selected packagepack: {}", selection.artifact_id());
+            println!("  root: {}", selection.installed_root().display());
+            print_fingerprint(selection.fingerprint());
+        }
+        ContentCommand::Deselect => {
+            content::clear_selection(state.installation())?;
+            println!("selected packagepack: none");
+        }
+        ContentCommand::Repair { target } => {
+            let reports = content::repair(
+                state.installation(),
+                state.active_paths().ok(),
+                target.as_deref(),
+            )?;
+            if reports.is_empty() {
+                println!("content repair: all checked content already verified");
+            } else {
+                print_install_reports(&reports);
+            }
+        }
+        ContentCommand::Disable { target } => {
+            let report = content::disable(state.installation(), &target)?;
+            println!("disabled: {}", report.artifact_id());
+            println!("  retained at: {}", report.installed_root().display());
+            println!("  receipt: {}", report.receipt().display());
+        }
+        ContentCommand::Enable { target } => {
+            let report = content::enable(state.installation(), &target)?;
+            println!("enabled: {}", report.artifact_id());
+            println!("  installed at: {}", report.installed_root().display());
+            println!("  receipt: {}", report.receipt().display());
+        }
+        ContentCommand::Uninstall { target } => {
+            let report = content::uninstall(state.installation(), &target)?;
+            println!("uninstalled: {}", report.artifact_id());
+            println!("  removed payload: {}", report.removed());
+            println!("  receipt: {}", report.receipt().display());
+        }
+        ContentCommand::Create { artifact, dry_run } => {
+            let report = content::create_workshop_item(state.active_paths()?, &artifact, dry_run)?;
+            println!("Workshop create: {}", report.artifact_id());
+            println!("  receipt: {}", report.receipt().display());
+            if dry_run {
+                println!("dry-run: no Workshop item was created");
+            }
+        }
+        ContentCommand::Publish {
+            artifact,
+            account,
+            change_note,
+            dry_run,
+            yes,
+        } => {
+            let report = content::publish_workshop_item(
+                state.active_paths()?,
+                &artifact,
+                account.as_deref(),
+                change_note.as_deref(),
+                dry_run,
+                yes,
+            )?;
+            println!("Workshop publish: {}", report.artifact_id());
+            if let Some(script) = report.script() {
+                println!("  provider script: {}", script.display());
+            }
+            println!("  receipt: {}", report.receipt().display());
+            if dry_run {
+                println!("dry-run: no Workshop upload was performed");
+                println!(
+                    "hint: review the package and provider script, then run `content publish {} --account ACCOUNT --yes` manually in the shell",
+                    report.artifact_id()
+                );
+            } else if report.uploaded() {
+                println!(
+                    "hint: verify the Workshop item in Steam and run `content acquire`/`content install` for a local roundtrip"
+                );
+            }
+        }
+        ContentCommand::Delete {
+            target,
+            dry_run,
+            yes,
+        } => {
+            let report =
+                content::delete_workshop_item(state.installation(), &target, dry_run, yes)?;
+            println!("Workshop delete: {}", report.artifact_id());
+            println!("  receipt: {}", report.receipt().display());
+            if dry_run {
+                println!("dry-run: no Workshop item was deleted");
+            }
         }
     }
     Ok(())
+}
+
+fn print_artifact(artifact: &content::ContentArtifact) {
+    println!("  {} ({})", artifact.id(), artifact.kind());
+    println!("    root: {}", artifact.root().display());
+    if let Some(version) = artifact.version() {
+        println!("    version: {version}");
+    }
+    if let Some(workshop_id) = artifact.workshop().published_file_id() {
+        println!("    workshop: {workshop_id}");
+    }
+    for dependency in artifact.dependencies() {
+        println!(
+            "    {}: {}{}",
+            dependency.relationship(),
+            dependency.id(),
+            if dependency.optional() {
+                " (optional)"
+            } else {
+                ""
+            }
+        );
+    }
+    for conflict in artifact.conflicts() {
+        println!("    conflict: {}", conflict.id());
+    }
+}
+
+fn print_package_report(report: &content::PackageReport) {
+    println!(
+        "{}: {}",
+        if report.dry_run() {
+            "would package"
+        } else {
+            "packaged"
+        },
+        report.artifact_id()
+    );
+    println!("  package: {}", report.root().display());
+    println!("  payload: {}", report.payload().display());
+    print_fingerprint(report.fingerprint());
+    if let Some(receipt) = report.receipt() {
+        println!("  receipt: {}", receipt.display());
+    }
+}
+
+fn print_install_reports(reports: &[content::InstallReport]) {
+    for report in reports {
+        println!("installed: {}", report.artifact_id());
+        println!("  root: {}", report.installed_root().display());
+        print_fingerprint(report.fingerprint());
+        println!("  receipt: {}", report.receipt().display());
+    }
+}
+
+fn print_fingerprint(fingerprint: &content::Fingerprint) {
+    println!(
+        "  fingerprint: {} {} ({} files, {} bytes)",
+        fingerprint.algorithm(),
+        fingerprint.hash(),
+        fingerprint.files(),
+        fingerprint.bytes()
+    );
 }
 
 fn execute_setup_self_package(
@@ -1071,6 +1557,15 @@ fn script_command_allowed(command: &ShellCommand) -> bool {
             | ShellCommand::Exit
             | ShellCommand::Root {
                 command: RootCommand::Publish { dry_run: false, .. }
+            }
+            | ShellCommand::Content {
+                command: ContentCommand::Create { dry_run: false, .. },
+            }
+            | ShellCommand::Content {
+                command: ContentCommand::Publish { dry_run: false, .. },
+            }
+            | ShellCommand::Content {
+                command: ContentCommand::Delete { dry_run: false, .. },
             }
             | ShellCommand::Ide {
                 command: IdeCommand::Repair { dry_run: false },

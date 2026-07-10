@@ -41,7 +41,7 @@ impl MetadataReport {
             }
             SourceState::Closed => {
                 writeln!(output, "  status:    closed").unwrap();
-                writeln!(output, "  hint:      open a source with `open NAME`").unwrap();
+                writeln!(output, "  hint:      open a source with `source open NAME`").unwrap();
             }
         }
 

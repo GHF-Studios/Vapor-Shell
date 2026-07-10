@@ -65,9 +65,9 @@ session, build the `vapor` binary once with host Cargo, copy that binary and a
 `scripts/bootstrap-local-app-deploy.sh`, then invoke only that installed
 `bin/vapor`. The integration fixtures automate this topology for tests.
 
-After the installed binary works, run `open /path/to/source` from the installed
-shell. This validates and registers the external source selection for future
-Steam GUI launches without moving source into the app installation.
+After the installed binary works, run `source open /path/to/source` from the
+installed shell. This validates and registers the external source selection for
+future Steam GUI launches without moving source into the app installation.
 
 ## Documentation policy
 

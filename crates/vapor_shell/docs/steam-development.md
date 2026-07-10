@@ -24,8 +24,9 @@ The bootstrap sequence is:
    ```
 
    This writes only `Vapor.toml` and `bin/vapor`.
-3. run `/path/to/app/bin/vapor open /path/to/Vapor-Root` to register and open
-   the external application source without moving that source into the app dir;
+3. run `/path/to/app/bin/vapor source open /path/to/Vapor-Root` to register
+   and open the external application source without moving that source into the
+   app dir;
 4. run `setup self status`;
 5. run `setup self install`;
 6. open a new terminal so PATH changes are visible;
@@ -63,7 +64,8 @@ exits. Vapor never accepts a password argument and never copies SteamCMD's
 
 Steam authentication is session-scoped by policy. Commands that publish for real
 must be typed manually in the interactive shell; scripts may dry-run but may not
-authenticate or perform real uploads.
+authenticate, perform real uploads, create Workshop items, or delete Workshop
+items.
 
 ## Preview and publish
 
@@ -85,3 +87,8 @@ uploads.
 
 The VDF maps only the already-clean staging root. Inclusion and credential
 exclusion are therefore decided before SteamPipe sees any files.
+
+Workshop content publication is separate from app/depot publication. Use
+`content publish ARTIFACT --dry-run` from a content workspace for package and
+Workshop VDF previews, then perform any real content upload manually with
+`content publish ARTIFACT --account ACCOUNT --yes`.

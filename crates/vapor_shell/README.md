@@ -12,7 +12,7 @@ Steam installation / app root         Active source root (critical)
 ├── rustup-home / cargo-home
 ├── tools/git / tools/steamcmd
 ├── lib / state / output
-└── installed custom content
+└── content / installed Workshop artifacts
 ```
 
 The roots must not overlap. Vapor discovers the installation from the running
@@ -32,6 +32,8 @@ not the installed Steam directory itself.
   expected installation layout, canonicalization, and overlap rejection.
 - [Vapor manifests](docs/manifests.md): root, workspace, project, content,
   composition, trait, and slot syntax.
+- [Content lifecycle](docs/content.md): Workshop-backed package, cache,
+  install, verify, repair, uninstall, and publication-preview workflows.
 - [Commands](docs/commands.md): command behavior, arguments, and which root each
   command can affect.
 - [Cargo integration](docs/cargo-metadata.md): required Rust workspaces,
@@ -65,7 +67,7 @@ not the installed Steam directory itself.
 - User paths are canonicalized before source-boundary checks, including symlinks.
 - Nested content markers update context; nested workspace markers are rejected.
 - Vapor Shell can start closed with only an app root. Source work begins only
-  after `open SOURCE`, and invocation inside a nested shell checkout opens the
+  after `source open SOURCE`, and opening a nested shell checkout selects the
   highest containing Vapor source root.
 
 ## Bootstrap and validate
@@ -83,12 +85,15 @@ crates/vapor_shell/scripts/bootstrap-local-app-deploy.sh \
 Then run the installed app-local command:
 
 ```text
-/home/.../steamapps/common/Loo Cast/bin/vapor open /path/to/source
+/home/.../steamapps/common/Loo Cast/bin/vapor source open /path/to/source
 /home/.../steamapps/common/Loo Cast/bin/vapor setup self status
 /home/.../steamapps/common/Loo Cast/bin/vapor setup self install
 fmt
 test
 validate
+content validate
+content install ghf-studios/loo-cast/loo-cast-packagepack
+content verify
 ```
 
 After that shell is installed, all normal builds and checks are routed through

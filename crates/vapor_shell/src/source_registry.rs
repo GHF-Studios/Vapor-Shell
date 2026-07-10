@@ -122,7 +122,7 @@ pub fn resolve_target(installation: &InstallationPaths, target: &str) -> Result<
         .map(|entry| entry.path.clone())
         .ok_or_else(|| {
             format!(
-                "unknown Vapor source '{target}'\nhelp: index it with `vapor sources add PATH`, or open by path"
+                "unknown Vapor source '{target}'\nhelp: index it with `vapor source add PATH`, or open by path"
             )
         })
 }

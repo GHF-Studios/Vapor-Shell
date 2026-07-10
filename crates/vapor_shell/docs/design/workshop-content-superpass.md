@@ -65,25 +65,40 @@ installed, verified, or changed.
 
 ## Installed content layout
 
-The installed-content layout is not yet canonical. Define it before building
-the lifecycle commands.
+The implemented installed-content layout is app-root owned:
 
-The layout must answer where these app-root-owned records live:
+```text
+content/
+├── workshop/downloads/
+├── cache/packages/
+├── installed/
+├── disabled/
+└── quarantine/
 
-- raw or Steam-managed Workshop downloads when Vapor can see them;
-- Vapor-managed content caches, if caches are needed beyond Steam's download
-  location;
-- installed and enabled artifact payloads;
-- disabled but retained artifact payloads;
-- packagepack selections;
-- dependency and conflict indexes;
-- fingerprints and verification receipts;
-- operation receipts for install, update, uninstall, publish, and repair;
-- corrupted, incomplete, or quarantined content.
+output/content/
+├── packages/
+└── scripts/
 
-The layout must keep authored source repositories out of the Steam
-installation. Installed Workshop artifacts are runtime/content material, not Git
-working trees and not source checkouts.
+.vapor/state/content/
+├── index.toml
+├── locks/
+├── selection.toml
+└── receipts/
+```
+
+`content/workshop/downloads/` is reserved for provider-observed Steam downloads
+when Vapor can see them. `content/cache/packages/` holds Vapor-managed package
+cache entries. `content/installed/` contains enabled payloads, `content/disabled/`
+contains retained disabled payloads, and `content/quarantine/` contains corrupt
+or incomplete payloads moved aside during repair. `output/content/packages/`
+holds package staging, and `output/content/scripts/` holds Workshop provider
+VDF previews. `.vapor/state/content/index.toml`, `locks/`, and `receipts/`
+hold generated dependency/conflict indexes, fingerprints, install locks,
+packagepack selection, and operation receipts.
+
+Authored source repositories stay outside the Steam installation. Installed
+Workshop artifacts are runtime/content material, not Git working trees and not
+source checkouts.
 
 ## Command model
 
@@ -110,8 +125,8 @@ Steam app/depot. Registry operations remain special because they manage
 registry authority. Normal custom content, including first-party Loo-Cast
 content, should use the content/Workshop model.
 
-Content commands should express Vapor goals rather than raw SteamUGC calls.
-Possible command shape:
+Content commands express Vapor goals rather than raw SteamUGC calls. The current
+implemented grammar is:
 
 ```text
 content status
@@ -119,16 +134,27 @@ content list
 content validate
 content build
 content package
-content publish [ARTIFACT] [--dry-run]
+content acquire ARTIFACT_OR_WORKSHOP_ID
+content subscribe ARTIFACT_OR_WORKSHOP_ID
+content download ARTIFACT_OR_WORKSHOP_ID
 content install ARTIFACT_OR_WORKSHOP_ID
 content update [ARTIFACT_OR_WORKSHOP_ID]
+content verify [ARTIFACT_OR_WORKSHOP_ID]
+content selected
+content select ARTIFACT_OR_WORKSHOP_ID
+content deselect
+content disable ARTIFACT_OR_WORKSHOP_ID
+content enable ARTIFACT_OR_WORKSHOP_ID
 content uninstall ARTIFACT_OR_WORKSHOP_ID
 content repair [ARTIFACT_OR_WORKSHOP_ID]
+content create ARTIFACT --dry-run
+content publish ARTIFACT [--dry-run]
+content delete ARTIFACT_OR_WORKSHOP_ID --dry-run
 ```
 
-The exact grammar should be finalized against the implementation, but the
-surface must remain content-oriented. SteamUGC, SteamCMD, filesystem staging,
-Git, and Cargo are backend providers.
+SteamUGC, SteamCMD, filesystem staging, Git, and Cargo remain backend
+providers. Real Workshop create/publish/delete stays manual and authority-bound;
+scripts may run the local lifecycle and dry-runs only.
 
 ## Scripting and authority
 

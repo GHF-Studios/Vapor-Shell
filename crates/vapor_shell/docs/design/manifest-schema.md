@@ -121,6 +121,14 @@ schema = 1
 [engine]
 name = "spacetime-engine"
 version.workspace = true
+
+[engine.steam]
+app-id = 2122620
+visibility = "private"
+title = "Spacetime Engine"
+description = "First-party Vapor engine content for Loo-Cast."
+tags = ["engine", "first-party", "loo-cast"]
+change-note = "Vapor content update."
 ```
 
 Supported content identity sections:
@@ -141,6 +149,32 @@ targets, crate types, Rust dependencies, and features.
 Workspace version inheritance is the default. A separately versioned artifact
 may own an explicit semantic version when its release lifecycle actually
 diverges.
+
+## Workshop publication schema
+
+Authored Steam/Workshop intent lives under the artifact's content table:
+
+```toml
+[packagepack.steam]
+app-id = 2122620
+published-file-id = "1234567890"
+visibility = "private"
+title = "Loo-Cast Packagepack"
+description = "First-party playable packagepack for Loo-Cast."
+tags = ["packagepack", "first-party", "loo-cast"]
+change-note = "Vapor content update."
+```
+
+`app-id`, `visibility`, `title`, `description`, `tags`, dependency IDs,
+conflict IDs, and update intent are source-authored policy. `published-file-id`
+is also source-authored once Steam has assigned a stable Workshop item for that
+artifact. It should be absent before item creation rather than replaced with a
+generated local placeholder.
+
+Generated or observed state does not belong in source manifests. Vapor writes
+package manifests, fingerprints, cache records, installed indexes, locks,
+operation receipts, last local verification results, and quarantine diagnostics
+under the Steam installation/app root.
 
 ## Composition schema
 
@@ -225,6 +259,6 @@ Vapor-Root is app/depot source; Loo-Cast is Workshop/content source.
 
 The bootstrap schema does not duplicate Cargo members, package names, targets,
 Rust dependencies, documentation paths, promoted binaries, or Git submodules.
-It also does not define installation receipts, Steam authentication state, a
-public `VAPOR_HOME`, manual setup/provider locks, backend pipeline stages, or
-provider syntax that has not been forced by a real example.
+It also does not define Steam authentication state, a public `VAPOR_HOME`,
+manual setup/provider locks, raw backend pipeline stages, or provider syntax
+that has not been forced by a real example.

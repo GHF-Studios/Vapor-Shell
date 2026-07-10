@@ -3,9 +3,9 @@
 Run `help` for the command list or `help <COMMAND>` for argument details.
 `vapor` without arguments opens the interactive shell. The shell owns source
 context, setup state, and command authority. Host-level direct facades are
-limited to setup/bootstrap and automation entrypoints: `open`, `close`,
-`sources`, `setup`, `metadata`, `installation`, `binaries`, `libraries`,
-`content status`, and `script run`.
+limited to setup/bootstrap and automation entrypoints: `source`, `setup`,
+`metadata`, `installation`, `binaries`, `libraries`, read-only
+`content status|list|verify`, and `script run`.
 
 Repeatable automation should live in `.vapor/scripts/NAME.vapor` and run through
 `vapor script run NAME`, which executes the same command grammar against a
@@ -145,7 +145,12 @@ tests, strict Clippy, and strict Rustdoc.
 
 ## Source session
 
-### `open SOURCE`
+### `source status`
+
+Report whether a source is open, the active source identity and cursor, and the
+number of indexed sources.
+
+### `source open SOURCE`
 
 Open a Vapor source root by registered name or path. A path is resolved,
 validated, added to the app-local source registry, and persisted as the active
@@ -154,28 +159,41 @@ source for later shell launches.
 The active source must be outside the installed app root. Once opened, all
 navigation commands are confined to that source root.
 
-### `close`
+### `source close`
 
 Close the active source and return the shell to its app-only state. Setup,
 source-registry, metadata, and installation-inspection commands remain
-available; source navigation and Cargo/content workflows wait for another
-`open`.
+available; source navigation and source-backed Cargo/content workflows wait for
+another `source open`.
 
-### `sources list`
+### `source list`
 
 List source roots registered under the current app root.
 
-### `sources add [PATH]`
+### `source add [PATH]`
 
 Validate and register a source root. `PATH` defaults to the process directory
-used to start Vapor. Registration does not open the source; use `open NAME` or
-`open PATH` for that.
+used to start Vapor. Registration does not open the source; use
+`source open NAME` or `source open PATH` for that.
 
-### `sources remove SOURCE`
+### `source remove SOURCE`
 
 Remove a registered source by local name or fully qualified identity. If the
-removed source is active, run `close` or `open` another source before source
-workflows.
+removed source is active, run `source close` or `source open` another source
+before source workflows.
+
+### `source sync`
+
+Reserved for controlled source-provider synchronization. The current
+implementation reports the active source and explains that no synchronization
+is applied yet.
+
+### `source repair`
+
+Inspect source registry state and print repair guidance. The current
+implementation does not mutate source repositories; stale app-local source
+entries can be removed with `source remove SOURCE` and re-added with
+`source add PATH`.
 
 ## Documentation
 
@@ -240,9 +258,121 @@ defaults to `[root.steam].development-branch` and must be non-default.
 
 ### `content status`
 
-Report the nearest typed content node under the source cursor. Packagepacks,
-Enginepacks, Gamepacks, and Modpacks are content artifacts, not application
-depot roots.
+Report the nearest typed content node under the source cursor and print the
+app-root content layout used for installed payloads, cache, and generated
+state. Packagepacks, Enginepacks, Gamepacks, and Modpacks are content
+artifacts, not application depot roots.
+
+### `content list`
+
+List source-discovered content artifacts when a source is open and list
+installed content recorded in the app-owned content index.
+
+### `content validate [ARTIFACT]`
+
+Validate source content metadata, required composition/dependency references,
+conflicts, and Workshop publication intent. Omit `ARTIFACT` to validate every
+source-discovered artifact.
+
+### `content build`
+
+Build the active content workspace through app-local Cargo. This uses the same
+setup preflight as other Cargo workflows and writes build output under the app
+root.
+
+### `content package ARTIFACT [--dry-run]`
+
+Stage one artifact under `output/content/packages/`, copy its payload, write a
+package manifest, fingerprint it, and record a receipt. `--dry-run` computes
+the intended package path and source fingerprint without writing files.
+
+### `content acquire ARTIFACT_OR_WORKSHOP_ID`
+
+Acquire content into the app-owned cache. Source artifacts are packaged and
+cached locally. Cached Workshop IDs can be reused. A live uncached Workshop
+download requires a SteamUGC-enabled provider session; this build reports that
+provider boundary when no cache exists.
+
+### `content subscribe ARTIFACT_OR_WORKSHOP_ID`
+
+Subscribe to or otherwise acquire content through controlled providers. The
+current implementation shares the safe acquire/cache path and records the
+provider boundary when live SteamUGC subscription is unavailable.
+
+### `content download ARTIFACT_OR_WORKSHOP_ID`
+
+Download content into the app-owned cache. Source artifacts use the local
+package/cache path; uncached Workshop IDs require a SteamUGC-enabled provider.
+
+### `content install ARTIFACT_OR_WORKSHOP_ID`
+
+Install source or cached content into `content/installed/`, resolving required
+local dependency/composition edges first. Installation writes a content index,
+per-artifact lock, fingerprint, and receipt.
+
+### `content update [ARTIFACT_OR_WORKSHOP_ID]`
+
+Reinstall one installed item, or every installed item when omitted, from source
+or cache.
+
+### `content verify [ARTIFACT_OR_WORKSHOP_ID]`
+
+Compare installed payloads against app-owned fingerprints and receipts. Omit
+the target to verify everything in the installed-content index.
+
+### `content selected`
+
+Print the currently selected packagepack, if one is recorded in app-owned
+content state.
+
+### `content select ARTIFACT_OR_WORKSHOP_ID`
+
+Select an installed, enabled packagepack for play. Selection writes
+`.vapor/state/content/selection.toml` and an operation receipt.
+
+### `content deselect`
+
+Clear the selected packagepack.
+
+### `content repair [ARTIFACT_OR_WORKSHOP_ID]`
+
+Verify installed content, quarantine corrupted payloads under
+`content/quarantine/`, and reinstall from source or cache when available.
+
+### `content disable ARTIFACT_OR_WORKSHOP_ID`
+
+Move installed content to `content/disabled/` and update the content index
+without deleting its payload.
+
+### `content enable ARTIFACT_OR_WORKSHOP_ID`
+
+Move disabled content back to `content/installed/` and update the content
+index.
+
+### `content uninstall ARTIFACT_OR_WORKSHOP_ID`
+
+Remove installed or disabled payloads and delete the app-owned installed-state
+record. Dependency payloads are not removed implicitly; uninstall them
+explicitly when desired.
+
+### `content create ARTIFACT --dry-run`
+
+Record a safe preview of creating a new Workshop item. Real item creation is a
+SteamUGC authority-changing action and must be performed manually through a
+SteamUGC-enabled provider.
+
+### `content publish ARTIFACT [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
+
+Package an artifact and write a Workshop provider VDF. `--dry-run` performs no
+upload. A real upload requires `--account ACCOUNT`, `--yes`, an existing
+PublishedFileId in the artifact's `Vapor.toml`, and must be typed manually in
+the interactive shell.
+
+### `content delete ARTIFACT_OR_WORKSHOP_ID --dry-run`
+
+Record a safe preview of deleting or retiring a Workshop item. Real deletion is
+a SteamUGC authority-changing action and is refused unless a controlled
+SteamUGC provider implements it.
 
 ## Scripts
 

@@ -378,6 +378,6 @@ impl ShellState {
 }
 
 fn no_source_error() -> String {
-    "no Vapor source is open\nhelp: open an indexed source with `open NAME`, open a path with `open PATH`, or index one with `sources add PATH`"
+    "no Vapor source is open\nhelp: open an indexed source with `source open NAME`, open a path with `source open PATH`, or index one with `source add PATH`"
         .to_owned()
 }
