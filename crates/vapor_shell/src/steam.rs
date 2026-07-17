@@ -1,8 +1,8 @@
 //! SteamCMD-backed beta-branch SteamPipe publishing.
 
 use crate::{
-    discovery::EnvironmentPaths,
-    distribution::{self, DistributionManifest},
+    discovery::{EnvironmentPaths, InstallationPaths},
+    distribution::{self, DistributionManifest, StageOptions},
 };
 use std::{
     fs,
@@ -12,7 +12,12 @@ use std::{
 
 /// Locate the installation-owned SteamCMD executable.
 pub fn executable(paths: &EnvironmentPaths) -> Result<PathBuf, String> {
-    let root = paths.installation().root();
+    executable_for_installation(paths.installation())
+}
+
+/// Locate the installation-owned SteamCMD executable from an app root.
+pub fn executable_for_installation(installation: &InstallationPaths) -> Result<PathBuf, String> {
+    let root = installation.root();
     let names = if cfg!(windows) {
         vec!["steamcmd.exe"]
     } else {
@@ -25,32 +30,54 @@ pub fn executable(paths: &EnvironmentPaths) -> Result<PathBuf, String> {
         .ok_or_else(|| "SteamCMD is not installed in the Vapor app root".to_owned())
 }
 
+/// Options for a SteamPipe publication attempt.
+#[derive(Debug, Clone)]
+pub struct PublishOptions<'a> {
+    /// Dedicated Steam build account.
+    pub account: &'a str,
+    /// Target beta branch, or the manifest default.
+    pub branch: Option<&'a str>,
+    /// Internal Steam build description.
+    pub description: &'a str,
+    /// Staged payload mode.
+    pub stage_options: StageOptions,
+    /// Whether to generate a preview VDF without uploading.
+    pub dry_run: bool,
+    /// Whether a real upload has been explicitly confirmed.
+    pub confirmed: bool,
+}
+
 /// Stage, validate, and publish the development beta through SteamCMD.
 pub fn publish(
     paths: &EnvironmentPaths,
     manifest: &DistributionManifest,
-    account: &str,
-    branch: Option<&str>,
-    description: &str,
-    dry_run: bool,
-    confirmed: bool,
+    options: PublishOptions<'_>,
 ) -> Result<PathBuf, String> {
-    let branch = branch.unwrap_or(manifest.application().development_branch());
+    let branch = options
+        .branch
+        .unwrap_or(manifest.application().development_branch());
     if branch == "default" || branch.trim().is_empty() {
         return Err("automatic publishing requires a non-default beta branch".to_owned());
     }
-    if !dry_run && !confirmed {
+    if !options.dry_run && !options.confirmed {
         return Err("publishing requires --yes after reviewing --dry-run".to_owned());
     }
-    let stage = distribution::stage(paths, manifest)?;
-    smoke(stage.root())?;
-    let script = write_build_script(paths, manifest, stage.root(), branch, description, dry_run)?;
-    if dry_run {
+    let stage = distribution::stage_with_options(paths, manifest, options.stage_options.clone())?;
+    smoke(stage.root(), &options.stage_options)?;
+    let script = write_build_script(
+        paths,
+        manifest,
+        stage.root(),
+        branch,
+        options.description,
+        options.dry_run,
+    )?;
+    if options.dry_run {
         return Ok(script);
     }
     let steamcmd = executable(paths)?;
     let status = Command::new(&steamcmd)
-        .args(["+login", account, "+run_app_build"])
+        .args(["+login", options.account, "+run_app_build"])
         .arg(&script)
         .arg("+quit")
         .current_dir(steamcmd.parent().expect("SteamCMD has a parent"))
@@ -64,18 +91,8 @@ pub fn publish(
 }
 
 /// Validate essential staged self-hosting inputs.
-pub fn smoke(stage: &Path) -> Result<(), String> {
-    for required in [
-        "Vapor.toml",
-        "bin",
-        "docs",
-        "packages/setup",
-        "packages/setup/rustup",
-        "packages/setup/rustup-home",
-        "packages/setup/cargo-home",
-        "packages/setup/git",
-        "packages/setup/steamcmd",
-    ] {
+pub fn smoke(stage: &Path, options: &StageOptions) -> Result<(), String> {
+    for required in ["Vapor.toml", "bin", "docs"] {
         let path = stage.join(required);
         if !path.exists() {
             return Err(format!(
@@ -84,12 +101,41 @@ pub fn smoke(stage: &Path) -> Result<(), String> {
             ));
         }
     }
-    let has_shell = fs::read_dir(stage.join("bin"))
-        .map_err(|e| e.to_string())?
-        .filter_map(Result::ok)
-        .any(|entry| entry.file_name().to_string_lossy().starts_with("vapor"));
-    if !has_shell {
+    if options.includes_setup_payload() {
+        for required in [
+            "packages/setup",
+            "packages/setup/rustup",
+            "packages/setup/rustup-home",
+            "packages/setup/cargo-home",
+            "packages/setup/git",
+            "packages/setup/steamcmd",
+        ] {
+            let path = stage.join(required);
+            if !path.exists() {
+                return Err(format!(
+                    "staged application is missing required path: {}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    let linux_shell = stage.join("bin/x86_64-unknown-linux-gnu/vapor");
+    let windows_shell = stage.join("bin/x86_64-pc-windows-msvc/vapor.exe");
+    let legacy_shell = stage.join(format!("bin/vapor{}", std::env::consts::EXE_SUFFIX));
+    if !linux_shell.is_file() && !windows_shell.is_file() && !legacy_shell.is_file() {
         return Err("staged application has no vapor binary".to_owned());
+    }
+    if stage.join(".vapor/launch/linux/vapor.sh").is_file() && !linux_shell.is_file() {
+        return Err(format!(
+            "staged Linux launch wrapper has no target Vapor binary: {}",
+            linux_shell.display()
+        ));
+    }
+    if stage.join(".vapor/launch/windows/vapor.cmd").is_file() && !windows_shell.is_file() {
+        return Err(format!(
+            "staged Windows launch wrapper has no target Vapor binary: {}",
+            windows_shell.display()
+        ));
     }
     for forbidden in [
         "packages/setup/cargo-home/credentials",

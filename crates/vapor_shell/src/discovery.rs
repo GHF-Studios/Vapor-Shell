@@ -50,12 +50,13 @@ impl EnvironmentPaths {
     /// workspace overlaps the Steam installation/app root.
     pub fn discover() -> Result<Self, String> {
         let installation = Self::discover_installation()?;
-        let invocation =
-            configured_source(&installation)?
-                .unwrap_or(env::current_dir().map_err(|error| {
-                    format!("failed to read the invocation directory: {error}")
-                })?);
-        let source = SourceWorkspace::from_invocation(&invocation, &installation)?;
+        let source = if let Some(configured) = configured_source(&installation)? {
+            SourceWorkspace::from_source_path(&configured, &installation)?
+        } else {
+            let invocation = env::current_dir()
+                .map_err(|error| format!("failed to read the invocation directory: {error}"))?;
+            SourceWorkspace::from_invocation(&invocation, &installation)?
+        };
         Ok(Self {
             installation,
             source,
@@ -86,6 +87,28 @@ impl EnvironmentPaths {
         invocation: &Path,
     ) -> Result<Self, String> {
         let source = SourceWorkspace::from_invocation(invocation, &installation)?;
+        Ok(Self {
+            installation,
+            source,
+        })
+    }
+
+    /// Build an active environment from an explicitly selected source path.
+    ///
+    /// Unlike ambient invocation discovery, this honors an exact nested
+    /// `[workspace]` or `[root]` marker at the selected path. That lets
+    /// `source open /path/to/workspace` select an intentional nested workspace
+    /// without changing the default super-root behavior for ordinary invocation
+    /// from inside root-owned submodules.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the selected source is invalid or overlaps the installation.
+    pub fn from_installation_and_source_path(
+        installation: InstallationPaths,
+        source_path: &Path,
+    ) -> Result<Self, String> {
+        let source = SourceWorkspace::from_source_path(source_path, &installation)?;
         Ok(Self {
             installation,
             source,
@@ -135,7 +158,8 @@ pub struct InstallationPaths {
 impl InstallationPaths {
     /// Discover an installation from the canonical executable location.
     ///
-    /// The executable must be laid out as `<app-root>/bin/vapor[.exe]`.
+    /// The executable must be laid out as `<app-root>/bin/vapor[.exe]` or
+    /// `<app-root>/bin/<target>/vapor[.exe]`.
     /// `<app-root>/Vapor.toml` must declare `[root]`.
     ///
     /// # Errors
@@ -154,17 +178,45 @@ impl InstallationPaths {
                 .parent()
                 .ok_or_else(|| format!("binary directory has no parent: {}", binaries.display()))?
                 .to_path_buf()
+        } else if binaries
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "bin")
+        {
+            binaries
+                .parent()
+                .and_then(Path::parent)
+                .ok_or_else(|| {
+                    format!(
+                        "target binary directory has no app-root parent: {}",
+                        binaries.display()
+                    )
+                })?
+                .to_path_buf()
         } else {
             binaries.clone()
         };
-        let expected_binaries = candidate_root.join("bin");
-        let expected_command = expected_binaries.join(&expected_name);
-        if executable != expected_command {
+        let flat_command = candidate_root.join("bin").join(&expected_name);
+        let target_command = binaries
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "bin")
+            .then(|| binaries.join(&expected_name));
+        let expected = executable == flat_command
+            || target_command
+                .as_ref()
+                .is_some_and(|expected| executable == *expected);
+        if !expected {
             return Err(format!(
-                "the running executable is not laid out as an installed Vapor application\n  executable: {}\n  candidate app root: {}\n  expected command: {}\nnote: this usually means a source-built target/debug/vapor was run directly\nhelp: place the bootstrap application outside every source root and run its bin/vapor command",
+                "the running executable is not laid out as an installed Vapor application\n  executable: {}\n  candidate app root: {}\n  expected command: {}\n  expected target command: {}\nnote: this usually means a source-built target/debug/vapor was run directly\nhelp: place the bootstrap application outside every source root and run a packaged Vapor command",
                 executable.display(),
                 candidate_root.display(),
-                expected_command.display()
+                flat_command.display(),
+                candidate_root
+                    .join("bin")
+                    .join("<target>")
+                    .join(&expected_name)
+                    .display()
             ));
         }
         let root = candidate_root;
@@ -271,6 +323,35 @@ impl SourceWorkspace {
                 manifest::FILE_NAME
             )
         })?;
+        Self::from_marker(invocation, marker, installation)
+    }
+
+    /// Discover a source root from an explicit source selection.
+    ///
+    /// If the selected directory itself contains a top-level `[workspace]` or
+    /// `[root]` `Vapor.toml`, that directory is the source root. Otherwise this
+    /// falls back to ambient invocation discovery so selecting a content/project
+    /// child still resolves to its owning source root.
+    ///
+    /// # Errors
+    ///
+    /// Fails with the same diagnostics as [`Self::from_invocation`].
+    pub fn from_source_path(
+        source_path: &Path,
+        installation: &InstallationPaths,
+    ) -> Result<Self, String> {
+        let invocation = canonical_directory(source_path, "source path")?;
+        if let Some(marker) = exact_source_marker(&invocation)? {
+            return Self::from_marker(invocation, marker, installation);
+        }
+        Self::from_invocation(&invocation, installation)
+    }
+
+    fn from_marker(
+        invocation: PathBuf,
+        marker: PathBuf,
+        installation: &InstallationPaths,
+    ) -> Result<Self, String> {
         let root = marker
             .parent()
             .expect("an ancestor marker always has a parent")
@@ -344,6 +425,33 @@ fn highest_marker(start: &Path) -> Option<PathBuf> {
             marker.is_file().then_some(marker)
         })
         .last()
+}
+
+fn exact_source_marker(start: &Path) -> Result<Option<PathBuf>, String> {
+    let marker = start.join(manifest::FILE_NAME);
+    if !marker.is_file() {
+        return Ok(None);
+    }
+    let source = fs::read_to_string(&marker)
+        .map_err(|error| format!("failed to read '{}': {error}", marker.display()))?;
+    if has_top_level_table(&source, "root") || has_top_level_table(&source, "workspace") {
+        Ok(Some(marker))
+    } else {
+        Ok(None)
+    }
+}
+
+fn has_top_level_table(source: &str, expected: &str) -> bool {
+    source.lines().any(|line| {
+        let line = line.trim();
+        let Some(table) = line
+            .strip_prefix('[')
+            .and_then(|line| line.strip_suffix(']'))
+        else {
+            return false;
+        };
+        !table.starts_with('[') && table.trim() == expected
+    })
 }
 
 fn require_installation_marker(marker: &Path, root: &Path) -> Result<String, String> {

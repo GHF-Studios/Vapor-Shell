@@ -1,12 +1,8 @@
 mod common;
 
 use common::TestTree;
-use std::{fs, path::Path};
 use vapor_shell::{
-    cargo_metadata::CargoIndex,
-    discovery::EnvironmentPaths,
-    manifest::{self, ContentKind},
-    state::ShellState,
+    cargo_metadata::CargoIndex, discovery::EnvironmentPaths, manifest, state::ShellState,
 };
 
 fn fixture() -> (TestTree, TestTree, ShellState) {
@@ -22,8 +18,6 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
         manifest::FILE_NAME,
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
-    source.write("games/example/Vapor.toml", "[game]\nname = \"game\"\n");
-    fs::create_dir_all(source.root().join("games/example/src")).unwrap();
 
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
     let state = ShellState::new(paths).unwrap();
@@ -31,30 +25,24 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
 }
 
 #[test]
-fn navigation_activates_the_nearest_content_marker() {
-    let (_installation, source, mut state) = fixture();
+fn source_open_anchors_context_at_the_source_root() {
+    let (_installation, source, state) = fixture();
 
-    let warnings = state
-        .change_directory(&source.root().join("games/example/src"))
-        .expect("content directory should be reachable");
-
-    assert!(warnings.is_empty());
-    let content = state.content().expect("game context should be active");
-    assert_eq!(content.id(), "example/source/game");
-    assert_eq!(content.kind(), ContentKind::Game);
+    assert_eq!(state.current_dir().unwrap(), source.root());
+    assert_eq!(state.source().unwrap().id(), "example/source");
+    assert!(state.content().is_none());
     assert!(matches!(state.cargo_index(), CargoIndex::NotPresent));
 }
 
 #[test]
-fn navigation_cannot_enter_the_installation_or_cross_source_root() {
-    let (installation, _source, mut state) = fixture();
+fn source_close_removes_source_backed_context() {
+    let (_installation, _source, mut state) = fixture();
 
-    let error = state.change_directory(installation.root()).unwrap_err();
-    assert!(error.contains("boundary violation"), "{error}");
+    state.close_source();
 
-    let error = state.change_directory(Path::new("..")).unwrap_err();
-    assert!(error.contains("boundary violation"), "{error}");
-
-    let error = state.move_up(1).unwrap_err();
-    assert!(error.contains("source root boundary"), "{error}");
+    assert!(state.source().is_none());
+    assert!(state.content().is_none());
+    assert!(matches!(state.cargo_index(), CargoIndex::NotPresent));
+    let error = state.current_dir().unwrap_err();
+    assert!(error.contains("no Vapor source is open"), "{error}");
 }

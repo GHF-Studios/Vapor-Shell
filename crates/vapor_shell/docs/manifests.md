@@ -38,6 +38,12 @@ repository = "https://github.com/GHF-Studios/Vapor-Root"
 app-id = 2122620
 depot-id = 2122621
 development-branch = "vapor-dev"
+
+[root.runtime]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
 ```
 
 `[root]` declares a Vapor application source root: a pure Vapor-managed Git
@@ -46,6 +52,9 @@ Cargo workspace. Direct Git submodules that contain `[workspace]` manifests and
 `Cargo.toml` become app member workspaces.
 
 This is source, not the Steam installation/app root.
+`[root.runtime].targets` declares the release target matrix for app/depot
+builds and staging. Host-only local commands may omit target flags; release
+commands use `--release-targets` to consume this list.
 
 ### Normal source workspace
 
@@ -57,6 +66,12 @@ name = "loo-cast"
 organization = "ghf-studios"
 version = "0.1.0"
 repository = "https://github.com/GHF-Studios/Loo-Cast"
+
+[workspace.runtime]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
 ```
 
 `[workspace]` declares one source repository that is also one Cargo workspace.
@@ -64,6 +79,15 @@ Its root must contain `Cargo.toml`.
 
 A workspace may contain several Cargo packages, several Vapor projects, and
 several publishable Workshop artifacts.
+`[workspace.runtime].targets` declares the release target matrix for content
+build/package/deploy/create/publish operations. Host-only local commands may
+omit target flags; release content operations use `--release-targets`.
+
+Application workspaces that contribute installed commands may add
+`binaries = ["name"]` under `[workspace]`. `root build` promotes those Cargo
+binary outputs from `output/dev/<workspace>/debug/` or
+`output/dev/<workspace>/<target>/debug/` into the app root's
+`bin/<target>/`. Content-only workspaces should omit it.
 
 ## Projects and content packages
 
@@ -128,6 +152,17 @@ id = "ghf-studios/loo-cast/loo-cast-game"
 Cargo dependencies remain Rust build dependencies. Vapor dependencies describe
 content composition, packaging, compatibility, publication, and installation
 relationships.
+
+A game may also declare the engine content it is authored against:
+
+```toml
+[game.engine]
+id = "ghf-studios/loo-cast/spacetime-engine"
+```
+
+That Vapor relationship is metadata authority. The concrete Rust API dependency
+belongs in `Cargo.toml` and should eventually be generated or repaired from the
+Vapor relationship instead of hand-maintained.
 
 Packagepacks, Enginepacks, Gamepacks, and Modpacks can also exist as simpler
 Vapor metadata assembled by the Launcher or runtime UI when no source-backed
@@ -208,6 +243,33 @@ for private, local, or bundled relationships.
 Versions are artifact-owned and inheritance-friendly. `version.workspace = true`
 is the normal default. A project or content artifact should own an explicit
 semantic version only when its release lifecycle diverges from the workspace.
+
+Content artifacts may declare runtime outputs built by Cargo:
+
+```toml
+[engine]
+name = "spacetime-engine"
+version.workspace = true
+binaries = ["spacetime-engine"]
+libraries = ["spacetime_engine"]
+```
+
+Packaging copies declared binaries into `bin/<target>/` and declared libraries
+into `lib/<target>/` inside the deployed artifact root. The deployed
+`Vapor.toml` keeps the authored logical names and adds target-specific runtime
+entries with the actual staged filenames:
+
+```toml
+[[engine.runtime]]
+target = "x86_64-pc-windows-msvc"
+binaries = ["spacetime-engine.exe"]
+libraries = ["spacetime_engine.dll"]
+```
+
+Use this for content-owned tools, helper executables, native runtime libraries,
+or side processes needed by the artifact. Root launch options decide which root
+entrypoint Steam exposes; content runtime outputs remain content payload and
+must be shipped once per supported target.
 
 ## Workshop fields
 

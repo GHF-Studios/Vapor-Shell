@@ -7,8 +7,9 @@ At runtime, the shell works with two active filesystem roots:
 
 ```text
 Steam installation / app root         Active source root (critical)
-├── bin/vapor                         ├── Vapor.toml
-├── .vapor/state/                     ├── Cargo.toml      (workspace roots)
+├── bin/<target>/vapor[.exe]          ├── Vapor.toml
+├── .vapor/launch/                    ├── Cargo.toml      (workspace roots)
+├── .vapor/state/                     ├── project/content directories
 ├── rustup-home / cargo-home
 ├── tools/git / tools/steamcmd
 ├── lib / state / output
@@ -97,6 +98,8 @@ content verify
 ```
 
 After that shell is installed, all normal builds and checks are routed through
-the Steam app's own `bin/vapor`. `setup self install` explicitly installs active
-tools into the app root. Final app packaging stages `packages/setup`; there is
-no second source tree for self-setup payloads.
+the Steam app's own Vapor shell. The bootstrap path may use `bin/vapor`; release
+launches use `.vapor/launch/...` wrappers and `bin/<target>/vapor[.exe]`.
+`setup self install` explicitly installs active tools into the app root. Final
+app packaging stages `packages/setup`; there is no second source tree for
+self-setup payloads.

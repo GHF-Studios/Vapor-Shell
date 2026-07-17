@@ -117,10 +117,10 @@ changes.
 - `source_registry`: app-local index and active selection for external sources.
 - `workspace`: source-root Cargo workspace discovery.
 - `workflow`: app-local Rust/Cargo formatting, checking, testing, and validation.
-- `path_setup`: marked registration of the app-owned `bin` directory in PATH.
+- `path_setup`: marked registration of the app-owned active binary directory in PATH.
 - `setup`: explicit app-local Rust/Cargo, Git, and SteamCMD lifecycle.
 - `setup_self_packages`: distributable self-setup payload inspection and copying.
-- `state`: source navigation and current content context.
+- `state`: active source selection and current content context.
 - `prompt`: Reedline presentation adapter.
 
 The executable `main.rs` only reports a fatal startup error and exit status.

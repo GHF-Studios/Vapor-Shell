@@ -12,12 +12,12 @@ Generated content state uses this app-owned layout:
 content/
 ├── workshop/downloads/          provider-observed Steam downloads
 ├── cache/packages/              Vapor-managed package cache
-├── installed/                   enabled payloads by content ID
-├── disabled/                    retained disabled payloads by content ID
-└── quarantine/                  corrupt or incomplete payloads
+├── installed/                   enabled artifact roots by content ID
+├── disabled/                    retained disabled artifact roots by content ID
+└── quarantine/                  corrupt or incomplete artifact roots
 
 output/content/
-├── packages/                    staged package payloads
+├── packages/                    staged deployable artifact roots
 └── scripts/                     Workshop provider VDF previews
 
 .vapor/state/content/
@@ -27,13 +27,74 @@ output/content/
 └── receipts/                    package, acquire, install, publish, repair receipts
 ```
 
-`Vapor.toml` holds source-authored intent: identity, content role, version
-policy, dependencies, conflicts, composition, AppID, PublishedFileId when one
-exists, visibility, title, tags, and update intent. Fingerprints, installed
-paths, cache observations, locks, receipts, and repair diagnostics are generated
-state and stay under the app root.
+`Vapor.toml` is also the content metadata carrier. In a source workspace it
+holds authoring intent: content role, version policy, dependencies, conflicts,
+composition, AppID, PublishedFileId when one exists, visibility, title, tags,
+update intent, and declared runtime outputs such as `binaries` and `libraries`.
+Source content is only content when its child path is registered by the
+workspace manifest:
 
-## Loo-Cast proving workspace
+```toml
+[[workspace.projects]]
+path = "spacetime-engine"
+```
+
+The child `Vapor.toml` owns the content role and metadata; the workspace
+registration owns membership in the workspace. Vapor does not recursively guess
+content membership from every nested manifest it finds.
+
+When `content package` stages an artifact, Vapor writes a resolved deployed
+`Vapor.toml` into the artifact root and copies declared runtime outputs into
+target-specific `bin/<target>/` and `lib/<target>/` directories so the installed
+or Workshop-downloaded artifact remains self-describing without becoming a
+standalone source workspace. The deployed manifest records the actual staged
+files under `[[engine.runtime]]`, `[[game.runtime]]`, or the matching content
+section. Fingerprints, installed paths, cache observations, locks, receipts, and
+repair diagnostics are generated state and stay under the app root.
+
+`content build`, `content deploy`, and `content package` accept
+`--target TARGET` for explicit platform output such as
+`x86_64-pc-windows-msvc`. These commands also accept `--release-targets`,
+which expands to `[workspace.runtime].targets` in the source `Vapor.toml`.
+`content package`, `content create`, and `content publish` may repeat
+`--target` or use `--release-targets` to stage one package root containing
+multiple platform payloads. Omitting target flags uses the host target and
+reads the normal app-local Cargo output directory. Explicit or release targets
+read from `output/dev/<workspace>/<target>/debug/` and stage files under the
+same target name inside the deployed content root.
+
+## New content workspace
+
+The installed app can create a minimal engine/game/packagepack workspace:
+
+```text
+source init basic-content /path/to/my-content --organization my-studio --name my-content
+content validate
+content deploy my-studio/my-content/my-content-packagepack --select
+```
+
+The template is intentionally small. It creates a normal Cargo workspace and
+normal Vapor content projects; it does not create proprietary sidecar metadata.
+
+For first Workshop publication, create dependency items first and repair
+dependency Workshop IDs between steps:
+
+```text
+content create my-studio/my-content/my-content-engine --account ACCOUNT --yes
+source repair --write
+content create my-studio/my-content/my-content-game --account ACCOUNT --yes
+source repair --write
+content create my-studio/my-content/my-content-packagepack --account ACCOUNT --yes
+```
+
+After all items have PublishedFileIds, updates use normal batch publication:
+
+```text
+source repair --write
+content publish my-studio/my-content/my-content-engine my-studio/my-content/my-content-game my-studio/my-content/my-content-packagepack --account ACCOUNT --yes
+```
+
+## Loo-Cast first-party workspace
 
 Open Loo-Cast as a normal workspace:
 
@@ -43,13 +104,17 @@ content list
 content validate
 ```
 
-The first-party proving artifacts are:
+The first-party product artifacts are:
 
 ```text
 ghf-studios/loo-cast/spacetime-engine
 ghf-studios/loo-cast/loo-cast-game
 ghf-studios/loo-cast/loo-cast-packagepack
 ```
+
+They are registered in `Loo-Cast/Vapor.toml` under `[[workspace.projects]]`.
+Prototype/demo content belongs in `Vapor-Examples`, not in this product
+workspace.
 
 Run the safe local roundtrip with:
 
@@ -73,15 +138,29 @@ script run content-publish-preview
 or manually:
 
 ```text
-content publish ghf-studios/loo-cast/loo-cast-packagepack --dry-run
+content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --dry-run
 ```
 
-The dry-run writes a package and Workshop provider VDF but performs no upload.
+The dry-run writes packages and Workshop provider VDFs but performs no upload.
 Real Workshop updates require an existing `published-file-id`, an account, and
 manual interactive confirmation:
 
 ```text
-content publish ghf-studios/loo-cast/loo-cast-packagepack --account ACCOUNT --yes
+content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --account ACCOUNT --yes
+```
+
+For platform-specific runtime payloads, build each target, then publish one
+package containing every target that should be present in the Workshop item:
+
+```text
+content build --release-targets
+content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --release-targets --dry-run
+```
+
+For quick local Linux iteration, omit target flags:
+
+```text
+content deploy ghf-studios/loo-cast/loo-cast-packagepack --select
 ```
 
 Scripts cannot perform real Workshop create, publish, or delete operations.
@@ -89,8 +168,9 @@ Those authority-changing steps must be typed manually in the interactive shell.
 
 ## Corruption and repair
 
-`content verify` recomputes fingerprints from installed payloads and compares
-them with app-owned locks and receipts. `content repair` quarantines corrupted
-payloads under `content/quarantine/` and reinstalls from source or cache when
-available. If neither source nor cache can satisfy the item, Vapor reports the
-missing provider instead of silently deleting or replacing content.
+`content verify` recomputes fingerprints from installed artifact roots and
+compares them with app-owned locks and receipts. `content repair` quarantines
+corrupted artifact roots under `content/quarantine/` and reinstalls from source
+or cache when available. If neither source nor cache can satisfy the item,
+Vapor reports the missing provider instead of silently deleting or replacing
+content.

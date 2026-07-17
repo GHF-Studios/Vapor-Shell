@@ -34,11 +34,15 @@ fn metadata_reports_partial_state_in_human_and_json_formats() {
     let metadata = ResolvedMetadata::resolve(&state);
 
     let human = metadata.render(MetadataFormat::Human).unwrap();
-    assert!(human.contains("source:    example/source"), "{human}");
-    assert!(human.contains("location:   unregistered"), "{human}");
-    assert!(human.contains("distribution: not declared"), "{human}");
-    assert!(human.contains("setup self:"), "{human}");
-    assert!(human.contains("Rust/Cargo: missing"), "{human}");
+    assert!(human.contains("Metadata"), "{human}");
+    assert!(human.contains("Source project: example/source"), "{human}");
+    assert!(
+        human.contains("Install location: not confirmed yet"),
+        "{human}"
+    );
+    assert!(human.contains("Local tools: not installed"), "{human}");
+    assert!(human.contains("Workspace manifest: ready"), "{human}");
+    assert!(human.contains("Next\n  setup self install"), "{human}");
 
     let json = metadata.render(MetadataFormat::Json).unwrap();
     let json: serde_json::Value = serde_json::from_str(&json).unwrap();

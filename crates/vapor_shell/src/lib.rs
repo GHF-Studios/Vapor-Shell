@@ -6,6 +6,7 @@ mod app;
 mod ide;
 mod prompt;
 mod setup_self_packages;
+mod source;
 mod terminal;
 
 pub mod cargo_metadata;

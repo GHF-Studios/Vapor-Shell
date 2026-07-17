@@ -32,7 +32,7 @@ Use these terms consistently:
 - **App root**: the root identity of a complete Vapor application. It uses
   `[root]` in `Vapor.toml`.
 - **Steam installation**: the installed-stage materialization of the app root,
-  managed by Steam and discovered from the running `bin/vapor`.
+  managed by Steam and discovered from the running Vapor executable.
 - **Application source root**: the source-stage materialization of the same app
   root identity. It assembles and publishes a complete Steam application/depot.
   Vapor-Root is the first-party instance.
@@ -114,12 +114,14 @@ author.
 ## Steam installation stage and global CLI
 
 Owning or installing the app installs `vapor` as a global CLI tool. The PATH
-entry points at the Steam installation's own `bin` directory; the authoritative
-binary does not live in a user-data shim directory such as `~/.local/bin`.
+entry points at the Steam installation's own active binary directory, typically
+`bin/<target>`; the authoritative binary does not live in a user-data shim
+directory such as `~/.local/bin`.
 
 The Steam installation owns:
 
-- `bin/vapor`;
+- `bin/<target>/vapor[.exe]` for release-mode app binaries;
+- optional bootstrap `bin/vapor[.exe]` during early local setup;
 - app-local Rust, Cargo, rustup state, and Cargo home;
 - app-local Git/GitHub tooling when bundled;
 - app-local SteamCMD;
@@ -348,11 +350,15 @@ Workshop items may be composed by a first-party Packagepack. That Packagepack is
 downloaded, installed, and selected by default for the shipped application.
 
 Application publishing is separate: the application source root assembles and
-publishes the complete Steam depot rather than pretending to be one Workshop
-item. The implemented first pass exposes this as `root build`, `root package`,
-and `root publish [--dry-run]`. Dry-run publication validates, builds, stages,
-smoke-checks, and writes a preview VDF without requiring active SteamCMD. Real
-publication is manual and requires an account plus explicit confirmation.
+publishes the Steam app depot rather than pretending to be one Workshop item.
+The implemented first pass exposes this as `root build`, `root package`, and
+`root publish [--dry-run]`. Default staging is runtime-only; the large
+self-setup/toolchain payload is explicit. Dry-run publication validates, builds,
+stages, smoke-checks, and writes a preview VDF without requiring active
+SteamCMD. Host-only local staging is the default. Release publication uses the
+`[root.runtime].targets` matrix through `--release-targets` and stages only the
+matching `bin/<target>/` app binaries and launch wrappers. Real publication is
+manual and requires an account plus explicit confirmation.
 
 ## First-party authority
 
@@ -410,7 +416,7 @@ the app-owned source of truth when present. On Linux, missing active Git can
 also be repaired by importing a real host Git binary plus its exec-path support
 files into `tools/git`; scripts that merely delegate to system Git are rejected.
 
-Self-setup payloads are a separate installed-app/depot staging concern:
+Self-setup payloads are a separate explicit installed-app/depot staging concern:
 `setup self package status`, `setup self package install`, and
 `setup self package repair` populate `packages/setup` from already healthy
 active tools. They are not Workshop/content commands and are never run
@@ -418,8 +424,8 @@ implicitly after bootstrap.
 
 Repair means reaccepting the app root and restoring active setup components to a
 known-good state while preserving only state that is explicitly supposed to
-survive. Package payload repair is separate so packaging can prove exactly what
-will be copied into a depot.
+survive. Package payload repair is separate so explicit stacked packaging can
+prove exactly what will be copied into a depot.
 
 ## IDE integration
 

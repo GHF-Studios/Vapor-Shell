@@ -3,47 +3,52 @@
 Run `help` for the command list or `help <COMMAND>` for argument details.
 `vapor` without arguments opens the interactive shell. The shell owns source
 context, setup state, and command authority. Host-level direct facades are
-limited to setup/bootstrap and automation entrypoints: `source`, `setup`,
-`metadata`, `installation`, `binaries`, `libraries`, read-only
-`content status|list|verify`, and `script run`.
+limited to setup/bootstrap and explicit automation entrypoints: `source`,
+`setup`, `metadata`, `installation`, `binaries`, `libraries`, `launch`,
+`content`, `root`, and `script run`.
 
 Repeatable automation should live in `.vapor/scripts/NAME.vapor` and run through
 `vapor script run NAME`, which executes the same command grammar against a
-Vapor shell session state. Real Steam uploads and real IDE repair remain manual
-interactive-shell actions.
+Vapor shell session state. Use `vapor --startup-script NAME` to enter the
+interactive shell, run a source or app-root script, and keep the shell open.
+Real Steam uploads and real IDE repair remain manual interactive-shell actions.
 
-## Source navigation
+## Launch
 
-### `cd [SOURCE_PATH]`
+### `launch loo-cast [--account ACCOUNT]`
 
-Change the internal source directory. Relative paths start at the current
-internal directory; absolute paths are accepted only inside the active source
-root. Omitting the argument returns to the source root.
+Launch Play Loo-Cast through the selected installed packagepack composition.
+When no packagepack is selected, Vapor tries the first-party Loo-Cast
+Packagepack, `ghf-studios/loo-cast/loo-cast-packagepack`, if it is already
+installed.
 
-### `up [LEVELS]`
+The command verifies installed content, resolves the packagepack's Spacetime
+Engine dependency, and hands off to the installed engine binary declared by
+that engine artifact's deployed `Vapor.toml`. The current first-party
+Spacetime Engine is a product placeholder; the dynamic terminal/game-library
+proof lives in `Vapor-Examples`. On Linux/Steam desktop starts without a
+terminal, this command opens the same Konsole-owned terminal path used by the
+Shell so terminal-based runtime output remains visible.
 
-Move toward the source root. `LEVELS` defaults to `1` and must be a positive
-integer. Moving above the source root is an error.
+If content is not installed yet, the command uses the app-root first-party
+content seed to download/cache/install/select the public Loo-Cast Packagepack
+and required first-party engine/game dependencies. It still does not silently
+install the toolchain; missing setup reports `setup self install`.
 
-### `pwd`
-
-Print the internal source directory.
-
-### `ls [SOURCE_PATH]`
-
-List a source directory after the same canonical containment checks used by
-`cd`.
+Use `--account ACCOUNT` when the Workshop item is not downloadable by anonymous
+SteamCMD, such as unreleased/private app testing.
 
 ## Installation resources
 
 ### `installation`
 
-Print the Steam installation/app root discovered from the running `bin/vapor`
+Print the Steam installation/app root discovered from the running Vapor
 executable.
 
 ### `binaries`
 
-Print the app-local `bin` directory.
+Print the app-local binary directory that contains the running Vapor executable.
+In release-mode wrapper launches this is usually `bin/<target>/`.
 
 ### `libraries`
 
@@ -72,11 +77,11 @@ Rust/Cargo, Git, SteamCMD health, and distributable self-setup payload status.
 
 ### `setup self install [--dry-run]`
 
-Accept the current app root, register its `bin` directory for PATH setup, and
-install missing Rust/Cargo, Git, and SteamCMD into the app root. This command is
-explicit; other commands do not install or repair prerequisites automatically.
-It does not create `packages/setup`; use `setup self package install` for package
-payloads.
+Accept the current app root, register the active app-owned Vapor binary
+directory for PATH setup, and install missing Rust/Cargo, Git, and SteamCMD into
+the app root. This command is explicit; other commands do not install or repair
+prerequisites automatically. It does not create `packages/setup`; use
+`setup self package install` for package payloads.
 
 `--dry-run` prints the app-root registration, PATH profiles, acquisition paths,
 package status, and tool group actions without changing files or shell profile
@@ -106,9 +111,9 @@ tools or changing PATH setup.
 
 ### `setup self package status`
 
-Report distributable self-setup payload readiness. These payloads are copied
-into app/depot staging and are separate from the active tools used in the
-current Steam installation.
+Report distributable self-setup payload readiness. These payloads are available
+to explicit stacked app/depot staging and are separate from the active tools
+used in the current Steam installation.
 
 ### `setup self package install [--dry-run]`
 
@@ -122,7 +127,8 @@ Git installation before payloads can be built.
 ### `setup self package repair [--dry-run]`
 
 Rebuild `packages/setup` from active app-local tools. Use this after
-repairing active setup or before staging a new Steam app/depot build.
+repairing active setup or before an explicit
+`--include-setup-payload` app/depot build.
 
 `--dry-run` previews the package rebuild without changing files.
 
@@ -137,6 +143,8 @@ expose direct submodules that declare `[workspace]` and contain `Cargo.toml`.
 
 Artifacts go to `output/dev/<project>` inside the app root instead of source
 trees. Rust and Git must already pass `setup self status`.
+Workspaces that declare `[workspace].binaries` in `Vapor.toml` can promote
+those outputs into `bin/<target>/` through `root build`.
 
 ### `validate [--project PROJECT]`
 
@@ -144,6 +152,33 @@ For each selected Cargo workspace, run formatting verification, `cargo check`,
 tests, strict Clippy, and strict Rustdoc.
 
 ## Source session
+
+### `source init basic-content PATH --organization ORG --name NAME [--app-id APPID]`
+
+Create a new source workspace with a basic engine, game, and packagepack. The
+target path must be empty or absent. The generated workspace is ordinary source:
+`Vapor.toml` declares `[workspace]` and `[[workspace.projects]]`, child
+`Vapor.toml` files own content metadata, and Cargo owns Rust compilation.
+
+If `--app-id` is omitted, Vapor uses the installed app's `[root.steam].app-id`.
+After creation, Vapor opens the new source root.
+
+First local proof:
+
+```text
+content validate
+content deploy ORG/NAME/NAME-packagepack --select
+```
+
+First Workshop publication should create dependencies before the packagepack:
+
+```text
+content create ORG/NAME/NAME-engine --account ACCOUNT --yes
+source repair --write
+content create ORG/NAME/NAME-game --account ACCOUNT --yes
+source repair --write
+content create ORG/NAME/NAME-packagepack --account ACCOUNT --yes
+```
 
 ### `source status`
 
@@ -156,15 +191,15 @@ Open a Vapor source root by registered name or path. A path is resolved,
 validated, added to the app-local source registry, and persisted as the active
 source for later shell launches.
 
-The active source must be outside the installed app root. Once opened, all
-navigation commands are confined to that source root.
+The active source must be outside the installed app root. Once opened,
+source-backed workflows are confined to that source root.
 
 ### `source close`
 
 Close the active source and return the shell to its app-only state. Setup,
 source-registry, metadata, and installation-inspection commands remain
-available; source navigation and source-backed Cargo/content workflows wait for
-another `source open`.
+available; source-backed Cargo/content workflows wait for another
+`source open`.
 
 ### `source list`
 
@@ -188,12 +223,17 @@ Reserved for controlled source-provider synchronization. The current
 implementation reports the active source and explains that no synchronization
 is applied yet.
 
-### `source repair`
+### `source repair [--write]`
 
-Inspect source registry state and print repair guidance. The current
-implementation does not mutate source repositories; stale app-local source
-entries can be removed with `source remove SOURCE` and re-added with
-`source add PATH`.
+Inspect source registry state and safe source metadata repairs. Without
+`--write`, this is read-only. With `--write`, Vapor updates dependency
+`workshop-id` fields it can derive from sibling content artifacts'
+`published-file-id` values.
+
+This is meant for the first Workshop publication loop: after creating an engine
+or game item, run `source repair --write` so packagepack/game dependency
+metadata carries the newly assigned Workshop IDs before dependent items are
+created or published.
 
 ## Documentation
 
@@ -232,59 +272,119 @@ scripts may run `ide status` and `ide repair --dry-run`, but not real
 
 ## Root application/depot workflows
 
-### `root build`
+### `root build [--target TARGET]... [--release-targets]`
 
 Build discovered Cargo workspaces and promote declared application binaries
-into the Steam installation/app root.
+from `[workspace].binaries` into the Steam installation/app root under
+`bin/<target>/`. Omitting `--target` uses Cargo's host-default output and
+promotes into `bin/<host-target>/`. Repeat `--target` to promote specific
+platform payloads, such as Linux and Windows/MSVC.
 
-### `root package`
+Use `--release-targets` to build the target matrix declared in
+`[root.runtime].targets`. Do not combine it with explicit `--target` values.
+
+### `root deploy [--skip-docs] [--target TARGET]... [--release-targets]`
+
+Build discovered Cargo workspaces, promote declared application binaries into
+the Steam installation/app root under `bin/<target>/`, and rebuild installed
+docs. This is local-only: it does not stage a SteamPipe VDF, upload a depot, or
+touch Workshop authority.
+
+Use `--skip-docs` for a faster local binary-only deploy. Omitting target flags
+deploys only the host target. `--release-targets` deploys every target declared
+in `[root.runtime].targets` and copies only the matching platform launch
+wrappers.
+
+### `root package [--include-setup-payload] [--target TARGET]... [--release-targets]`
 
 Build installed documentation, assemble the clean allowlisted app/depot payload,
-and smoke-check the staged package without invoking SteamCMD. This requires
-complete `packages/setup` content; run `setup self package install` or
-`setup self package repair` first when metadata reports missing self-setup payloads.
+and smoke-check the staged package without invoking SteamCMD. The default root
+payload is runtime-only: `Vapor.toml`, selected `bin/<target>/` application
+binaries, `docs/`, app scripts, target-matching launch wrappers, and packaged
+examples.
 
-### `root publish [--account ACCOUNT] [--branch BRANCH] [--dry-run] [--yes]`
+Omitting target flags stages the host target only. Repeat `--target` to stage
+specific platform binaries that already exist in the app root. Use
+`--release-targets` to stage the `[root.runtime].targets` matrix.
+
+Use `--include-setup-payload` only for an intentional stacked bootstrap/depot
+package. That mode additionally validates and stages `packages/setup`; run
+`setup self package install` or `setup self package repair` first when metadata
+reports missing self-setup payloads.
+
+### `root publish [--include-setup-payload] [--account ACCOUNT] [--branch BRANCH] [--target TARGET]... [--release-targets] [--dry-run] [--yes]`
 
 Validate, build, promote binaries, build docs, stage the clean app/depot
 payload, smoke-check it, generate a SteamPipe VDF, and optionally upload it.
+The default upload payload is runtime-only; Loo-Cast and other content
+artifacts are published through `content publish`, not through the app depot.
+
+Repeat `--target` for release-mode app builds that must ship more than one
+platform binary, or use `--release-targets` for the `[root.runtime].targets`
+matrix. The depot smoke check rejects platform launch wrappers when their
+matching `bin/<target>/vapor[.exe]` payload is missing.
 
 `--dry-run` writes the staged payload and preview VDF without requiring
 SteamCMD or performing an upload. A real upload requires `--account ACCOUNT`
 and `--yes`, and must be typed manually in the interactive shell. The branch
 defaults to `[root.steam].development-branch` and must be non-default.
+`--include-setup-payload` is the explicit large setup/toolchain payload mode.
 
 ## Content workflows
 
 ### `content status`
 
 Report the nearest typed content node under the source cursor and print the
-app-root content layout used for installed payloads, cache, and generated
+app-root content layout used for installed artifact roots, cache, and generated
 state. Packagepacks, Enginepacks, Gamepacks, and Modpacks are content
 artifacts, not application depot roots.
 
 ### `content list`
 
-List source-discovered content artifacts when a source is open and list
-installed content recorded in the app-owned content index.
+List registered source content artifacts when a source is open and list
+installed content recorded in the app-owned content index. A child directory is
+source content only when the active workspace registers it under
+`[[workspace.projects]]` and the child `Vapor.toml` declares a content identity.
 
 ### `content validate [ARTIFACT]`
 
 Validate source content metadata, required composition/dependency references,
 conflicts, and Workshop publication intent. Omit `ARTIFACT` to validate every
-source-discovered artifact.
+registered source artifact.
 
-### `content build`
+### `content build [--target TARGET]... [--release-targets]`
 
 Build the active content workspace through app-local Cargo. This uses the same
 setup preflight as other Cargo workflows and writes build output under the app
-root.
+root. Use `--target` to build explicit runtime output such as
+`x86_64-pc-windows-msvc`; otherwise Vapor builds the host target. Use
+`--release-targets` to build every target declared in
+`[workspace.runtime].targets`.
 
-### `content package ARTIFACT [--dry-run]`
+### `content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets]`
 
-Stage one artifact under `output/content/packages/`, copy its payload, write a
-package manifest, fingerprint it, and record a receipt. `--dry-run` computes
-the intended package path and source fingerprint without writing files.
+Build the active content workspace and install the selected source artifact into
+the app-owned installed-content tree. Dependencies present in the same source
+workspace are installed first. Declared `binaries` and `libraries` are copied
+from app-local Cargo output into each deployed artifact root under
+`bin/<target>/` and `lib/<target>/`. This is local-only: it does not create,
+publish, delete, subscribe to, or upload Workshop items.
+
+Use `--select` when deploying a packagepack that should become the active
+playable packagepack. Omitting target flags deploys only the host target;
+`--release-targets` deploys the `[workspace.runtime].targets` matrix.
+
+### `content package ARTIFACT [--target TARGET]... [--release-targets] [--dry-run]`
+
+Stage one deployable artifact root under `output/content/packages/`, write a
+resolved deployed `Vapor.toml`, fingerprint the staged root, and record a
+receipt. Declared `binaries` and `libraries` are copied from app-local Cargo
+output into `bin/<target>/` and `lib/<target>/`, and the deployed manifest
+records the staged filenames in target-specific `runtime` entries. Repeat
+`--target` to stage several platform payloads into one package root, or use
+`--release-targets` for the workspace runtime matrix.
+`--dry-run` computes the intended artifact path and deployed-artifact
+fingerprint without writing package files.
 
 ### `content acquire ARTIFACT_OR_WORKSHOP_ID`
 
@@ -299,16 +399,21 @@ Subscribe to or otherwise acquire content through controlled providers. The
 current implementation shares the safe acquire/cache path and records the
 provider boundary when live SteamUGC subscription is unavailable.
 
-### `content download ARTIFACT_OR_WORKSHOP_ID`
+### `content download ARTIFACT_OR_WORKSHOP_ID...`
 
-Download content into the app-owned cache. Source artifacts use the local
-package/cache path; uncached Workshop IDs require a SteamUGC-enabled provider.
+Download one or more content items into the app-owned cache. Source artifacts
+use the local package/cache path. Numeric PublishedFileIds with
+`--account ACCOUNT` are downloaded through one SteamCMD provider session.
 
-### `content install ARTIFACT_OR_WORKSHOP_ID`
+### `content install ARTIFACT_OR_WORKSHOP_ID [--account ACCOUNT]`
 
 Install source or cached content into `content/installed/`, resolving required
 local dependency/composition edges first. Installation writes a content index,
 per-artifact lock, fingerprint, and receipt.
+
+If the selector matches a root content seed or numeric PublishedFileId and no
+cache exists, Vapor downloads it through SteamCMD before installing. Use
+`--account ACCOUNT` for private/unreleased Workshop access.
 
 ### `content update [ARTIFACT_OR_WORKSHOP_ID]`
 
@@ -317,8 +422,8 @@ or cache.
 
 ### `content verify [ARTIFACT_OR_WORKSHOP_ID]`
 
-Compare installed payloads against app-owned fingerprints and receipts. Omit
-the target to verify everything in the installed-content index.
+Compare installed artifact roots against app-owned fingerprints and receipts.
+Omit the target to verify everything in the installed-content index.
 
 ### `content selected`
 
@@ -336,13 +441,13 @@ Clear the selected packagepack.
 
 ### `content repair [ARTIFACT_OR_WORKSHOP_ID]`
 
-Verify installed content, quarantine corrupted payloads under
+Verify installed content, quarantine corrupted artifact roots under
 `content/quarantine/`, and reinstall from source or cache when available.
 
 ### `content disable ARTIFACT_OR_WORKSHOP_ID`
 
 Move installed content to `content/disabled/` and update the content index
-without deleting its payload.
+without deleting its artifact root.
 
 ### `content enable ARTIFACT_OR_WORKSHOP_ID`
 
@@ -351,22 +456,27 @@ index.
 
 ### `content uninstall ARTIFACT_OR_WORKSHOP_ID`
 
-Remove installed or disabled payloads and delete the app-owned installed-state
-record. Dependency payloads are not removed implicitly; uninstall them
-explicitly when desired.
+Remove installed or disabled artifact roots and delete the app-owned
+installed-state record. Dependency artifact roots are not removed implicitly;
+uninstall them explicitly when desired.
 
-### `content create ARTIFACT --dry-run`
+### `content create ARTIFACT [--target TARGET]... [--release-targets] --dry-run`
 
 Record a safe preview of creating a new Workshop item. Real item creation is a
 SteamUGC authority-changing action and must be performed manually through a
-SteamUGC-enabled provider.
+SteamUGC-enabled provider. Repeat `--target` to stage the package payload for
+each runtime target before the Workshop create/upload boundary, or use
+`--release-targets` for the workspace runtime matrix.
 
-### `content publish ARTIFACT [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
+### `content publish ARTIFACT... [--target TARGET]... [--release-targets] [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
 
-Package an artifact and write a Workshop provider VDF. `--dry-run` performs no
-upload. A real upload requires `--account ACCOUNT`, `--yes`, an existing
-PublishedFileId in the artifact's `Vapor.toml`, and must be typed manually in
-the interactive shell.
+Package one or more artifacts and write Workshop provider VDFs. `--dry-run`
+performs no upload. A real upload requires `--account ACCOUNT`, `--yes`,
+existing PublishedFileIds in the artifacts' `Vapor.toml` files, and must be
+typed manually in the interactive shell. Multiple artifacts are sent through one
+SteamCMD provider session. Repeat `--target` when publishing a package that
+must contain more than one platform payload, or use `--release-targets` for the
+workspace runtime matrix.
 
 ### `content delete ARTIFACT_OR_WORKSHOP_ID --dry-run`
 
@@ -379,9 +489,15 @@ SteamUGC provider implements it.
 ### `script run NAME [--dry-run]`
 
 Read `.vapor/scripts/NAME.vapor` and execute each non-comment line through this
-same command parser. `--dry-run` prints the commands without executing them.
+same command parser. Source scripts are preferred when a source is open; app-root
+scripts under the installed app's `.vapor/scripts/` are used as a fallback.
+`--dry-run` prints the commands without executing them.
+
 Scripts stop on error and cannot recursively invoke scripts, exit the host REPL,
-authenticate Steam, perform real publishes, or apply IDE repairs.
+perform real publishes, delete Workshop items, or apply IDE repairs. Scripts may
+run setup inspection and Workshop download/install operations, including
+account-backed SteamCMD acquisition when a private or unreleased item requires
+visible Steam authentication.
 
 ## Session control
 

@@ -1,8 +1,12 @@
 //! Declarative assembly of the self-hosting Steam application payload.
 
-use crate::discovery::{EnvironmentPaths, ensure_contained};
+use crate::{
+    discovery::{EnvironmentPaths, ensure_contained},
+    workflow,
+};
 use serde::Deserialize;
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Component, Path, PathBuf},
 };
@@ -53,6 +57,13 @@ enum PayloadRoot {
 pub struct StageReport {
     root: PathBuf,
     files: usize,
+}
+
+/// Options for assembling the app/depot staging tree.
+#[derive(Debug, Clone)]
+pub struct StageOptions {
+    include_setup_payload: bool,
+    runtime_targets: Vec<String>,
 }
 
 impl DistributionManifest {
@@ -122,14 +133,23 @@ impl DistributionManifest {
 fn default_payload() -> Vec<Payload> {
     vec![
         Payload::required(PayloadRoot::Installation, "Vapor.toml", "Vapor.toml"),
-        Payload::required(PayloadRoot::Installation, "bin", "bin"),
         Payload::required(PayloadRoot::Installation, "docs", "docs"),
-        Payload::required(
-            PayloadRoot::Installation,
-            "packages/setup",
-            "packages/setup",
+        Payload::optional(PayloadRoot::Source, ".vapor/scripts", ".vapor/scripts"),
+        Payload::optional_excluding(
+            PayloadRoot::Source,
+            "Vapor-Examples",
+            "examples/vapor-examples",
+            &[".git", "target"],
         ),
     ]
+}
+
+fn setup_payload() -> Payload {
+    Payload::required(
+        PayloadRoot::Installation,
+        "packages/setup",
+        "packages/setup",
+    )
 }
 
 impl Payload {
@@ -140,6 +160,26 @@ impl Payload {
             to: PathBuf::from(to),
             required: true,
             exclude: Vec::new(),
+        }
+    }
+
+    fn optional(root: PayloadRoot, from: &str, to: &str) -> Self {
+        Self {
+            root,
+            from: PathBuf::from(from),
+            to: PathBuf::from(to),
+            required: false,
+            exclude: Vec::new(),
+        }
+    }
+
+    fn optional_excluding(root: PayloadRoot, from: &str, to: &str, exclude: &[&str]) -> Self {
+        Self {
+            root,
+            from: PathBuf::from(from),
+            to: PathBuf::from(to),
+            required: false,
+            exclude: exclude.iter().map(PathBuf::from).collect(),
         }
     }
 }
@@ -170,10 +210,57 @@ impl StageReport {
     }
 }
 
+impl StageOptions {
+    /// Stage only the runtime application payload.
+    pub fn runtime() -> Self {
+        Self {
+            include_setup_payload: false,
+            runtime_targets: vec![workflow::host_runtime_target()],
+        }
+    }
+
+    /// Stage the runtime application plus the large distributable setup payload.
+    pub fn with_setup_payload() -> Self {
+        Self {
+            include_setup_payload: true,
+            runtime_targets: vec![workflow::host_runtime_target()],
+        }
+    }
+
+    /// Use an explicit runtime target set for target-scoped launch payloads.
+    pub fn with_runtime_targets(mut self, targets: Vec<String>) -> Self {
+        self.runtime_targets = if targets.is_empty() {
+            vec![workflow::host_runtime_target()]
+        } else {
+            targets
+        };
+        self
+    }
+
+    /// Whether the staged depot should include `packages/setup`.
+    pub fn includes_setup_payload(&self) -> bool {
+        self.include_setup_payload
+    }
+
+    /// Runtime target triples represented by this staged payload.
+    pub fn runtime_targets(&self) -> &[String] {
+        &self.runtime_targets
+    }
+}
+
 /// Rebuild the clean, allowlisted Steam depot staging tree.
 pub fn stage(
     paths: &EnvironmentPaths,
     manifest: &DistributionManifest,
+) -> Result<StageReport, String> {
+    stage_with_options(paths, manifest, StageOptions::runtime())
+}
+
+/// Rebuild the clean, allowlisted Steam depot staging tree with explicit options.
+pub fn stage_with_options(
+    paths: &EnvironmentPaths,
+    manifest: &DistributionManifest,
+    options: StageOptions,
 ) -> Result<StageReport, String> {
     let root = paths.installation().root().join("output/root/content");
     ensure_contained(paths.installation().root(), &root)?;
@@ -182,8 +269,13 @@ pub fn stage(
     }
     fs::create_dir_all(&root).map_err(io("create staging", &root))?;
 
+    let mut payload = manifest.payload.clone();
+    if options.includes_setup_payload() {
+        payload.push(setup_payload());
+    }
+
     let mut files = 0;
-    for item in &manifest.payload {
+    for item in &payload {
         let base = match item.root {
             PayloadRoot::Installation => paths.installation().root(),
             PayloadRoot::Source => paths.source().root(),
@@ -199,7 +291,87 @@ pub fn stage(
         ensure_contained(base, &canonical)?;
         files += copy_tree(&canonical, &root.join(&item.to), &canonical, &item.exclude)?;
     }
+    files += copy_runtime_binaries(paths, &root, options.runtime_targets())?;
+    files += copy_launch_payload(paths, &root, options.runtime_targets())?;
     Ok(StageReport { root, files })
+}
+
+fn copy_runtime_binaries(
+    paths: &EnvironmentPaths,
+    stage_root: &Path,
+    targets: &[String],
+) -> Result<usize, String> {
+    let source_root = paths.installation().root().join("bin");
+    let target_root = stage_root.join("bin");
+    let mut files = 0;
+    for target in targets {
+        validate_runtime_target(target)?;
+        let source = source_root.join(target);
+        if !source.exists() {
+            return Err(format!(
+                "runtime binary directory is missing for target {target}: {}",
+                source.display()
+            ));
+        }
+        let canonical =
+            fs::canonicalize(&source).map_err(io("resolve runtime binaries", &source))?;
+        ensure_contained(paths.installation().root(), &canonical)?;
+        files += copy_tree(&canonical, &target_root.join(target), &canonical, &[])?;
+    }
+    Ok(files)
+}
+
+fn copy_launch_payload(
+    paths: &EnvironmentPaths,
+    stage_root: &Path,
+    targets: &[String],
+) -> Result<usize, String> {
+    let source = paths.source().root().join(".vapor/launch");
+    if !source.exists() {
+        return Ok(0);
+    }
+    let canonical = fs::canonicalize(&source).map_err(io("resolve launch payload", &source))?;
+    ensure_contained(paths.source().root(), &canonical)?;
+
+    let mut files = 0;
+    for platform in target_platforms(targets) {
+        let platform_source = canonical.join(&platform);
+        if platform_source.exists() {
+            files += copy_tree(
+                &platform_source,
+                &stage_root.join(".vapor/launch").join(platform),
+                &platform_source,
+                &[],
+            )?;
+        }
+    }
+    Ok(files)
+}
+
+fn validate_runtime_target(target: &str) -> Result<(), String> {
+    let valid = !target.is_empty()
+        && target
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'));
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "runtime target must be a Rust target triple such as x86_64-pc-windows-msvc: {target}"
+        ))
+    }
+}
+
+fn target_platforms(targets: &[String]) -> BTreeSet<String> {
+    let mut platforms = BTreeSet::new();
+    for target in targets {
+        if target.contains("linux") {
+            platforms.insert("linux".to_owned());
+        } else if target.contains("windows") {
+            platforms.insert("windows".to_owned());
+        }
+    }
+    platforms
 }
 
 fn copy_tree(

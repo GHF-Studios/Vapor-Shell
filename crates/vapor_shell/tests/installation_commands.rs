@@ -28,6 +28,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         String::from_utf8_lossy(&host_help.stderr)
     );
     let stdout = String::from_utf8(host_help.stdout).unwrap();
+    assert!(stdout.contains("--startup-script"), "{stdout}");
     for command in ["setup", "source", "script"] {
         assert!(stdout.contains(command), "missing {command}: {stdout}");
     }
@@ -37,10 +38,16 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
             "host help should not list legacy command {legacy}: {stdout}"
         );
     }
-    for shell_only in ["validate", "build", "root", "cd"] {
+    for shell_only in ["validate", "build"] {
         assert!(
             !stdout.contains(&format!("\n  {shell_only}")),
             "host help should not list shell-only command {shell_only}: {stdout}"
+        );
+    }
+    for removed in ["cd", "up", "pwd", "ls"] {
+        assert!(
+            !stdout.contains(&format!("\n  {removed}")),
+            "host help should not list removed command {removed}: {stdout}"
         );
     }
 
@@ -57,7 +64,32 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         String::from_utf8_lossy(&setup.stderr)
     );
     let stdout = String::from_utf8(setup.stdout).unwrap();
-    assert!(stdout.contains("app root:"), "{stdout}");
+    assert!(stdout.contains("Setup Status"), "{stdout}");
+    assert!(
+        stdout.contains("Install location: not confirmed yet"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Local tools: not installed"), "{stdout}");
+    assert!(stdout.contains("Next\n  setup self install"), "{stdout}");
+
+    installation.write(".vapor/scripts/app-status.vapor", "installation\n");
+    let app_script = Command::new(&executable)
+        .args(["script", "run", "app-status"])
+        .current_dir(outside.root())
+        .env("HOME", outside.root())
+        .env("SHELL", "/bin/bash")
+        .output()
+        .unwrap();
+    assert!(
+        app_script.status.success(),
+        "{}",
+        String::from_utf8_lossy(&app_script.stderr)
+    );
+    let stdout = String::from_utf8(app_script.stdout).unwrap();
+    assert!(
+        stdout.contains(&installation.root().display().to_string()),
+        "{stdout}"
+    );
 
     let source = TestTree::new("external-source-root");
     source.write(

@@ -3,11 +3,15 @@
 ## Steam installation discovery
 
 Vapor canonicalizes `current_exe()`, requires the executable to be laid out as
-`<app-root>/bin/vapor[.exe]`, and then validates exactly
-`<app-root>/Vapor.toml`. That manifest must declare `[root]`.
+`<app-root>/bin/vapor[.exe]` for bootstrap compatibility or
+`<app-root>/bin/<target>/vapor[.exe]` for release-mode launch wrappers, and
+then validates exactly `<app-root>/Vapor.toml`. That manifest must declare
+`[root]`.
 
 ```text
 <app-root>/bin/vapor[.exe]
+<app-root>/bin/x86_64-unknown-linux-gnu/vapor
+<app-root>/bin/x86_64-pc-windows-msvc/vapor.exe
 ```
 
 The app root may contain app-owned resources including:
@@ -15,7 +19,10 @@ The app root may contain app-owned resources including:
 ```text
 <app-root>/
 ├── Vapor.toml
-├── bin/vapor[.exe]
+├── bin/
+│   ├── vapor[.exe]                         bootstrap compatibility
+│   ├── x86_64-unknown-linux-gnu/vapor
+│   └── x86_64-pc-windows-msvc/vapor.exe
 ├── rustup/
 ├── cargo-home/
 ├── lib/
@@ -53,18 +60,23 @@ and then opening that path still selects the highest containing source root. A
 standalone `[project]` or content manifest is rejected as a source root.
 
 Invoking the app-owned `vapor` command from any terminal directory is valid as
-long as the executable itself is still `<app-root>/bin/vapor`: the shell starts
-from `VAPOR_WORKSPACE`, the remembered source, or a closed app-only state. Vapor
-does not infer source context from arbitrary host-shell cwd for source-bound
-commands; use `source open PATH` or a Vapor script when source context matters.
+long as the executable itself is still under the app root's `bin/` layout. The
+shell starts from `VAPOR_WORKSPACE`, the remembered source, or a closed app-only
+state. Vapor does not infer source context from arbitrary host-shell cwd for
+source-bound commands; use `source open PATH` or a Vapor script when source
+context matters.
 
 ## Steam and desktop launches
 
 Starting the interactive shell without attached standard-input and
 standard-output terminals causes a guarded, one-time relaunch in a supported
-terminal emulator. On Linux the shell tries `x-terminal-emulator`, Konsole,
-GNOME Terminal, and XTerm in that order. The launcher process exits immediately;
-the REPL runs in the terminal child.
+terminal emulator. On Linux this path is currently Konsole-only. The
+Steam-started parent waits for the terminal process; the REPL runs in the
+terminal child.
+
+The product launch command `launch loo-cast` uses the same no-terminal relaunch
+path so the current terminal-based runtime handoff is visible from Steam's Play
+button.
 
 Run `source open /path/to/source` or `source add /path/to/source` from the
 installed shell to register external source roots under the app root. A later
@@ -72,29 +84,29 @@ Steam launch can reopen the last active external source. If the saved path is
 absent or invalid, Vapor reports that problem and continues in the closed
 app-only shell.
 
-Host-level direct facades do not trigger terminal relaunch. They are limited to
-bootstrap, source selection, app inspection, metadata, read-only content
-inspection, and `script run`. Source-bound workflows such as `validate`,
-`build`, `root package`, `root publish --dry-run`, and mutating content
-lifecycle operations run inside the interactive shell or a Vapor script.
+Most host-level direct facades do not trigger terminal relaunch. They are
+limited to bootstrap, source selection, app inspection, metadata, explicit
+launch, content, root, and `script run` entrypoints. Source-bound workflows such
+as `validate` and `build` run inside the interactive shell or a Vapor script.
 
 ## Disjoint-root invariant
 
 The source root may not be equal to, inside, or contain the installed app root.
 Rejecting overlap prevents accidental authoring inside the Steam installation and
-prevents installation machinery from becoming source-visible through `cd`.
+prevents installation machinery from becoming visible to source-backed
+workflows.
 
 The Steam installation/app root is the installed realization produced from an
 application source root such as Vapor-Root. The external Vapor-Root checkout is
 the authoritative source. They can declare related identities, but they must be
 separate filesystem roots.
 
-## Navigation confinement
+## Source boundary confinement
 
-Every user path is resolved relative to the internal source cursor, then
-canonicalized. Containment is checked after canonicalization, so `..` traversal
-and symlinks cannot escape the source root. `up` fails at the root instead of
-silently moving above it.
+Source-backed workflows start from the active source root selected through
+`source open`. Paths accepted by those workflows must resolve inside that source
+root after canonicalization, so `..` traversal and symlinks cannot escape into
+the installed app root or unrelated checkouts.
 
-Installation paths are exposed by reporting commands. They are not navigation
-targets and do not mutate the current source directory.
+Installation paths are exposed by reporting commands. They are not source
+targets and do not mutate the active source selection.

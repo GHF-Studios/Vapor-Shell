@@ -25,9 +25,9 @@ The self-setup lifecycle is intentionally small:
 - `setup self uninstall` removes app-local tools, PATH registration, and the
   app-root location record.
 - `setup self package install` and `setup self package repair` populate
-  `packages/setup`, the distributable self-setup payload used by app/depot
-  staging. They are separate from active self-setup installation and are never
-  run implicitly after bootstrap.
+  `packages/setup`, the distributable self-setup payload used by explicit
+  stacked app/depot staging. They are separate from active self-setup
+  installation and are never run implicitly after bootstrap.
 
 No workflow command installs or repairs prerequisites implicitly. Premature
 commands stop with an actionable diagnostic and point to `setup self status`,
@@ -91,6 +91,8 @@ Commands that need Cargo, Git, or SteamCMD validate these installed paths
 directly. If anything is missing, the command stops and tells the operator to run
 `setup self status`, `setup self install`, or `setup self repair`.
 
-Final app/depot staging copies `packages/setup`, not the live active
-tool directories. Populate or refresh those payloads explicitly with
-`setup self package install` or `setup self package repair`.
+Default app/depot staging does not copy `packages/setup`. The setup payload is
+included only for an explicit stacked bootstrap/depot operation such as
+`root package --include-setup-payload` or
+`root publish --include-setup-payload ...`. Populate or refresh those payloads
+explicitly with `setup self package install` or `setup self package repair`.

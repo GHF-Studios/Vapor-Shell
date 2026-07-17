@@ -54,10 +54,32 @@ repository = "https://github.com/GHF-Studios/Vapor-Root"
 app-id = 2122620
 depot-id = 2122621
 development-branch = "vapor-dev"
+
+[root.runtime]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+
+[[root.content]]
+id = "ghf-studios/loo-cast/loo-cast-packagepack"
+kind = "packagepack"
+app-id = 2122620
+workshop-id = "3762162548"
+default-launch = "loo-cast"
 ```
 
 Direct Git submodules define its application/depot workspace membership. Each
 member must be a `[workspace]` repository with a root `Cargo.toml`.
+`[root.runtime].targets` declares the app/depot release target matrix consumed
+by `root * --release-targets`; ordinary local root commands remain host-only
+unless explicit targets are requested.
+
+`[[root.content]]` records first-party installed-app discovery seeds for public
+Workshop content that the app may need before any external source checkout or
+registry client is available. It is not installed state; it is source-authored
+identity/provider metadata and should later be mirrored by the reviewed
+Vapor-Registry records.
 
 Workshop compositions such as Loo-Cast live in separate `[workspace]`
 repositories and are not submodules of Vapor-Root merely because they are
@@ -76,10 +98,43 @@ name = "loo-cast"
 organization = "ghf-studios"
 version = "0.1.0"
 repository = "https://github.com/GHF-Studios/Loo-Cast"
+
+[workspace.runtime]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
 ```
 
 Cargo metadata defines package membership. The Vapor manifest does not repeat
-Cargo member paths.
+Cargo member paths. Vapor project registration is a separate relationship:
+`[[workspace.projects]]` declares which child paths are Vapor-managed projects
+inside this source workspace.
+`[workspace.runtime].targets` declares the content release target matrix
+consumed by content `--release-targets`; ordinary local content commands remain
+host-only unless explicit targets are requested.
+
+```toml
+[[workspace.projects]]
+path = "spacetime-engine"
+
+[[workspace.projects]]
+path = "loo-cast-game"
+
+[[workspace.projects]]
+path = "loo-cast-packagepack"
+```
+
+Each registered path must contain its own `Vapor.toml` with either `[project]`
+or a content identity section such as `[engine]`, `[game]`, or
+`[packagepack]`. The child manifest owns the project/content identity and role;
+the workspace manifest only owns membership. Unregistered nested manifests are
+not source content merely because they exist on disk.
+
+A workspace that contributes installed app commands may declare
+`binaries = ["name"]` under `[workspace]`; root workflows promote those Cargo
+binary outputs into the app root's `bin/<target>/`. Content workspaces should
+not declare promoted app binaries.
 
 ### Registry
 
@@ -100,10 +155,10 @@ Registry data verifies declared organization, inferred identity, containment,
 and first-party authority. Naming an organization in a source manifest is a
 namespace claim, not authorization.
 
-## Project and content package manifests
+## Project and content manifests
 
-Every Vapor project is a Cargo package in a Vapor workspace. A non-content
-package uses `[project]`:
+Every Vapor project is authored under a registered `[[workspace.projects]]`
+path in a Vapor workspace. A non-content package uses `[project]`:
 
 ```toml
 schema = 1
@@ -113,7 +168,7 @@ name = "cli"
 version.workspace = true
 ```
 
-A content package uses its content kind instead:
+A content artifact uses its content kind instead:
 
 ```toml
 schema = 1
@@ -150,6 +205,32 @@ Workspace version inheritance is the default. A separately versioned artifact
 may own an explicit semantic version when its release lifecycle actually
 diverges.
 
+Content artifacts may declare built runtime outputs:
+
+```toml
+[engine]
+name = "spacetime-engine"
+version.workspace = true
+binaries = ["spacetime-engine"]
+libraries = ["spacetime_engine"]
+```
+
+`binaries` and `libraries` are file names resolved from the app-local Cargo
+build output for the source workspace. Packaging copies them into the deployed
+artifact root under `bin/<target>/` and `lib/<target>/`, then records the
+actual staged filenames in target-specific runtime entries:
+
+```toml
+[[engine.runtime]]
+target = "x86_64-unknown-linux-gnu"
+binaries = ["spacetime-engine"]
+libraries = ["libspacetime_engine.so"]
+```
+
+This supports tools, helper processes, native libraries, and high-performance
+side executables without treating them as root application binaries. Supported
+platforms are expressed by shipping runtime outputs once per target.
+
 ## Workshop publication schema
 
 Authored Steam/Workshop intent lives under the artifact's content table:
@@ -172,9 +253,37 @@ artifact. It should be absent before item creation rather than replaced with a
 generated local placeholder.
 
 Generated or observed state does not belong in source manifests. Vapor writes
-package manifests, fingerprints, cache records, installed indexes, locks,
-operation receipts, last local verification results, and quarantine diagnostics
-under the Steam installation/app root.
+resolved deployed `Vapor.toml` files into staged artifact roots, and writes
+fingerprints, cache records, installed indexes, locks, operation receipts, last
+local verification results, and quarantine diagnostics under the Steam
+installation/app root.
+
+## Deployed content manifests
+
+Custom content is authored inside a Vapor workspace, including first-party
+content such as Loo-Cast's engine, game, and packagepack. A deployed or
+installed content artifact is not a standalone authoring workspace, but it does
+carry its own resolved `Vapor.toml` at the artifact root:
+
+```toml
+schema = 1
+
+[engine]
+id = "ghf-studios/loo-cast/spacetime-engine"
+name = "spacetime-engine"
+version = "0.5.0"
+binaries = ["spacetime-engine"]
+
+[engine.steam]
+app-id = 2122620
+published-file-id = "1234567890"
+visibility = "private"
+title = "Spacetime Engine"
+```
+
+The deployed manifest uses the same content section names, but it resolves
+workspace-dependent authoring fields so the artifact can be installed, verified,
+and repaired outside the source workspace.
 
 ## Composition schema
 
@@ -258,7 +367,8 @@ Vapor-Root is app/depot source; Loo-Cast is Workshop/content source.
 ## Deliberate omissions
 
 The bootstrap schema does not duplicate Cargo members, package names, targets,
-Rust dependencies, documentation paths, promoted binaries, or Git submodules.
-It also does not define Steam authentication state, a public `VAPOR_HOME`,
+Rust dependencies, documentation paths, or Git submodules. It may name
+promoted application binary outputs, but Cargo still defines those targets and
+build behavior. It also does not define Steam authentication state, a public `VAPOR_HOME`,
 manual setup/provider locks, raw backend pipeline stages, or provider syntax
 that has not been forced by a real example.

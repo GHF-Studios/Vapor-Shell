@@ -32,7 +32,7 @@ around Vapor concepts:
 
 - discover publishable content artifacts in a Vapor workspace;
 - create and delete Workshop items where authority permits;
-- update Workshop item metadata and payloads;
+- update Workshop item metadata and artifact roots;
 - subscribe to or otherwise acquire required Workshop items through SteamUGC
   where the API permits it;
 - download, cache if useful, install, update, disable, enable, and uninstall
@@ -51,7 +51,23 @@ publish/update/delete stack.
 When it is sensible and stable, authored Steam and Workshop intent belongs in
 `Vapor.toml`. This includes source-owned publication identity and policy such
 as AppID, PublishedFileId, visibility, title, tags, dependency IDs,
-compatibility policy, and update intent.
+compatibility policy, update intent, and declared runtime outputs such as
+content-owned binaries or libraries.
+
+`Vapor.toml` is also the deployed artifact metadata carrier. Source content
+remains workspace-bound for authoring, but packaged, installed, and
+Workshop-downloaded content roots carry a resolved deployed `Vapor.toml` so the
+artifact can be understood without a separate proprietary package manifest.
+Declared runtime outputs are copied into the deployed artifact root under
+target-specific `bin/<target>/` and `lib/<target>/` directories. The deployed
+artifact `Vapor.toml` records the actual staged filenames in target-specific
+runtime entries.
+
+Workspace source manifests own Vapor project membership through
+`[[workspace.projects]]`. Cargo membership remains in `Cargo.toml`, but Vapor
+content commands only operate on registered workspace projects whose child
+`Vapor.toml` declares a content identity. This prevents arbitrary nested
+manifest scans from deciding what counts as publishable source content.
 
 Generated or observed runtime state belongs in generated app-owned files, not
 in source manifests. Examples include local download state, installed receipts,
@@ -88,13 +104,15 @@ output/content/
 
 `content/workshop/downloads/` is reserved for provider-observed Steam downloads
 when Vapor can see them. `content/cache/packages/` holds Vapor-managed package
-cache entries. `content/installed/` contains enabled payloads, `content/disabled/`
-contains retained disabled payloads, and `content/quarantine/` contains corrupt
-or incomplete payloads moved aside during repair. `output/content/packages/`
-holds package staging, and `output/content/scripts/` holds Workshop provider
-VDF previews. `.vapor/state/content/index.toml`, `locks/`, and `receipts/`
-hold generated dependency/conflict indexes, fingerprints, install locks,
-packagepack selection, and operation receipts.
+cache entries. `content/installed/` contains enabled artifact roots,
+`content/disabled/` contains retained disabled artifact roots, and
+`content/quarantine/` contains corrupt or incomplete artifact roots moved aside
+during repair. `output/content/packages/` holds staged deployable artifact roots
+with resolved `Vapor.toml` files, and `output/content/scripts/` holds Workshop
+provider VDF previews.
+`.vapor/state/content/index.toml`, `locks/`, and `receipts/` hold generated
+dependency/conflict indexes, fingerprints, install locks, packagepack
+selection, and operation receipts.
 
 Authored source repositories stay outside the Steam installation. Installed
 Workshop artifacts are runtime/content material, not Git working trees and not
@@ -132,11 +150,12 @@ implemented grammar is:
 content status
 content list
 content validate
-content build
-content package
+content build [--target TARGET]... [--release-targets]
+content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets]
+content package ARTIFACT [--target TARGET]... [--release-targets]
 content acquire ARTIFACT_OR_WORKSHOP_ID
 content subscribe ARTIFACT_OR_WORKSHOP_ID
-content download ARTIFACT_OR_WORKSHOP_ID
+content download ARTIFACT_OR_WORKSHOP_ID...
 content install ARTIFACT_OR_WORKSHOP_ID
 content update [ARTIFACT_OR_WORKSHOP_ID]
 content verify [ARTIFACT_OR_WORKSHOP_ID]
@@ -147,8 +166,8 @@ content disable ARTIFACT_OR_WORKSHOP_ID
 content enable ARTIFACT_OR_WORKSHOP_ID
 content uninstall ARTIFACT_OR_WORKSHOP_ID
 content repair [ARTIFACT_OR_WORKSHOP_ID]
-content create ARTIFACT --dry-run
-content publish ARTIFACT [--dry-run]
+content create ARTIFACT [--target TARGET]... [--release-targets] --dry-run
+content publish ARTIFACT... [--target TARGET]... [--release-targets] [--dry-run]
 content delete ARTIFACT_OR_WORKSHOP_ID --dry-run
 ```
 
@@ -208,7 +227,7 @@ working Workshop lifecycle:
 
 ```text
 create or resolve item
-publish or update payload
+publish or update artifact root
 subscribe/acquire
 download
 install

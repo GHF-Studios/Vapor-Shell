@@ -96,6 +96,24 @@ fn installation_discovery_ignores_manifest_beside_bin_vapor() {
 }
 
 #[test]
+fn installation_discovery_accepts_target_specific_vapor_binary() {
+    let installation = TestTree::new("installation-target-bin");
+    installation.write(
+        manifest::FILE_NAME,
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    let executable = installation.write("bin/x86_64-unknown-linux-gnu/vapor", "binary");
+
+    let paths = InstallationPaths::from_executable(&executable).unwrap();
+
+    assert_eq!(paths.root(), installation.root());
+    assert_eq!(
+        paths.binaries(),
+        installation.root().join("bin/x86_64-unknown-linux-gnu")
+    );
+}
+
+#[test]
 fn installation_discovery_requires_manifest_at_app_root() {
     let installation = TestTree::new("installation-missing-root-marker");
     installation.write(
@@ -185,6 +203,41 @@ fn escalates_from_shell_repo_to_containing_vapor_root() {
     .expect("containing root should be selected");
 
     assert_eq!(paths.source().root(), source.root());
+}
+
+#[test]
+fn explicit_source_path_can_select_nested_workspace_root() {
+    let (_installation, executable) = installation_fixture();
+    let installation = InstallationPaths::from_executable(&executable).unwrap();
+    let source = TestTree::new("nested-workspace-source");
+    source.write(
+        manifest::FILE_NAME,
+        "[root]\nname = \"vapor-root\"\norganization = \"example\"\n",
+    );
+    source.write(
+        "Vapor-Examples/Vapor.toml",
+        "[workspace]\nname = \"vapor-examples\"\norganization = \"example\"\n",
+    );
+    source.write(
+        "Vapor-Examples/Cargo.toml",
+        "[workspace]\nresolver = \"3\"\n",
+    );
+
+    let ambient = EnvironmentPaths::from_paths(&executable, &source.root().join("Vapor-Examples"))
+        .expect("ambient discovery keeps the containing root");
+    assert_eq!(ambient.source().root(), source.root());
+
+    let explicit = EnvironmentPaths::from_installation_and_source_path(
+        installation,
+        &source.root().join("Vapor-Examples"),
+    )
+    .expect("explicit source selection should honor the nested workspace");
+
+    assert_eq!(
+        explicit.source().root(),
+        source.root().join("Vapor-Examples")
+    );
+    assert_eq!(explicit.source().identity_id(), "example/vapor-examples");
 }
 
 #[test]

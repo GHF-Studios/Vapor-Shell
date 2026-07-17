@@ -8,6 +8,7 @@ use crate::{
     discovery::{EnvironmentPaths, InstallationPaths, ensure_contained},
     manifest::{self, ContentKind, VaporEntity},
     steam,
+    workspace::WorkspaceManifest,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -21,7 +22,6 @@ use std::{
 
 const CONTENT_STATE_SCHEMA: u32 = 1;
 const FINGERPRINT_ALGORITHM: &str = "vapor-fnv1a-64-v1";
-const PACKAGE_MANIFEST: &str = "Vapor-package.toml";
 
 /// Canonical app-root layout for generated content state.
 #[derive(Debug, Clone)]
@@ -168,6 +168,9 @@ pub struct ContentArtifact {
     root: PathBuf,
     manifest: PathBuf,
     version: Option<String>,
+    binaries: Vec<String>,
+    libraries: Vec<String>,
+    runtime: Vec<RuntimePayload>,
     dependencies: Vec<ContentReference>,
     conflicts: Vec<ContentReference>,
     workshop: WorkshopPolicy,
@@ -204,6 +207,21 @@ impl ContentArtifact {
         self.version.as_deref()
     }
 
+    /// Runtime executables copied from app-local Cargo output into `bin/`.
+    pub fn binaries(&self) -> &[String] {
+        &self.binaries
+    }
+
+    /// Runtime libraries copied from app-local Cargo output into `lib/`.
+    pub fn libraries(&self) -> &[String] {
+        &self.libraries
+    }
+
+    /// Target-specific deployed runtime payloads.
+    fn runtime(&self) -> &[RuntimePayload] {
+        &self.runtime
+    }
+
     /// Required or optional content dependencies and composition edges.
     pub fn dependencies(&self) -> &[ContentReference] {
         &self.dependencies
@@ -218,6 +236,16 @@ impl ContentArtifact {
     pub fn workshop(&self) -> &WorkshopPolicy {
         &self.workshop
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct RuntimePayload {
+    target: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    binaries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    libraries: Vec<String>,
 }
 
 /// Authored dependency, conflict, or composition reference.
@@ -327,6 +355,16 @@ impl WorkshopPolicy {
     pub fn change_note(&self) -> Option<&str> {
         self.change_note.as_deref()
     }
+
+    fn is_empty(&self) -> bool {
+        self.app_id.is_none()
+            && self.published_file_id.is_none()
+            && self.visibility.is_none()
+            && self.title.is_none()
+            && self.description.is_none()
+            && self.tags.is_empty()
+            && self.change_note.is_none()
+    }
 }
 
 /// Stable tree fingerprint used by packages, locks, and receipts.
@@ -365,10 +403,10 @@ impl Fingerprint {
 pub struct PackageReport {
     artifact_id: String,
     root: PathBuf,
-    payload: PathBuf,
     fingerprint: Fingerprint,
     receipt: Option<PathBuf>,
     dry_run: bool,
+    runtime_target: String,
 }
 
 impl PackageReport {
@@ -377,17 +415,12 @@ impl PackageReport {
         &self.artifact_id
     }
 
-    /// Package root.
+    /// Staged artifact root.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    /// Package payload root.
-    pub fn payload(&self) -> &Path {
-        &self.payload
-    }
-
-    /// Payload fingerprint.
+    /// Staged artifact fingerprint.
     pub fn fingerprint(&self) -> &Fingerprint {
         &self.fingerprint
     }
@@ -400,6 +433,11 @@ impl PackageReport {
     /// Whether the package was only previewed.
     pub fn dry_run(&self) -> bool {
         self.dry_run
+    }
+
+    /// Runtime target triple used for copied binaries and libraries.
+    pub fn runtime_target(&self) -> &str {
+        &self.runtime_target
     }
 }
 
@@ -442,7 +480,7 @@ impl AcquireReport {
         &self.cache_root
     }
 
-    /// Cached payload fingerprint.
+    /// Cached artifact-root fingerprint.
     pub fn fingerprint(&self) -> &Fingerprint {
         &self.fingerprint
     }
@@ -468,12 +506,12 @@ impl InstallReport {
         &self.artifact_id
     }
 
-    /// Installed payload root.
+    /// Installed artifact root.
     pub fn installed_root(&self) -> &Path {
         &self.installed_root
     }
 
-    /// Installed payload fingerprint.
+    /// Installed artifact-root fingerprint.
     pub fn fingerprint(&self) -> &Fingerprint {
         &self.fingerprint
     }
@@ -498,7 +536,7 @@ impl UninstallReport {
         &self.artifact_id
     }
 
-    /// Whether an installed or disabled payload was removed.
+    /// Whether an installed or disabled artifact root was removed.
     pub fn removed(&self) -> bool {
         self.removed
     }
@@ -525,7 +563,7 @@ impl PackagepackSelection {
         &self.artifact_id
     }
 
-    /// Installed payload root selected for play.
+    /// Installed artifact root selected for play.
     pub fn installed_root(&self) -> &Path {
         &self.installed_root
     }
@@ -552,7 +590,7 @@ impl VerifyReport {
         &self.artifact_id
     }
 
-    /// Whether the installed payload matches its receipt/index fingerprint.
+    /// Whether the installed artifact root matches its receipt/index fingerprint.
     pub fn ok(&self) -> bool {
         self.ok
     }
@@ -562,7 +600,7 @@ impl VerifyReport {
         self.expected.as_ref()
     }
 
-    /// Observed fingerprint from the installed payload.
+    /// Observed fingerprint from the installed artifact root.
     pub fn observed(&self) -> Option<&Fingerprint> {
         self.observed.as_ref()
     }
@@ -580,6 +618,7 @@ pub struct WorkshopOperationReport {
     script: Option<PathBuf>,
     receipt: PathBuf,
     uploaded: bool,
+    published_file_id: Option<String>,
 }
 
 impl WorkshopOperationReport {
@@ -602,6 +641,11 @@ impl WorkshopOperationReport {
     pub fn uploaded(&self) -> bool {
         self.uploaded
     }
+
+    /// PublishedFileId created or used by the provider, when known.
+    pub fn published_file_id(&self) -> Option<&str> {
+        self.published_file_id.as_deref()
+    }
 }
 
 /// Discover source-authored content artifacts in the active workspace.
@@ -612,17 +656,26 @@ impl WorkshopOperationReport {
 pub fn discover(paths: &EnvironmentPaths) -> Result<ContentCatalog, String> {
     let source_root = paths.source().root();
     let workspace_version = workspace_version(source_root)?;
-    let mut manifests = Vec::new();
-    collect_manifest_paths(source_root, source_root, &mut manifests)?;
-    manifests.sort();
+    let workspace = WorkspaceManifest::load(paths)?;
 
     let mut artifacts = Vec::new();
-    for manifest_path in manifests {
-        if manifest_path == source_root.join(manifest::FILE_NAME) {
+    for project in workspace.projects() {
+        let Some(kind) = project.kind().content_kind() else {
             continue;
-        }
+        };
+        let manifest_path = source_root.join(project.manifest());
         match manifest::read(&manifest_path, source_root)? {
-            VaporEntity::Content { kind, id, name } => {
+            VaporEntity::Content {
+                kind: actual_kind,
+                id,
+                name,
+            } => {
+                if actual_kind != kind {
+                    return Err(format!(
+                        "registered workspace project '{}' changed kind from {kind} to {actual_kind}",
+                        project.path().display()
+                    ));
+                }
                 let root = manifest_path
                     .parent()
                     .ok_or_else(|| format!("manifest has no parent: {}", manifest_path.display()))?
@@ -635,6 +688,9 @@ pub fn discover(paths: &EnvironmentPaths) -> Result<ContentCatalog, String> {
                     root,
                     manifest: manifest_path,
                     version: authored.version.resolve(workspace_version.as_deref()),
+                    binaries: authored.binaries,
+                    libraries: authored.libraries,
+                    runtime: Vec::new(),
                     dependencies: authored.dependencies,
                     conflicts: authored.conflicts,
                     workshop: authored.workshop,
@@ -642,17 +698,15 @@ pub fn discover(paths: &EnvironmentPaths) -> Result<ContentCatalog, String> {
             }
             VaporEntity::Project { .. } => {}
             VaporEntity::Root { id, .. } | VaporEntity::Workspace { id, .. } => {
-                if manifest_path != source_root.join(manifest::FILE_NAME) {
-                    return Err(format!(
-                        "nested source root '{id}' is not valid content in '{}'",
-                        manifest_path.display()
-                    ));
-                }
+                return Err(format!(
+                    "registered workspace project '{}' declares nested source root '{id}'",
+                    project.path().display()
+                ));
             }
             VaporEntity::Registry { id, .. } => {
                 return Err(format!(
-                    "registry '{id}' cannot be nested in content source '{}'",
-                    manifest_path.display()
+                    "registered workspace project '{}' declares registry '{id}'",
+                    project.path().display()
                 ));
             }
         }
@@ -739,6 +793,51 @@ pub fn package(
     selector: &str,
     dry_run: bool,
 ) -> Result<PackageReport, String> {
+    package_for_target(paths, selector, dry_run, None)
+}
+
+/// Stage a source content artifact for one runtime target.
+///
+/// # Errors
+///
+/// Returns discovery, validation, runtime-output, or filesystem errors.
+pub fn package_for_target(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    dry_run: bool,
+    target_triple: Option<&str>,
+) -> Result<PackageReport, String> {
+    let targets = target_triple
+        .map(|target| vec![target.to_owned()])
+        .unwrap_or_default();
+    package_for_targets(paths, selector, dry_run, &targets)
+}
+
+/// Stage a source content artifact for one or more runtime targets.
+///
+/// An empty target list uses the host target and Cargo's host-default output
+/// directory. Non-empty target lists expect Cargo's target-specific output
+/// directories.
+///
+/// # Errors
+///
+/// Returns discovery, validation, runtime-output, or filesystem errors.
+pub fn package_for_targets(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    dry_run: bool,
+    target_triples: &[String],
+) -> Result<PackageReport, String> {
+    let runtime_targets = RuntimeTarget::many(target_triples)?;
+    package_with_runtime_targets(paths, selector, dry_run, runtime_targets)
+}
+
+fn package_with_runtime_targets(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    dry_run: bool,
+    runtime_targets: Vec<RuntimeTarget>,
+) -> Result<PackageReport, String> {
     let catalog = discover(paths)?;
     let artifact = catalog.find(selector).ok_or_else(|| {
         format!(
@@ -748,44 +847,42 @@ pub fn package(
     validate(paths, Some(artifact.id()))?;
     let layout = ContentLayout::new(paths.installation());
     let package_root = layout.output_packages().join(slug(artifact.id()));
-    let payload_root = package_root.join("payload");
-    let fingerprint = fingerprint_tree(artifact.root())?;
+    let runtime_target_label = runtime_target_label(&runtime_targets);
 
     if dry_run {
+        let temporary_root = TemporaryDirectory::new("vapor-content-package", artifact.id())?;
+        stage_deployed_artifact(paths, temporary_root.path(), artifact, &runtime_targets)?;
+        let fingerprint = fingerprint_tree(temporary_root.path())?;
         return Ok(PackageReport {
             artifact_id: artifact.id().to_owned(),
             root: package_root,
-            payload: payload_root,
             fingerprint,
             receipt: None,
             dry_run: true,
+            runtime_target: runtime_target_label,
         });
     }
 
     reset_directory(paths.installation().root(), &package_root)?;
-    fs::create_dir_all(&payload_root).map_err(io("create package payload", &payload_root))?;
-    copy_tree(
-        artifact.root(),
-        &payload_root,
-        artifact.root(),
-        default_exclusions(),
-    )?;
-    let fingerprint = fingerprint_tree(&payload_root)?;
-    write_package_manifest(&package_root, artifact, &fingerprint)?;
+    stage_deployed_artifact(paths, &package_root, artifact, &runtime_targets)?;
+    let fingerprint = fingerprint_tree(&package_root)?;
     let receipt = write_receipt(
         paths.installation(),
         "package",
         artifact.id(),
         "staged",
-        Some(&format!("package={}", package_root.display())),
+        Some(&format!(
+            "package={};target={runtime_target_label}",
+            package_root.display()
+        )),
     )?;
     Ok(PackageReport {
         artifact_id: artifact.id().to_owned(),
         root: package_root,
-        payload: payload_root,
         fingerprint,
         receipt: Some(receipt),
         dry_run: false,
+        runtime_target: runtime_target_label,
     })
 }
 
@@ -802,8 +899,14 @@ pub fn acquire(
     installation: &InstallationPaths,
     paths: Option<&EnvironmentPaths>,
     selector: &str,
+    account: Option<&str>,
 ) -> Result<AcquireReport, String> {
     let layout = ContentLayout::new(installation);
+    if is_published_file_id(selector) && account.is_some_and(|value| !value.trim().is_empty()) {
+        let app_id = resolve_download_app_id(installation, paths, selector)?;
+        return acquire_workshop_item(installation, app_id, selector, account);
+    }
+
     if let Some(paths) = paths {
         let catalog = discover(paths)?;
         if let Some(artifact) = catalog.find(selector) {
@@ -863,9 +966,148 @@ pub fn acquire(
         });
     }
 
+    if let Some(seed) = root_content_seed(installation, selector)? {
+        return acquire_workshop_item(installation, seed.app_id, &seed.workshop_id, account);
+    }
+
+    if is_published_file_id(selector) {
+        let app_id = resolve_download_app_id(installation, paths, selector)?;
+        return acquire_workshop_item(installation, app_id, selector, account);
+    }
+
     Err(format!(
-        "cannot acquire Workshop item '{selector}': no cached package exists and the live SteamUGC download provider is not available in this build\nhelp: acquire from an open source artifact first, or run inside a SteamUGC-enabled Vapor session"
+        "cannot acquire Workshop item '{selector}': no matching source artifact, app-owned cache entry, root content seed, or numeric PublishedFileId exists\nhelp: acquire from an open source artifact, add a [[root.content]] seed, or pass a PublishedFileId"
     ))
+}
+
+/// Acquire one or more content items into the app-owned cache.
+///
+/// Numeric PublishedFileIds are downloaded through one SteamCMD provider
+/// session. Mixed source/cache selectors fall back to the single-item
+/// acquisition path.
+///
+/// # Errors
+///
+/// Returns provider, discovery, package, or filesystem errors.
+pub fn acquire_many(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selectors: &[String],
+    account: Option<&str>,
+) -> Result<Vec<AcquireReport>, String> {
+    if selectors.is_empty() {
+        return Err("at least one content target is required".to_owned());
+    }
+    if selectors
+        .iter()
+        .all(|selector| is_published_file_id(selector))
+    {
+        let downloads = selectors
+            .iter()
+            .map(|selector| {
+                Ok(WorkshopDownload {
+                    app_id: resolve_download_app_id(installation, paths, selector)?,
+                    published_file_id: selector.to_owned(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        return acquire_workshop_items(installation, &downloads, account);
+    }
+    selectors
+        .iter()
+        .map(|selector| acquire(installation, paths, selector, account))
+        .collect()
+}
+
+fn acquire_workshop_item(
+    installation: &InstallationPaths,
+    app_id: u32,
+    published_file_id: &str,
+    account: Option<&str>,
+) -> Result<AcquireReport, String> {
+    let account = workshop_download_account(account);
+    let provider_root =
+        run_steamcmd_workshop_download(installation, app_id, published_file_id, &account)?;
+    import_workshop_item(installation, app_id, published_file_id, &provider_root)
+}
+
+fn acquire_workshop_items(
+    installation: &InstallationPaths,
+    downloads: &[WorkshopDownload],
+    account: Option<&str>,
+) -> Result<Vec<AcquireReport>, String> {
+    let account = workshop_download_account(account);
+    let provider_roots = run_steamcmd_workshop_downloads(installation, downloads, &account)?;
+    downloads
+        .iter()
+        .zip(provider_roots.iter())
+        .map(|(download, provider_root)| {
+            import_workshop_item(
+                installation,
+                download.app_id,
+                &download.published_file_id,
+                provider_root,
+            )
+        })
+        .collect()
+}
+
+fn workshop_download_account(account: Option<&str>) -> String {
+    let account = account.unwrap_or("").trim();
+    if account.is_empty() {
+        "anonymous".to_owned()
+    } else {
+        account.to_owned()
+    }
+}
+
+fn import_workshop_item(
+    installation: &InstallationPaths,
+    app_id: u32,
+    published_file_id: &str,
+    provider_root: &Path,
+) -> Result<AcquireReport, String> {
+    let layout = ContentLayout::new(installation);
+    let observed_root = layout
+        .steam_downloads()
+        .join(app_id.to_string())
+        .join(published_file_id);
+    reset_directory(installation.root(), &observed_root)?;
+    copy_tree(provider_root, &observed_root, provider_root, &[])?;
+    let artifact = read_deployed_manifest(&observed_root)?;
+    let cache_root = layout.cache().join("packages").join(published_file_id);
+    reset_directory(installation.root(), &cache_root)?;
+    copy_tree(&observed_root, &cache_root, &observed_root, &[])?;
+    let fingerprint = fingerprint_tree(&cache_root)?;
+    let mut index = load_index(&layout)?;
+    index.caches.insert(
+        artifact.id().to_owned(),
+        CacheRecord {
+            artifact_id: artifact.id().to_owned(),
+            workshop_id: Some(published_file_id.to_owned()),
+            cache_root: cache_root.clone(),
+            fingerprint: fingerprint.clone(),
+            acquired_at: now_seconds(),
+        },
+    );
+    save_index(&layout, &index)?;
+    let receipt = write_receipt(
+        installation,
+        "download",
+        artifact.id(),
+        "downloaded",
+        Some(&format!(
+            "workshop-id={published_file_id}; observed={}; cache={}",
+            observed_root.display(),
+            cache_root.display()
+        )),
+    )?;
+    Ok(AcquireReport {
+        artifact_id: artifact.id().to_owned(),
+        cache_root,
+        fingerprint,
+        receipt,
+    })
 }
 
 /// Install source or cached content into the app-owned installed-content tree.
@@ -878,21 +1120,96 @@ pub fn install(
     paths: Option<&EnvironmentPaths>,
     selector: &str,
 ) -> Result<Vec<InstallReport>, String> {
+    install_with_account(installation, paths, selector, None)
+}
+
+/// Install source or cached content for one runtime target.
+///
+/// # Errors
+///
+/// Returns dependency, conflict, provider, verification, or filesystem errors.
+pub fn install_for_target(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selector: &str,
+    target_triple: Option<&str>,
+) -> Result<Vec<InstallReport>, String> {
+    install_with_account_for_target(installation, paths, selector, None, target_triple)
+}
+
+/// Install source or cached content for one or more runtime targets.
+///
+/// # Errors
+///
+/// Returns dependency, conflict, provider, verification, or filesystem errors.
+pub fn install_for_targets(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selector: &str,
+    target_triples: &[String],
+) -> Result<Vec<InstallReport>, String> {
+    install_with_account_for_targets(installation, paths, selector, None, target_triples)
+}
+
+/// Install source or cached content, downloading Workshop dependencies with an account when needed.
+///
+/// # Errors
+///
+/// Returns dependency, conflict, provider, verification, or filesystem errors.
+pub fn install_with_account(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selector: &str,
+    account: Option<&str>,
+) -> Result<Vec<InstallReport>, String> {
+    install_with_account_for_target(installation, paths, selector, account, None)
+}
+
+/// Install source or cached content with an explicit runtime target.
+///
+/// # Errors
+///
+/// Returns dependency, conflict, provider, verification, or filesystem errors.
+pub fn install_with_account_for_target(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selector: &str,
+    account: Option<&str>,
+    target_triple: Option<&str>,
+) -> Result<Vec<InstallReport>, String> {
+    let targets = target_triple
+        .map(|target| vec![target.to_owned()])
+        .unwrap_or_default();
+    install_with_account_for_targets(installation, paths, selector, account, &targets)
+}
+
+/// Install source or cached content with explicit runtime targets.
+///
+/// # Errors
+///
+/// Returns dependency, conflict, provider, verification, or filesystem errors.
+pub fn install_with_account_for_targets(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selector: &str,
+    account: Option<&str>,
+    target_triples: &[String],
+) -> Result<Vec<InstallReport>, String> {
+    let runtime_targets = RuntimeTarget::many(target_triples)?;
     let layout = ContentLayout::new(installation);
     let catalog = paths.map(discover).transpose()?;
     let mut index = load_index(&layout)?;
     let mut reports = Vec::new();
     let mut visiting = BTreeSet::new();
-    install_selector(
+    let context = InstallContext {
         installation,
         paths,
-        catalog.as_ref(),
-        selector,
-        &layout,
-        &mut index,
-        &mut visiting,
-        &mut reports,
-    )?;
+        catalog: catalog.as_ref(),
+        layout: &layout,
+        account,
+        runtime_targets: &runtime_targets,
+    };
+    install_selector(&context, selector, &mut index, &mut visiting, &mut reports)?;
     save_index(&layout, &index)?;
     Ok(reports)
 }
@@ -924,7 +1241,7 @@ pub fn update(
     Ok(reports)
 }
 
-/// Disable installed content without deleting its payload.
+/// Disable installed content without deleting its artifact root.
 ///
 /// # Errors
 ///
@@ -1014,7 +1331,7 @@ pub fn select_packagepack(
     }
     if !record.installed_root.exists() {
         return Err(format!(
-            "cannot select packagepack with missing payload: {}",
+            "cannot select packagepack with missing artifact root: {}",
             record.installed_root.display()
         ));
     }
@@ -1157,30 +1474,118 @@ pub fn repair(
 pub fn create_workshop_item(
     paths: &EnvironmentPaths,
     selector: &str,
+    account: Option<&str>,
     dry_run: bool,
+    confirmed: bool,
+) -> Result<WorkshopOperationReport, String> {
+    create_workshop_item_for_target(paths, selector, account, None, dry_run, confirmed)
+}
+
+/// Write or upload a Workshop create operation with an explicit runtime target.
+///
+/// # Errors
+///
+/// Returns discovery, packaging, provider, or receipt errors.
+pub fn create_workshop_item_for_target(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    account: Option<&str>,
+    target_triple: Option<&str>,
+    dry_run: bool,
+    confirmed: bool,
+) -> Result<WorkshopOperationReport, String> {
+    let targets = target_triple
+        .map(|target| vec![target.to_owned()])
+        .unwrap_or_default();
+    create_workshop_item_for_targets(paths, selector, account, &targets, dry_run, confirmed)
+}
+
+/// Write or upload a Workshop create operation with explicit runtime targets.
+///
+/// # Errors
+///
+/// Returns discovery, packaging, provider, or receipt errors.
+pub fn create_workshop_item_for_targets(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    account: Option<&str>,
+    target_triples: &[String],
+    dry_run: bool,
+    confirmed: bool,
 ) -> Result<WorkshopOperationReport, String> {
     let catalog = discover(paths)?;
     let artifact = catalog.find(selector).ok_or_else(|| {
         format!("unknown content artifact '{selector}'\nhelp: inspect source content with `content list`")
     })?;
-    if !dry_run {
+    if artifact.workshop().app_id().is_none() {
+        return Err(format!(
+            "{} has no [{}.steam].app-id and cannot be created on Workshop",
+            artifact.id(),
+            artifact.kind()
+        ));
+    }
+    if !dry_run && artifact.workshop().published_file_id().is_some() {
+        return Err(format!(
+            "{} already has PublishedFileId {}; use `content publish` for updates",
+            artifact.id(),
+            artifact.workshop().published_file_id().expect("checked")
+        ));
+    }
+    if !dry_run && account.unwrap_or("").trim().is_empty() {
         return Err(
-            "real Workshop item creation requires the controlled SteamUGC provider and manual confirmation; this build can only preview creation"
+            "real Workshop creation requires --account ACCOUNT after reviewing --dry-run"
                 .to_owned(),
         );
     }
+    if !dry_run && !confirmed {
+        return Err("real Workshop creation requires --yes after reviewing --dry-run".to_owned());
+    }
+
+    let package = package_for_targets(paths, artifact.id(), false, target_triples)?;
+    let script = write_workshop_script(paths, artifact, package.root(), None, dry_run)?;
+    if dry_run {
+        let receipt = write_receipt(
+            paths.installation(),
+            "workshop-create",
+            artifact.id(),
+            "dry-run",
+            Some(&format!("script={}", script.display())),
+        )?;
+        return Ok(WorkshopOperationReport {
+            artifact_id: artifact.id().to_owned(),
+            script: Some(script),
+            receipt,
+            uploaded: false,
+            published_file_id: None,
+        });
+    }
+
+    run_steamcmd_workshop_build(paths, account.expect("account checked"), &script)?;
+    let published_file_id = read_workshop_script_published_file_id(&script)?;
+    if published_file_id == "0" {
+        return Err(format!(
+            "SteamCMD did not write a PublishedFileId into '{}'",
+            script.display()
+        ));
+    }
+    record_published_file_id(artifact, &published_file_id)?;
     let receipt = write_receipt(
         paths.installation(),
         "workshop-create",
         artifact.id(),
-        "dry-run",
-        Some("would request a new PublishedFileId from SteamUGC"),
+        "created",
+        Some(&format!(
+            "script={}; published-file-id={}",
+            script.display(),
+            published_file_id
+        )),
     )?;
     Ok(WorkshopOperationReport {
         artifact_id: artifact.id().to_owned(),
-        script: None,
+        script: Some(script),
         receipt,
-        uploaded: false,
+        uploaded: true,
+        published_file_id: Some(published_file_id),
     })
 }
 
@@ -1200,24 +1605,154 @@ pub fn publish_workshop_item(
     dry_run: bool,
     confirmed: bool,
 ) -> Result<WorkshopOperationReport, String> {
+    publish_workshop_item_for_target(
+        paths,
+        selector,
+        account,
+        None,
+        change_note,
+        dry_run,
+        confirmed,
+    )
+}
+
+/// Publish or preview a Workshop item update for one runtime target.
+///
+/// # Errors
+///
+/// Returns package, provider, SteamCMD, or authority errors.
+pub fn publish_workshop_item_for_target(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    account: Option<&str>,
+    target_triple: Option<&str>,
+    change_note: Option<&str>,
+    dry_run: bool,
+    confirmed: bool,
+) -> Result<WorkshopOperationReport, String> {
+    let targets = target_triple
+        .map(|target| vec![target.to_owned()])
+        .unwrap_or_default();
+    publish_workshop_item_for_targets(
+        paths,
+        selector,
+        account,
+        &targets,
+        change_note,
+        dry_run,
+        confirmed,
+    )
+}
+
+/// Publish or preview a Workshop item update for runtime targets.
+///
+/// # Errors
+///
+/// Returns package, provider, SteamCMD, or authority errors.
+pub fn publish_workshop_item_for_targets(
+    paths: &EnvironmentPaths,
+    selector: &str,
+    account: Option<&str>,
+    target_triples: &[String],
+    change_note: Option<&str>,
+    dry_run: bool,
+    confirmed: bool,
+) -> Result<WorkshopOperationReport, String> {
+    publish_workshop_items_for_targets(
+        paths,
+        &[selector.to_owned()],
+        account,
+        target_triples,
+        change_note,
+        dry_run,
+        confirmed,
+    )
+    .and_then(|mut reports| {
+        reports
+            .pop()
+            .ok_or_else(|| "no Workshop item was published".to_owned())
+    })
+}
+
+/// Publish or preview one or more Workshop item updates.
+///
+/// Multiple real uploads are sent through one SteamCMD process so the authority
+/// boundary remains a single interactive provider session.
+///
+/// # Errors
+///
+/// Returns discovery, packaging, receipt, or provider errors.
+pub fn publish_workshop_items(
+    paths: &EnvironmentPaths,
+    selectors: &[String],
+    account: Option<&str>,
+    change_note: Option<&str>,
+    dry_run: bool,
+    confirmed: bool,
+) -> Result<Vec<WorkshopOperationReport>, String> {
+    publish_workshop_items_for_target(
+        paths,
+        selectors,
+        account,
+        None,
+        change_note,
+        dry_run,
+        confirmed,
+    )
+}
+
+/// Publish or preview one or more Workshop item updates for one runtime target.
+///
+/// Multiple real uploads are sent through one SteamCMD process so the authority
+/// boundary remains a single interactive provider session.
+///
+/// # Errors
+///
+/// Returns discovery, packaging, receipt, or provider errors.
+pub fn publish_workshop_items_for_target(
+    paths: &EnvironmentPaths,
+    selectors: &[String],
+    account: Option<&str>,
+    target_triple: Option<&str>,
+    change_note: Option<&str>,
+    dry_run: bool,
+    confirmed: bool,
+) -> Result<Vec<WorkshopOperationReport>, String> {
+    let targets = target_triple
+        .map(|target| vec![target.to_owned()])
+        .unwrap_or_default();
+    publish_workshop_items_for_targets(
+        paths,
+        selectors,
+        account,
+        &targets,
+        change_note,
+        dry_run,
+        confirmed,
+    )
+}
+
+/// Publish or preview one or more Workshop item updates for runtime targets.
+///
+/// Multiple real uploads are sent through one SteamCMD process so the authority
+/// boundary remains a single interactive provider session.
+///
+/// # Errors
+///
+/// Returns discovery, packaging, receipt, or provider errors.
+pub fn publish_workshop_items_for_targets(
+    paths: &EnvironmentPaths,
+    selectors: &[String],
+    account: Option<&str>,
+    target_triples: &[String],
+    change_note: Option<&str>,
+    dry_run: bool,
+    confirmed: bool,
+) -> Result<Vec<WorkshopOperationReport>, String> {
+    if selectors.is_empty() {
+        return Err("at least one Workshop artifact is required".to_owned());
+    }
     let catalog = discover(paths)?;
-    let artifact = catalog.find(selector).ok_or_else(|| {
-        format!("unknown content artifact '{selector}'\nhelp: inspect source content with `content list`")
-    })?;
-    if artifact.workshop().app_id().is_none() {
-        return Err(format!(
-            "{} has no [{}.steam].app-id and cannot be published",
-            artifact.id(),
-            artifact.kind()
-        ));
-    }
-    if artifact.workshop().published_file_id().is_none() && !dry_run {
-        return Err(format!(
-            "{} has no PublishedFileId; run `content create {} --dry-run` and create the item manually before a real update",
-            artifact.id(),
-            artifact.name()
-        ));
-    }
     if !dry_run && account.unwrap_or("").trim().is_empty() {
         return Err(
             "real Workshop publication requires --account ACCOUNT after reviewing --dry-run"
@@ -1230,38 +1765,67 @@ pub fn publish_workshop_item(
         );
     }
 
-    let package = package(paths, artifact.id(), false)?;
-    let script = write_workshop_script(paths, artifact, package.payload(), change_note, dry_run)?;
-    let receipt_status = if dry_run { "dry-run" } else { "uploaded" };
-    let mut uploaded = false;
-    if !dry_run {
-        let steamcmd = steam::executable(paths)?;
-        let status = Command::new(&steamcmd)
-            .args(["+login", account.expect("account checked")])
-            .arg("+workshop_build_item")
-            .arg(&script)
-            .arg("+quit")
-            .current_dir(steamcmd.parent().expect("SteamCMD has a parent"))
-            .status()
-            .map_err(|error| format!("failed to start SteamCMD: {error}"))?;
-        if !status.success() {
-            return Err(format!("Steam Workshop publish exited with {status}"));
+    let mut staged = Vec::new();
+    for selector in selectors {
+        let artifact = catalog.find(selector).ok_or_else(|| {
+            format!(
+                "unknown content artifact '{selector}'\nhelp: inspect source content with `content list`"
+            )
+        })?;
+        if artifact.workshop().app_id().is_none() {
+            return Err(format!(
+                "{} has no [{}.steam].app-id and cannot be published",
+                artifact.id(),
+                artifact.kind()
+            ));
         }
-        uploaded = true;
+        if artifact.workshop().published_file_id().is_none() && !dry_run {
+            return Err(format!(
+                "{} has no PublishedFileId; run `content create {} --dry-run` and create the item manually before a real update",
+                artifact.id(),
+                artifact.name()
+            ));
+        }
+
+        let package = package_for_targets(paths, artifact.id(), false, target_triples)?;
+        let script = write_workshop_script(paths, artifact, package.root(), change_note, dry_run)?;
+        staged.push((
+            artifact.id().to_owned(),
+            script,
+            artifact
+                .workshop()
+                .published_file_id()
+                .map(ToOwned::to_owned),
+        ));
     }
-    let receipt = write_receipt(
-        paths.installation(),
-        "workshop-publish",
-        artifact.id(),
-        receipt_status,
-        Some(&format!("script={}", script.display())),
-    )?;
-    Ok(WorkshopOperationReport {
-        artifact_id: artifact.id().to_owned(),
-        script: Some(script),
-        receipt,
-        uploaded,
-    })
+
+    if !dry_run {
+        let scripts = staged
+            .iter()
+            .map(|(_, script, _)| script.clone())
+            .collect::<Vec<_>>();
+        run_steamcmd_workshop_builds(paths, account.expect("account checked"), &scripts)?;
+    }
+
+    let receipt_status = if dry_run { "dry-run" } else { "uploaded" };
+    let mut reports = Vec::new();
+    for (artifact_id, script, published_file_id) in staged {
+        let receipt = write_receipt(
+            paths.installation(),
+            "workshop-publish",
+            &artifact_id,
+            receipt_status,
+            Some(&format!("script={}", script.display())),
+        )?;
+        reports.push(WorkshopOperationReport {
+            artifact_id,
+            script: Some(script),
+            receipt,
+            uploaded: !dry_run,
+            published_file_id,
+        });
+    }
+    Ok(reports)
 }
 
 /// Preview a Workshop delete operation.
@@ -1299,6 +1863,7 @@ pub fn delete_workshop_item(
         script: None,
         receipt,
         uploaded: false,
+        published_file_id: None,
     })
 }
 
@@ -1313,80 +1878,107 @@ pub fn installed_index(installation: &InstallationPaths) -> Result<Vec<String>, 
     Ok(index.installed.keys().cloned().collect())
 }
 
+struct InstallContext<'a> {
+    installation: &'a InstallationPaths,
+    paths: Option<&'a EnvironmentPaths>,
+    catalog: Option<&'a ContentCatalog>,
+    layout: &'a ContentLayout,
+    account: Option<&'a str>,
+    runtime_targets: &'a [RuntimeTarget],
+}
+
 fn install_selector(
-    installation: &InstallationPaths,
-    paths: Option<&EnvironmentPaths>,
-    catalog: Option<&ContentCatalog>,
+    context: &InstallContext<'_>,
     selector: &str,
-    layout: &ContentLayout,
     index: &mut ContentIndex,
     visiting: &mut BTreeSet<String>,
     reports: &mut Vec<InstallReport>,
 ) -> Result<(), String> {
-    if let Some(catalog) = catalog {
-        if let Some(artifact) = catalog.find(selector) {
-            if !visiting.insert(artifact.id().to_owned()) {
+    if let Some(catalog) = context.catalog
+        && let Some(artifact) = catalog.find(selector)
+    {
+        if !visiting.insert(artifact.id().to_owned()) {
+            return Err(format!(
+                "content dependency cycle includes {}",
+                artifact.id()
+            ));
+        }
+        for dependency in artifact
+            .dependencies()
+            .iter()
+            .filter(|item| !item.optional())
+        {
+            if reports
+                .iter()
+                .any(|report| report.artifact_id() == dependency.id())
+            {
+                continue;
+            }
+            if catalog.by_id(dependency.id()).is_some() {
+                install_selector(context, dependency.id(), index, visiting, reports)?;
+            } else if !index.installed.contains_key(dependency.id()) {
                 return Err(format!(
-                    "content dependency cycle includes {}",
-                    artifact.id()
+                    "{} requires missing {} '{}'",
+                    artifact.id(),
+                    dependency.relationship(),
+                    dependency.id()
                 ));
             }
-            for dependency in artifact
-                .dependencies()
-                .iter()
-                .filter(|item| !item.optional())
-            {
-                if catalog.by_id(dependency.id()).is_some() {
-                    install_selector(
-                        installation,
-                        paths,
-                        catalog.into(),
-                        dependency.id(),
-                        layout,
-                        index,
-                        visiting,
-                        reports,
-                    )?;
-                } else if !index.installed.contains_key(dependency.id()) {
-                    return Err(format!(
-                        "{} requires missing {} '{}'",
-                        artifact.id(),
-                        dependency.relationship(),
-                        dependency.id()
-                    ));
-                }
-            }
-            for conflict in artifact.conflicts() {
-                if index
-                    .installed
-                    .get(conflict.id())
-                    .is_some_and(|record| record.enabled)
-                {
-                    return Err(format!(
-                        "{} conflicts with installed content '{}'",
-                        artifact.id(),
-                        conflict.id()
-                    ));
-                }
-            }
-            let package = package(
-                paths.expect("source catalog only exists with source paths"),
-                artifact.id(),
-                false,
-            )?;
-            let report = install_package(
-                installation,
-                layout,
-                index,
-                artifact,
-                package.payload(),
-                package.fingerprint().clone(),
-                "source-package",
-            )?;
-            reports.push(report);
-            visiting.remove(artifact.id());
-            return Ok(());
         }
+        for conflict in artifact.conflicts() {
+            if index
+                .installed
+                .get(conflict.id())
+                .is_some_and(|record| record.enabled)
+            {
+                return Err(format!(
+                    "{} conflicts with installed content '{}'",
+                    artifact.id(),
+                    conflict.id()
+                ));
+            }
+        }
+        let package = package_with_runtime_targets(
+            context
+                .paths
+                .expect("source catalog only exists with source paths"),
+            artifact.id(),
+            false,
+            context.runtime_targets.to_vec(),
+        )?;
+        let report = install_package(
+            context.installation,
+            context.layout,
+            index,
+            artifact,
+            package.root(),
+            package.fingerprint().clone(),
+            "source-package",
+        )?;
+        reports.push(report);
+        visiting.remove(artifact.id());
+        return Ok(());
+    }
+
+    if index.cache_by_selector(selector).is_none()
+        && let Some(seed) = root_content_seed(context.installation, selector)?
+    {
+        let acquired = acquire_workshop_item(
+            context.installation,
+            seed.app_id,
+            &seed.workshop_id,
+            context.account,
+        )?;
+        index.caches.insert(
+            acquired.artifact_id().to_owned(),
+            CacheRecord {
+                artifact_id: acquired.artifact_id().to_owned(),
+                workshop_id: Some(seed.workshop_id),
+                cache_root: acquired.cache_root().to_path_buf(),
+                fingerprint: acquired.fingerprint().clone(),
+                acquired_at: now_seconds(),
+            },
+        );
     }
 
     let cache = index
@@ -1394,23 +1986,48 @@ fn install_selector(
         .map(|(_, cache)| cache.clone())
         .ok_or_else(|| {
             format!(
-                "cannot install '{selector}': no matching source artifact or app-owned cache entry exists\nhelp: run `content acquire ARTIFACT` from an open source, or acquire through a SteamUGC-enabled session"
+                "cannot install '{selector}': no matching source artifact, app-owned cache entry, or root content seed exists\nhelp: run `content acquire ARTIFACT`, open a source, or add a [[root.content]] seed"
             )
         })?;
-    let manifest = read_package_manifest(&cache.cache_root)?;
-    let payload = cache.cache_root.join("payload");
-    let pseudo = manifest.into_artifact(PathBuf::new(), payload.clone());
-    let report = install_package(
-        installation,
-        layout,
-        index,
-        &pseudo,
-        &payload,
-        cache.fingerprint,
-        "cache",
-    )?;
-    reports.push(report);
-    Ok(())
+    let pseudo = read_deployed_manifest(&cache.cache_root)?;
+    let pseudo_id = pseudo.id().to_owned();
+    if !visiting.insert(pseudo_id.clone()) {
+        return Err(format!("content dependency cycle includes {}", pseudo.id()));
+    }
+    let result = (|| {
+        for dependency in pseudo.dependencies().iter().filter(|item| !item.optional()) {
+            if !index.installed.contains_key(dependency.id()) {
+                let selector = dependency.workshop_id().unwrap_or_else(|| dependency.id());
+                install_selector(context, selector, index, visiting, reports)?;
+            }
+        }
+        for conflict in pseudo.conflicts() {
+            if index
+                .installed
+                .get(conflict.id())
+                .is_some_and(|record| record.enabled)
+            {
+                return Err(format!(
+                    "{} conflicts with installed content '{}'",
+                    pseudo.id(),
+                    conflict.id()
+                ));
+            }
+        }
+        let report = install_package(
+            context.installation,
+            context.layout,
+            index,
+            &pseudo,
+            &cache.cache_root,
+            cache.fingerprint,
+            "cache",
+        )?;
+        reports.push(report);
+        Ok(())
+    })();
+    visiting.remove(&pseudo_id);
+    result
 }
 
 fn install_package(
@@ -1418,14 +2035,14 @@ fn install_package(
     layout: &ContentLayout,
     index: &mut ContentIndex,
     artifact: &ContentArtifact,
-    payload: &Path,
+    artifact_root: &Path,
     expected_fingerprint: Fingerprint,
     source: &str,
 ) -> Result<InstallReport, String> {
     let target = layout.installed().join(artifact.id());
     reset_directory(installation.root(), &target)?;
     fs::create_dir_all(&target).map_err(io("create installed content", &target))?;
-    copy_tree(payload, &target, payload, &[])?;
+    copy_tree(artifact_root, &target, artifact_root, &[])?;
     let fingerprint = fingerprint_tree(&target)?;
     if fingerprint != expected_fingerprint {
         return Err(format!(
@@ -1495,7 +2112,7 @@ fn move_enabled_state(
     };
     if !from_root.exists() {
         return Err(format!(
-            "cannot {} {}: expected payload is missing at {}",
+            "cannot {} {}: expected artifact root is missing at {}",
             if enable { "enable" } else { "disable" },
             artifact_id,
             from_root.display()
@@ -1507,7 +2124,7 @@ fn move_enabled_state(
     if to_root.exists() {
         remove_directory(installation.root(), &to_root)?;
     }
-    fs::rename(&from_root, &to_root).map_err(io("move content payload", &from_root))?;
+    fs::rename(&from_root, &to_root).map_err(io("move content artifact root", &from_root))?;
     let fingerprint = fingerprint_tree(&to_root)?;
     record.enabled = enable;
     record.installed_root = to_root.clone();
@@ -1547,7 +2164,7 @@ fn verify_one(index: &ContentIndex, artifact_id: &str) -> VerifyReport {
             expected: Some(record.fingerprint.clone()),
             observed: None,
             detail: format!(
-                "installed payload is missing: {}",
+                "installed artifact root is missing: {}",
                 record.installed_root.display()
             ),
         };
@@ -1590,43 +2207,6 @@ fn select_artifacts<'a>(
     } else {
         Ok(catalog.artifacts().iter().collect())
     }
-}
-
-fn collect_manifest_paths(
-    root: &Path,
-    directory: &Path,
-    output: &mut Vec<PathBuf>,
-) -> Result<(), String> {
-    let relative = directory.strip_prefix(root).unwrap_or(Path::new(""));
-    if is_ignored_directory(relative) {
-        return Ok(());
-    }
-    for entry in fs::read_dir(directory).map_err(io("read source directory", directory))? {
-        let entry =
-            entry.map_err(|error| format!("failed to read source directory entry: {error}"))?;
-        let path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?;
-        if file_type.is_dir() {
-            collect_manifest_paths(root, &path, output)?;
-        } else if file_type.is_file() && entry.file_name() == manifest::FILE_NAME {
-            output.push(path);
-        }
-    }
-    Ok(())
-}
-
-fn is_ignored_directory(relative: &Path) -> bool {
-    relative.components().any(|component| {
-        let Component::Normal(name) = component else {
-            return false;
-        };
-        matches!(
-            name.to_str(),
-            Some(".git" | "target" | "output" | ".idea" | ".vapor")
-        )
-    })
 }
 
 fn workspace_version(root: &Path) -> Result<Option<String>, String> {
@@ -1679,6 +2259,12 @@ fn composition_edges(kind: ContentKind, content: &AuthoredContent) -> Vec<Conten
             }
             edges
         }
+        ContentKind::Game => content
+            .engine
+            .as_ref()
+            .map(|reference| reference.to_content_reference("engine", false))
+            .into_iter()
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -1720,6 +2306,10 @@ impl AuthoredManifest {
 struct AuthoredContent {
     #[serde(default)]
     version: AuthoredVersion,
+    #[serde(default)]
+    binaries: Vec<String>,
+    #[serde(default)]
+    libraries: Vec<String>,
     #[serde(default, rename = "steam")]
     workshop: WorkshopPolicy,
     #[serde(default)]
@@ -1778,65 +2368,511 @@ impl AuthoredReference {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ContentPackageManifest {
-    schema_version: u32,
-    artifact_id: String,
+struct DeployedManifest {
+    schema: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engine: Option<DeployedContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    game: Option<DeployedContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    packagepack: Option<DeployedContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enginepack: Option<DeployedContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    gamepack: Option<DeployedContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    modpack: Option<DeployedContent>,
+    #[serde(rename = "engine-mod", skip_serializing_if = "Option::is_none")]
+    engine_mod: Option<DeployedContent>,
+    #[serde(rename = "game-mod", skip_serializing_if = "Option::is_none")]
+    game_mod: Option<DeployedContent>,
+    #[serde(rename = "extension-mod", skip_serializing_if = "Option::is_none")]
+    extension_mod: Option<DeployedContent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct DeployedContent {
+    id: String,
     name: String,
-    kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    binaries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    libraries: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    runtime: Vec<RuntimePayload>,
+    #[serde(
+        default,
+        rename = "steam",
+        skip_serializing_if = "WorkshopPolicy::is_empty"
+    )]
+    workshop: WorkshopPolicy,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     dependencies: Vec<ContentReference>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     conflicts: Vec<ContentReference>,
-    #[serde(default)]
-    workshop: WorkshopPolicy,
-    fingerprint: Fingerprint,
 }
 
-impl ContentPackageManifest {
-    fn into_artifact(self, root: PathBuf, manifest: PathBuf) -> ContentArtifact {
-        ContentArtifact {
-            id: self.artifact_id,
-            name: self.name,
-            kind: parse_kind(&self.kind).unwrap_or(ContentKind::Packagepack),
-            root,
-            manifest,
-            version: self.version,
-            dependencies: self.dependencies,
-            conflicts: self.conflicts,
-            workshop: self.workshop,
+impl DeployedManifest {
+    fn from_artifact(artifact: &ContentArtifact, runtime: Vec<RuntimePayload>) -> Self {
+        let content = DeployedContent {
+            id: artifact.id().to_owned(),
+            name: artifact.name().to_owned(),
+            version: artifact.version().map(ToOwned::to_owned),
+            binaries: artifact.binaries().to_vec(),
+            libraries: artifact.libraries().to_vec(),
+            runtime,
+            workshop: artifact.workshop().clone(),
+            dependencies: artifact.dependencies().to_vec(),
+            conflicts: artifact.conflicts().to_vec(),
+        };
+        let mut manifest = Self::empty();
+        match artifact.kind() {
+            ContentKind::Engine => manifest.engine = Some(content),
+            ContentKind::Game => manifest.game = Some(content),
+            ContentKind::Packagepack => manifest.packagepack = Some(content),
+            ContentKind::Enginepack => manifest.enginepack = Some(content),
+            ContentKind::Gamepack => manifest.gamepack = Some(content),
+            ContentKind::Modpack => manifest.modpack = Some(content),
+            ContentKind::EngineMod => manifest.engine_mod = Some(content),
+            ContentKind::GameMod => manifest.game_mod = Some(content),
+            ContentKind::ExtensionMod => manifest.extension_mod = Some(content),
+        }
+        manifest
+    }
+
+    fn empty() -> Self {
+        Self {
+            schema: CONTENT_STATE_SCHEMA,
+            engine: None,
+            game: None,
+            packagepack: None,
+            enginepack: None,
+            gamepack: None,
+            modpack: None,
+            engine_mod: None,
+            game_mod: None,
+            extension_mod: None,
+        }
+    }
+
+    fn into_artifact(self, root: PathBuf, manifest: PathBuf) -> Result<ContentArtifact, String> {
+        if self.schema == 0 {
+            return Err(format!(
+                "deployed content manifest '{}' has invalid schema 0",
+                manifest.display()
+            ));
+        }
+        let mut entries = Vec::new();
+        push_deployed(&mut entries, ContentKind::Engine, self.engine);
+        push_deployed(&mut entries, ContentKind::Game, self.game);
+        push_deployed(&mut entries, ContentKind::Packagepack, self.packagepack);
+        push_deployed(&mut entries, ContentKind::Enginepack, self.enginepack);
+        push_deployed(&mut entries, ContentKind::Gamepack, self.gamepack);
+        push_deployed(&mut entries, ContentKind::Modpack, self.modpack);
+        push_deployed(&mut entries, ContentKind::EngineMod, self.engine_mod);
+        push_deployed(&mut entries, ContentKind::GameMod, self.game_mod);
+        push_deployed(&mut entries, ContentKind::ExtensionMod, self.extension_mod);
+        match entries.len() {
+            1 => {
+                let (kind, content) = entries.pop().expect("length checked");
+                Ok(ContentArtifact {
+                    id: content.id,
+                    name: content.name,
+                    kind,
+                    root,
+                    manifest,
+                    version: content.version,
+                    binaries: content.binaries,
+                    libraries: content.libraries,
+                    runtime: content.runtime,
+                    dependencies: content.dependencies,
+                    conflicts: content.conflicts,
+                    workshop: content.workshop,
+                })
+            }
+            0 => Err("deployed content manifest has no content section".to_owned()),
+            _ => Err("deployed content manifest has multiple content sections".to_owned()),
         }
     }
 }
 
-fn write_package_manifest(
-    package_root: &Path,
-    artifact: &ContentArtifact,
-    fingerprint: &Fingerprint,
-) -> Result<(), String> {
-    let manifest = ContentPackageManifest {
-        schema_version: CONTENT_STATE_SCHEMA,
-        artifact_id: artifact.id().to_owned(),
-        name: artifact.name().to_owned(),
-        kind: artifact.kind().to_string(),
-        version: artifact.version().map(ToOwned::to_owned),
-        dependencies: artifact.dependencies().to_vec(),
-        conflicts: artifact.conflicts().to_vec(),
-        workshop: artifact.workshop().clone(),
-        fingerprint: fingerprint.clone(),
-    };
-    let encoded = toml::to_string_pretty(&manifest)
-        .map_err(|error| format!("failed to encode package manifest: {error}"))?;
-    let path = package_root.join(PACKAGE_MANIFEST);
-    fs::write(&path, encoded).map_err(io("write package manifest", &path))
+fn push_deployed(
+    entries: &mut Vec<(ContentKind, DeployedContent)>,
+    kind: ContentKind,
+    content: Option<DeployedContent>,
+) {
+    if let Some(content) = content {
+        entries.push((kind, content));
+    }
 }
 
-fn read_package_manifest(package_root: &Path) -> Result<ContentPackageManifest, String> {
-    let path = package_root.join(PACKAGE_MANIFEST);
-    let source = fs::read_to_string(&path).map_err(io("read package manifest", &path))?;
-    toml::from_str(&source)
-        .map_err(|error| format!("failed to parse '{}': {error}", path.display()))
+fn stage_deployed_artifact(
+    paths: &EnvironmentPaths,
+    package_root: &Path,
+    artifact: &ContentArtifact,
+    runtime_targets: &[RuntimeTarget],
+) -> Result<(), String> {
+    validate_runtime_output_names("binaries", artifact.binaries())?;
+    validate_runtime_output_names("libraries", artifact.libraries())?;
+    copy_tree(
+        artifact.root(),
+        package_root,
+        artifact.root(),
+        default_exclusions(),
+    )?;
+    let mut runtime = artifact.runtime().to_vec();
+    for runtime_target in runtime_targets {
+        let staged_runtime = stage_runtime_outputs(paths, package_root, artifact, runtime_target)?;
+        if staged_runtime.is_empty() {
+            continue;
+        }
+        runtime.retain(|payload| payload.target != runtime_target.triple());
+        runtime.push(RuntimePayload {
+            target: runtime_target.triple().to_owned(),
+            binaries: staged_runtime.binaries,
+            libraries: staged_runtime.libraries,
+        });
+    }
+    runtime.sort_by(|left, right| left.target.cmp(&right.target));
+    write_deployed_manifest(package_root, artifact, runtime)
+}
+
+fn stage_runtime_outputs(
+    paths: &EnvironmentPaths,
+    package_root: &Path,
+    artifact: &ContentArtifact,
+    runtime_target: &RuntimeTarget,
+) -> Result<StagedRuntimeOutputs, String> {
+    let mut staged = StagedRuntimeOutputs::default();
+    if artifact.binaries().is_empty() && artifact.libraries().is_empty() {
+        return Ok(staged);
+    }
+    let build_root = content_build_output_root(paths, runtime_target)?;
+    let bin_root = package_root.join("bin").join(runtime_target.triple());
+    let lib_root = package_root.join("lib").join(runtime_target.triple());
+    for binary in artifact.binaries() {
+        let source = find_built_binary(&build_root, binary, runtime_target.triple())?;
+        staged
+            .binaries
+            .push(copy_runtime_output(&source, &bin_root)?);
+    }
+    for library in artifact.libraries() {
+        let source = find_built_library(&build_root, library, runtime_target.triple())?;
+        staged
+            .libraries
+            .push(copy_runtime_output(&source, &lib_root)?);
+    }
+    Ok(staged)
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeTarget {
+    triple: String,
+    explicit: bool,
+}
+
+impl RuntimeTarget {
+    fn new(target_triple: Option<&str>) -> Result<Self, String> {
+        match target_triple {
+            Some(target) => {
+                validate_runtime_target(target)?;
+                Ok(Self {
+                    triple: target.to_owned(),
+                    explicit: true,
+                })
+            }
+            None => Ok(Self::host()),
+        }
+    }
+
+    fn many(target_triples: &[String]) -> Result<Vec<Self>, String> {
+        if target_triples.is_empty() {
+            return Ok(vec![Self::host()]);
+        }
+        let mut seen = BTreeSet::new();
+        let mut targets = Vec::new();
+        for target in target_triples {
+            let runtime_target = Self::new(Some(target))?;
+            if !seen.insert(runtime_target.triple.clone()) {
+                return Err(format!("duplicate runtime target: {target}"));
+            }
+            targets.push(runtime_target);
+        }
+        Ok(targets)
+    }
+
+    fn host() -> Self {
+        Self {
+            triple: host_runtime_target(),
+            explicit: false,
+        }
+    }
+
+    fn triple(&self) -> &str {
+        &self.triple
+    }
+}
+
+fn runtime_target_label(runtime_targets: &[RuntimeTarget]) -> String {
+    runtime_targets
+        .iter()
+        .map(|target| target.triple())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+#[derive(Debug, Default)]
+struct StagedRuntimeOutputs {
+    binaries: Vec<String>,
+    libraries: Vec<String>,
+}
+
+impl StagedRuntimeOutputs {
+    fn is_empty(&self) -> bool {
+        self.binaries.is_empty() && self.libraries.is_empty()
+    }
+}
+
+pub(crate) fn host_runtime_target() -> String {
+    let arch = std::env::consts::ARCH;
+    match (arch, std::env::consts::OS, std::env::consts::FAMILY) {
+        ("x86_64", "linux", _) => "x86_64-unknown-linux-gnu".to_owned(),
+        ("aarch64", "linux", _) => "aarch64-unknown-linux-gnu".to_owned(),
+        ("x86_64", "windows", _) => {
+            if cfg!(target_env = "msvc") {
+                "x86_64-pc-windows-msvc".to_owned()
+            } else {
+                "x86_64-pc-windows-gnu".to_owned()
+            }
+        }
+        ("aarch64", "windows", _) => "aarch64-pc-windows-msvc".to_owned(),
+        ("x86_64", "macos", _) => "x86_64-apple-darwin".to_owned(),
+        ("aarch64", "macos", _) => "aarch64-apple-darwin".to_owned(),
+        _ => format!(
+            "{arch}-{}-{}",
+            std::env::consts::OS,
+            std::env::consts::FAMILY
+        ),
+    }
+}
+
+fn validate_runtime_target(target: &str) -> Result<(), String> {
+    let valid = !target.is_empty()
+        && target
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'));
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "runtime target must be a Rust target triple such as x86_64-pc-windows-msvc: {target}"
+        ))
+    }
+}
+
+fn binary_suffix(target: &str) -> &'static str {
+    if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    }
+}
+
+fn library_file_names(stem: &str, target: &str) -> Vec<String> {
+    if target.contains("windows") {
+        vec![format!("{stem}.dll"), format!("{stem}.lib")]
+    } else if target.contains("darwin") || target.contains("apple") {
+        vec![format!("lib{stem}.dylib"), format!("lib{stem}.rlib")]
+    } else {
+        vec![format!("lib{stem}.so"), format!("lib{stem}.rlib")]
+    }
+}
+
+fn content_build_output_root(
+    paths: &EnvironmentPaths,
+    runtime_target: &RuntimeTarget,
+) -> Result<PathBuf, String> {
+    #[derive(Deserialize)]
+    struct RootManifest {
+        workspace: Option<WorkspaceSection>,
+    }
+    #[derive(Deserialize)]
+    struct WorkspaceSection {
+        name: String,
+    }
+
+    let path = paths.source().root().join(manifest::FILE_NAME);
+    let source = fs::read_to_string(&path).map_err(io("read source manifest", &path))?;
+    let parsed: RootManifest = toml::from_str(&source)
+        .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
+    let name = parsed
+        .workspace
+        .map(|workspace| workspace.name)
+        .ok_or_else(|| {
+            format!(
+                "content runtime outputs require a [workspace] source manifest: {}",
+                path.display()
+            )
+        })?;
+    let root = paths.installation().root().join("output/dev").join(name);
+    if runtime_target.explicit {
+        Ok(root.join(runtime_target.triple()).join("debug"))
+    } else {
+        Ok(root.join("debug"))
+    }
+}
+
+fn find_built_binary(build_root: &Path, name: &str, target: &str) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+    let suffix = binary_suffix(target);
+    if suffix.is_empty() || name.ends_with(suffix) {
+        candidates.push(build_root.join(name));
+    } else {
+        candidates.push(build_root.join(format!("{name}{suffix}")));
+        candidates.push(build_root.join(name));
+    }
+    find_existing_runtime_output("binary", name, candidates)
+}
+
+fn find_built_library(build_root: &Path, name: &str, target: &str) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+    if Path::new(name).extension().is_none() {
+        for stem in [name.to_owned(), name.replace('-', "_")] {
+            for candidate in library_file_names(&stem, target) {
+                candidates.push(build_root.join(candidate));
+            }
+        }
+    } else {
+        candidates.push(build_root.join(name));
+    }
+    let mut deduped = Vec::new();
+    for candidate in candidates {
+        if !deduped.contains(&candidate) {
+            deduped.push(candidate);
+        }
+    }
+    find_existing_runtime_output("library", name, deduped)
+}
+
+fn find_existing_runtime_output(
+    kind: &str,
+    name: &str,
+    candidates: Vec<PathBuf>,
+) -> Result<PathBuf, String> {
+    for candidate in &candidates {
+        if candidate.is_file() {
+            return Ok(candidate.clone());
+        }
+    }
+    let checked = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "declared content {kind} '{name}' was not built; checked: {checked}\nhelp: run `content build` before `content package` or use `content deploy`"
+    ))
+}
+
+fn copy_runtime_output(source: &Path, target_directory: &Path) -> Result<String, String> {
+    fs::create_dir_all(target_directory)
+        .map_err(io("create runtime output directory", target_directory))?;
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| format!("runtime output has no filename: {}", source.display()))?;
+    let target = target_directory.join(file_name);
+    fs::copy(source, &target).map_err(io("copy runtime output", source))?;
+    Ok(file_name.to_string_lossy().into_owned())
+}
+
+fn validate_runtime_output_names(label: &str, names: &[String]) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for name in names {
+        let mut components = Path::new(name).components();
+        let valid = matches!(
+            components.next(),
+            Some(Component::Normal(part)) if part.to_str() == Some(name.as_str())
+        ) && components.next().is_none();
+        if !valid {
+            return Err(format!(
+                "content {label} must be file names, not paths: {name}"
+            ));
+        }
+        if !seen.insert(name) {
+            return Err(format!("duplicate content {label} entry: {name}"));
+        }
+    }
+    Ok(())
+}
+
+fn write_deployed_manifest(
+    package_root: &Path,
+    artifact: &ContentArtifact,
+    runtime: Vec<RuntimePayload>,
+) -> Result<(), String> {
+    let manifest = DeployedManifest::from_artifact(artifact, runtime);
+    let encoded = toml::to_string_pretty(&manifest)
+        .map_err(|error| format!("failed to encode deployed content manifest: {error}"))?;
+    let path = package_root.join(manifest::FILE_NAME);
+    fs::write(&path, encoded).map_err(io("write deployed content manifest", &path))
+}
+
+fn read_deployed_manifest(package_root: &Path) -> Result<ContentArtifact, String> {
+    let path = package_root.join(manifest::FILE_NAME);
+    let source = fs::read_to_string(&path).map_err(io("read deployed content manifest", &path))?;
+    let manifest: DeployedManifest = toml::from_str(&source)
+        .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
+    manifest.into_artifact(package_root.to_path_buf(), path)
+}
+
+struct TemporaryDirectory {
+    path: PathBuf,
+}
+
+impl TemporaryDirectory {
+    fn new(prefix: &str, artifact_id: &str) -> Result<Self, String> {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let base = std::env::temp_dir();
+        for attempt in 0..16 {
+            let path = base.join(format!(
+                "{}-{}-{}-{}-{}",
+                prefix,
+                slug(artifact_id),
+                std::process::id(),
+                stamp,
+                attempt
+            ));
+            match fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => {
+                    return Err(format!(
+                        "failed to create temporary directory '{}': {error}",
+                        path.display()
+                    ));
+                }
+            }
+        }
+        Err(format!(
+            "failed to create temporary directory for {} after repeated attempts",
+            artifact_id
+        ))
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TemporaryDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1994,7 +3030,7 @@ fn resolve_installed_selector(index: &ContentIndex, selector: &str) -> Result<St
 fn write_workshop_script(
     paths: &EnvironmentPaths,
     artifact: &ContentArtifact,
-    payload: &Path,
+    artifact_root: &Path,
     change_note: Option<&str>,
     preview: bool,
 ) -> Result<PathBuf, String> {
@@ -2012,8 +3048,12 @@ fn write_workshop_script(
     };
     let mut tags = String::new();
     tags.push_str("    \"tags\"\n    {\n");
-    let mut all_tags = vec![artifact.kind().to_string()];
-    all_tags.extend(policy.tags().iter().cloned());
+    let mut all_tags = Vec::new();
+    for tag in std::iter::once(artifact.kind().to_string()).chain(policy.tags().iter().cloned()) {
+        if !all_tags.contains(&tag) {
+            all_tags.push(tag);
+        }
+    }
     for (index, tag) in all_tags.iter().enumerate() {
         tags.push_str(&format!(
             "        \"{}\" \"{}\"\n",
@@ -2027,7 +3067,7 @@ fn write_workshop_script(
         policy.app_id().expect("app id checked"),
         preview_line,
         steam_escape(policy.published_file_id().unwrap_or("0")),
-        steam_escape(&payload.display().to_string()),
+        steam_escape(&artifact_root.display().to_string()),
         steam_escape(policy.visibility().unwrap_or("private")),
         steam_escape(policy.title().unwrap_or(artifact.name())),
         steam_escape(policy.description().unwrap_or("")),
@@ -2039,6 +3079,337 @@ fn write_workshop_script(
     );
     fs::write(&script, vdf).map_err(io("write Workshop script", &script))?;
     Ok(script)
+}
+
+fn run_steamcmd_workshop_build(
+    paths: &EnvironmentPaths,
+    account: &str,
+    script: &Path,
+) -> Result<(), String> {
+    run_steamcmd_workshop_builds(paths, account, &[script.to_path_buf()])
+}
+
+fn run_steamcmd_workshop_builds(
+    paths: &EnvironmentPaths,
+    account: &str,
+    scripts: &[PathBuf],
+) -> Result<(), String> {
+    if scripts.is_empty() {
+        return Err("at least one Workshop build script is required".to_owned());
+    }
+    let steamcmd = steam::executable(paths)?;
+    let mut command = Command::new(&steamcmd);
+    command.args(["+login", account]);
+    for script in scripts {
+        command.arg("+workshop_build_item").arg(script);
+    }
+    let status = command
+        .arg("+quit")
+        .current_dir(steamcmd.parent().expect("SteamCMD has a parent"))
+        .status()
+        .map_err(|error| format!("failed to start SteamCMD: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Steam Workshop build exited with {status}"))
+    }
+}
+
+fn run_steamcmd_workshop_download(
+    installation: &InstallationPaths,
+    app_id: u32,
+    published_file_id: &str,
+    account: &str,
+) -> Result<PathBuf, String> {
+    let mut roots = run_steamcmd_workshop_downloads(
+        installation,
+        &[WorkshopDownload {
+            app_id,
+            published_file_id: published_file_id.to_owned(),
+        }],
+        account,
+    )?;
+    roots
+        .pop()
+        .ok_or_else(|| "SteamCMD returned no Workshop download root".to_owned())
+}
+
+#[derive(Debug, Clone)]
+struct WorkshopDownload {
+    app_id: u32,
+    published_file_id: String,
+}
+
+fn run_steamcmd_workshop_downloads(
+    installation: &InstallationPaths,
+    downloads: &[WorkshopDownload],
+    account: &str,
+) -> Result<Vec<PathBuf>, String> {
+    if downloads.is_empty() {
+        return Err("at least one Workshop download is required".to_owned());
+    }
+    let steamcmd = steam::executable_for_installation(installation)?;
+    let mut command = Command::new(&steamcmd);
+    command.args(["+login", account]);
+    for download in downloads {
+        command
+            .arg("+workshop_download_item")
+            .arg(download.app_id.to_string())
+            .arg(&download.published_file_id);
+    }
+    let status = command
+        .arg("+quit")
+        .current_dir(steamcmd.parent().expect("SteamCMD has a parent"))
+        .status()
+        .map_err(|error| format!("failed to start SteamCMD: {error}"))?;
+    if !status.success() {
+        return Err(format!("Steam Workshop download exited with {status}"));
+    }
+    downloads
+        .iter()
+        .map(|download| {
+            resolve_steamcmd_workshop_download_root(
+                installation,
+                &steamcmd,
+                download.app_id,
+                &download.published_file_id,
+            )
+        })
+        .collect()
+}
+
+fn resolve_steamcmd_workshop_download_root(
+    installation: &InstallationPaths,
+    steamcmd: &Path,
+    app_id: u32,
+    published_file_id: &str,
+) -> Result<PathBuf, String> {
+    let app_id = app_id.to_string();
+    let mut candidates = Vec::new();
+    if let Some(parent) = steamcmd.parent() {
+        candidates.push(
+            parent
+                .join("steamapps/workshop/content")
+                .join(&app_id)
+                .join(published_file_id),
+        );
+    }
+    if let Some(common_dir) = installation.root().parent()
+        && common_dir
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy() == "common")
+        && let Some(steamapps_dir) = common_dir.parent()
+    {
+        candidates.push(
+            steamapps_dir
+                .join("workshop/content")
+                .join(&app_id)
+                .join(published_file_id),
+        );
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(
+            home.join(".local/share/Steam/steamapps/workshop/content")
+                .join(&app_id)
+                .join(published_file_id),
+        );
+        candidates.push(
+            home.join(".steam/steam/steamapps/workshop/content")
+                .join(&app_id)
+                .join(published_file_id),
+        );
+    }
+    for download_root in &candidates {
+        if download_root.exists() {
+            return Ok(download_root.clone());
+        }
+    }
+    let attempted = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "SteamCMD reported success but no Workshop content folder exists; checked: {attempted}"
+    ))
+}
+
+fn read_workshop_script_published_file_id(script: &Path) -> Result<String, String> {
+    let source = fs::read_to_string(script).map_err(io("read Workshop script", script))?;
+    vdf_value(&source, "publishedfileid")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            format!(
+                "Workshop script has no publishedfileid: {}",
+                script.display()
+            )
+        })
+}
+
+fn record_published_file_id(
+    artifact: &ContentArtifact,
+    published_file_id: &str,
+) -> Result<(), String> {
+    let source = fs::read_to_string(artifact.manifest())
+        .map_err(io("read content manifest", artifact.manifest()))?;
+    let updated = set_published_file_id(&source, artifact.kind(), published_file_id)?;
+    toml::from_str::<AuthoredManifest>(&updated).map_err(|error| {
+        format!(
+            "refusing to write invalid content manifest '{}': {error}",
+            artifact.manifest().display()
+        )
+    })?;
+    fs::write(artifact.manifest(), updated)
+        .map_err(io("write content manifest", artifact.manifest()))
+}
+
+fn set_published_file_id(
+    source: &str,
+    kind: ContentKind,
+    published_file_id: &str,
+) -> Result<String, String> {
+    let section = format!("[{}.steam]", kind);
+    let mut lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+    let Some(start) = lines.iter().position(|line| line.trim() == section) else {
+        return Err(format!("content manifest has no {section} section"));
+    };
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find_map(|(index, line)| line.trim_start().starts_with('[').then_some(index))
+        .unwrap_or(lines.len());
+    let field = format!("published-file-id = \"{}\"", published_file_id);
+    if let Some(index) = lines[start + 1..end].iter().position(|line| {
+        line.trim_start()
+            .strip_prefix("published-file-id")
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+    }) {
+        lines[start + 1 + index] = field;
+    } else {
+        let insert_at = lines[start + 1..end]
+            .iter()
+            .position(|line| {
+                line.trim_start()
+                    .strip_prefix("app-id")
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            })
+            .map_or(start + 1, |index| start + 2 + index);
+        lines.insert(insert_at, field);
+    }
+    let mut updated = lines.join("\n");
+    if source.ends_with('\n') {
+        updated.push('\n');
+    }
+    Ok(updated)
+}
+
+fn vdf_value(source: &str, key: &str) -> Option<String> {
+    source.lines().find_map(|line| {
+        let parts = line.trim().split('"').collect::<Vec<_>>();
+        (parts.len() >= 4 && parts[1] == key).then(|| parts[3].to_owned())
+    })
+}
+
+fn is_published_file_id(selector: &str) -> bool {
+    !selector.is_empty() && selector.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn resolve_download_app_id(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selector: &str,
+) -> Result<u32, String> {
+    if let Some(paths) = paths {
+        let catalog = discover(paths)?;
+        if let Some(artifact) = catalog.find(selector)
+            && let Some(app_id) = artifact.workshop().app_id()
+        {
+            return Ok(app_id);
+        }
+    }
+    root_steam_app_id(installation)
+}
+
+fn root_steam_app_id(installation: &InstallationPaths) -> Result<u32, String> {
+    #[derive(Deserialize)]
+    struct RootManifest {
+        root: Option<RootSection>,
+    }
+    #[derive(Deserialize)]
+    struct RootSection {
+        steam: Option<RootSteam>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    struct RootSteam {
+        app_id: Option<u32>,
+    }
+
+    let path = installation.root().join(manifest::FILE_NAME);
+    let source = fs::read_to_string(&path).map_err(io("read root manifest", &path))?;
+    let manifest: RootManifest = toml::from_str(&source)
+        .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
+    manifest
+        .root
+        .and_then(|root| root.steam)
+        .and_then(|steam| steam.app_id)
+        .filter(|app_id| *app_id != 0)
+        .ok_or_else(|| {
+            format!(
+                "cannot infer Steam AppID for Workshop download; '{}' needs [root.steam].app-id",
+                path.display()
+            )
+        })
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct RootContentSeed {
+    id: String,
+    app_id: u32,
+    workshop_id: String,
+    default_launch: Option<String>,
+}
+
+fn root_content_seed(
+    installation: &InstallationPaths,
+    selector: &str,
+) -> Result<Option<RootContentSeed>, String> {
+    #[derive(Deserialize)]
+    struct RootManifest {
+        root: Option<RootSection>,
+    }
+    #[derive(Deserialize)]
+    struct RootSection {
+        #[serde(default)]
+        content: Vec<RootContentSeed>,
+    }
+
+    let path = installation.root().join(manifest::FILE_NAME);
+    let source = fs::read_to_string(&path).map_err(io("read root manifest", &path))?;
+    let manifest: RootManifest = toml::from_str(&source)
+        .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
+    Ok(manifest
+        .root
+        .into_iter()
+        .flat_map(|root| root.content)
+        .find(|seed| root_content_seed_matches(seed, selector)))
+}
+
+fn root_content_seed_matches(seed: &RootContentSeed, selector: &str) -> bool {
+    seed.id == selector
+        || seed
+            .id
+            .rsplit('/')
+            .next()
+            .is_some_and(|name| name == selector)
+        || seed.workshop_id == selector
+        || seed
+            .default_launch
+            .as_deref()
+            .is_some_and(|launch| launch == selector)
 }
 
 fn fingerprint_tree(root: &Path) -> Result<Fingerprint, String> {
@@ -2161,21 +3532,6 @@ fn slug(id: &str) -> String {
             }
         })
         .collect()
-}
-
-fn parse_kind(kind: &str) -> Option<ContentKind> {
-    match kind {
-        "engine" => Some(ContentKind::Engine),
-        "game" => Some(ContentKind::Game),
-        "packagepack" => Some(ContentKind::Packagepack),
-        "enginepack" => Some(ContentKind::Enginepack),
-        "gamepack" => Some(ContentKind::Gamepack),
-        "modpack" => Some(ContentKind::Modpack),
-        "engine-mod" => Some(ContentKind::EngineMod),
-        "game-mod" => Some(ContentKind::GameMod),
-        "extension-mod" => Some(ContentKind::ExtensionMod),
-        _ => None,
-    }
 }
 
 fn now_seconds() -> u64 {

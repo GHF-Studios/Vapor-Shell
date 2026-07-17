@@ -2,7 +2,8 @@
 
 use crate::{
     command::{
-        self, ContentCommand, Control, ScriptCommand, SetupCommand, ShellCommand, SourceCommand,
+        self, ContentCommand, Control, LaunchCommand, RootCommand, ScriptCommand, SetupCommand,
+        ShellCommand, SourceCommand,
     },
     discovery::EnvironmentPaths,
     metadata::MetadataFormat,
@@ -15,7 +16,7 @@ use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
 
 enum StartupMode {
-    Repl,
+    Repl { startup_script: Option<String> },
     Direct(ShellCommand),
     Exit,
 }
@@ -35,7 +36,7 @@ pub fn run() -> Result<(), String> {
     // Steam and desktop launchers do not normally provide an interactive
     // console. Relaunch before discovery so the child can report configuration
     // errors in the terminal it owns.
-    if matches!(startup, StartupMode::Repl) && terminal::needs_relaunch() {
+    if startup.needs_terminal() && terminal::needs_relaunch() {
         terminal::relaunch()?;
         return Ok(());
     }
@@ -49,52 +50,107 @@ pub fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    let setup_status = setup_self::inspect(state.installation());
-    match setup_self::location_status(state.installation()) {
-        Ok(setup_self::LocationStatus::Registered { .. }) => {}
-        Ok(setup_self::LocationStatus::Unregistered { current }) => {
-            eprintln!("notice: app root is not registered: {}", current.display());
-            eprintln!("hint: review `setup self status`, then choose `setup self install`");
+    let StartupMode::Repl { startup_script } = startup else {
+        unreachable!("direct and exit startup modes returned before the REPL")
+    };
+    if let Some(script) = startup_script {
+        print_startup_script_header(&script);
+        if let Err(error) = command::run_script(&script, false, &mut state) {
+            eprintln!("error: {error}");
         }
-        Ok(setup_self::LocationStatus::Moved { locked, current }) => {
-            eprintln!("notice: app root moved and requires explicit confirmation");
-            eprintln!("  previous: {}", locked.display());
-            eprintln!("  current:   {}", current.display());
-            eprintln!("hint: review `setup self status`, then choose `setup self repair`");
-        }
-        Err(error) => eprintln!("warning: app-root location state is invalid: {error}"),
-    }
-    if !setup_status.complete() {
-        eprintln!("notice: Vapor setup is missing Rust, Git, or SteamCMD readiness");
-        eprintln!("hint: inspect it with `setup self status`, then choose `setup self install`");
-    }
-    if !setup_status.package_complete() {
-        eprintln!("notice: distributable self-setup payloads are incomplete");
-        eprintln!(
-            "hint: inspect them with `setup self package status`, then choose `setup self package install`"
-        );
-    }
-
-    println!("Vapor shell");
-    match state.current_dir() {
-        Ok(directory) => println!("Working directory: {}", directory.display()),
-        Err(_) => {
-            println!("Source: closed");
-            println!("Hint: run `source list`, `source add PATH`, or `source open SOURCE`");
-        }
+        println!();
+        println!("The Vapor shell is still open. Use `help` for commands or `exit` to close it.");
+        println!();
+    } else {
+        print_startup_overview(&state);
     }
 
     run_shell(state);
     Ok(())
 }
 
+fn print_startup_script_header(script: &str) {
+    println!("Vapor Shell");
+    println!();
+    println!("Startup script");
+    println!("  {script}");
+    println!();
+}
+
+fn print_startup_overview(state: &ShellState) {
+    let installation = state.installation();
+    let location = setup_self::location_status(installation);
+    let setup_status = setup_self::inspect(installation);
+
+    println!("Vapor Shell");
+    println!();
+    println!("Status");
+    match &location {
+        Ok(setup_self::LocationStatus::Registered { .. }) => {
+            println!("  Install location: confirmed");
+        }
+        Ok(setup_self::LocationStatus::Unregistered { .. }) => {
+            println!("  Install location: not confirmed yet");
+        }
+        Ok(setup_self::LocationStatus::Moved { locked, current }) => {
+            println!("  Install location: changed");
+            println!("    previous: {}", locked.display());
+            println!("    current:  {}", current.display());
+        }
+        Err(error) => {
+            println!("  Install location: needs attention ({error})");
+        }
+    }
+    if setup_status.complete() {
+        println!("  Local tools: ready");
+    } else {
+        println!("  Local tools: not installed");
+    }
+    match state.source() {
+        Some(source) => {
+            println!("  Source project: {}", source.id());
+            println!("    root: {}", source.root().display());
+        }
+        None => println!("  Source project: none open"),
+    }
+
+    println!();
+    println!("Next");
+    if matches!(&location, Ok(setup_self::LocationStatus::Moved { .. })) {
+        println!("  setup self repair");
+    } else if location.is_err() {
+        println!("  setup self status");
+    } else if !matches!(&location, Ok(setup_self::LocationStatus::Registered { .. }))
+        || !setup_status.complete()
+    {
+        println!("  setup self install");
+        println!();
+        println!("Then");
+        if state.source().is_none() {
+            println!("  source open /path/to/source");
+        } else {
+            println!("  validate");
+        }
+    } else if state.source().is_none() {
+        println!("  source open /path/to/source");
+    } else {
+        println!("  validate");
+    }
+
+    println!();
+    println!("Use `help` for commands. Use `exit` to close Vapor.");
+    println!();
+}
+
 fn parse_startup() -> Result<StartupMode, String> {
     if std::env::args_os().len() <= 1 {
-        return Ok(StartupMode::Repl);
+        return Ok(StartupMode::Repl {
+            startup_script: None,
+        });
     }
 
     match HostCommand::try_parse() {
-        Ok(command) => Ok(StartupMode::Direct(command.into_shell_command())),
+        Ok(command) => command.into_startup_mode(),
         Err(error)
             if matches!(
                 error.kind(),
@@ -136,16 +192,24 @@ fn shell_only_error() -> String {
 #[command(
     name = "vapor",
     bin_name = "vapor",
-    about = "Open the Vapor shell or run a narrow host-level facade",
-    after_help = "Run `vapor` with no command to enter the Vapor shell.\nThe shell owns source context, setup state, and command authority.\nSource workflows belong in the shell or in `.vapor/scripts/NAME.vapor`."
+    about = "Open Vapor Shell or run a setup/source command",
+    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse setup commands to prepare this Steam install.\nUse source commands to choose the project you want Vapor to work with."
 )]
 struct HostCommand {
+    /// Run `.vapor/scripts/<NAME>.vapor` before entering the interactive shell.
+    #[arg(long, value_name = "NAME")]
+    startup_script: Option<String>,
     #[command(subcommand)]
-    command: HostSubcommand,
+    command: Option<HostSubcommand>,
 }
 
 #[derive(Debug, Subcommand)]
 enum HostSubcommand {
+    /// Launch a playable Vapor composition.
+    Launch {
+        #[command(subcommand)]
+        command: LaunchCommand,
+    },
     /// Inspect or repair app-local setup.
     Setup {
         #[command(subcommand)]
@@ -167,10 +231,15 @@ enum HostSubcommand {
         #[arg(long, value_enum, default_value_t)]
         format: MetadataFormat,
     },
-    /// Report the remembered/open source's active content node.
+    /// Run content lifecycle operations against the remembered/open source.
     Content {
         #[command(subcommand)]
-        command: HostContentCommand,
+        command: ContentCommand,
+    },
+    /// Run root app/depot operations against the remembered/open source.
+    Root {
+        #[command(subcommand)]
+        command: RootCommand,
     },
     /// Run a source-controlled Vapor script.
     Script {
@@ -179,50 +248,56 @@ enum HostSubcommand {
     },
 }
 
-#[derive(Debug, Subcommand)]
-enum HostContentCommand {
-    /// Report the remembered/open source's active content node.
-    Status,
-    /// List source and installed content without mutating state.
-    List,
-    /// Verify installed content fingerprints and receipts.
-    Verify {
-        /// Artifact ID, local name, PublishedFileId, or cached Workshop ID. Omit to verify all.
-        #[arg(value_name = "ARTIFACT_OR_WORKSHOP_ID")]
-        target: Option<String>,
-    },
-}
-
-impl HostContentCommand {
-    fn into_content_command(self) -> ContentCommand {
-        match self {
-            Self::Status => ContentCommand::Status,
-            Self::List => ContentCommand::List,
-            Self::Verify { target } => ContentCommand::Verify { target },
+impl HostCommand {
+    fn into_startup_mode(self) -> Result<StartupMode, String> {
+        match (self.startup_script, self.command) {
+            (Some(script), None) => Ok(StartupMode::Repl {
+                startup_script: Some(script),
+            }),
+            (None, Some(command)) => Ok(StartupMode::Direct(command.into_shell_command())),
+            (None, None) => Ok(StartupMode::Repl {
+                startup_script: None,
+            }),
+            (Some(_), Some(_)) => Err(
+                "--startup-script enters the interactive shell and cannot be combined with a one-shot command"
+                    .to_owned(),
+            ),
         }
     }
 }
 
-impl HostCommand {
+impl HostSubcommand {
     fn into_shell_command(self) -> ShellCommand {
-        match self.command {
+        match self {
             HostSubcommand::Setup { command } => ShellCommand::Setup { command },
+            HostSubcommand::Launch { command } => ShellCommand::Launch { command },
             HostSubcommand::Source { command } => ShellCommand::Source { command },
             HostSubcommand::Installation => ShellCommand::Installation,
             HostSubcommand::Binaries => ShellCommand::Binaries,
             HostSubcommand::Libraries => ShellCommand::Libraries,
             HostSubcommand::Metadata { format } => ShellCommand::Metadata { format },
-            HostSubcommand::Content { command } => ShellCommand::Content {
-                command: command.into_content_command(),
-            },
+            HostSubcommand::Content { command } => ShellCommand::Content { command },
+            HostSubcommand::Root { command } => ShellCommand::Root { command },
             HostSubcommand::Script { command } => ShellCommand::Script { command },
         }
     }
 }
 
+impl StartupMode {
+    fn needs_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Repl { .. }
+                | Self::Direct(ShellCommand::Launch {
+                    command: LaunchCommand::LooCast { .. }
+                })
+        )
+    }
+}
+
 fn open_saved_source(state: &mut ShellState) -> Result<(), String> {
     if let Some(source) = source_registry::active_source(state.installation())? {
-        match EnvironmentPaths::from_installation_and_invocation(
+        match EnvironmentPaths::from_installation_and_source_path(
             state.installation().clone(),
             &source,
         ) {

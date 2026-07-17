@@ -63,7 +63,9 @@ as authored source, intentionally violating the product surface. For a manual
 session, build the `vapor` binary once with host Cargo, copy that binary and a
 `[root]` `Vapor.toml` into the Steam app directory with
 `scripts/bootstrap-local-app-deploy.sh`, then invoke only that installed
-`bin/vapor`. The integration fixtures automate this topology for tests.
+bootstrap shell. Release-mode launches use `.vapor/launch/...` wrappers and
+`bin/<target>/vapor[.exe]`. The integration fixtures automate this topology for
+tests.
 
 After the installed binary works, run `source open /path/to/source` from the
 installed shell. This validates and registers the external source selection for

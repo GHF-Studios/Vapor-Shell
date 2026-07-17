@@ -5,7 +5,7 @@ use crate::{
     distribution::DistributionManifest,
     setup_self::{LocationStatus, SetupSelfComponentStatus, SetupSelfStatus},
     state::ShellState,
-    workspace::WorkspaceManifest,
+    workspace::{SourceRootKind, WorkspaceManifest},
 };
 use serde::Serialize;
 use std::path::PathBuf;
@@ -248,7 +248,10 @@ struct WorkspaceManifestReport {
     status: ResourceState,
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
     projects: Vec<ProjectReport>,
+    registered_projects: Vec<RegisteredProjectReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -259,6 +262,13 @@ impl WorkspaceManifestReport {
             Ok(workspace) => Self {
                 status: ResourceState::Ready,
                 id: Some(workspace.id().to_owned()),
+                kind: Some(
+                    match workspace.kind() {
+                        SourceRootKind::Root => "application-root",
+                        SourceRootKind::Workspace => "workspace",
+                    }
+                    .to_owned(),
+                ),
                 projects: workspace
                     .cargo_projects()
                     .iter()
@@ -269,12 +279,25 @@ impl WorkspaceManifestReport {
                         binaries: project.binaries().to_vec(),
                     })
                     .collect(),
+                registered_projects: workspace
+                    .projects()
+                    .iter()
+                    .map(|project| RegisteredProjectReport {
+                        id: project.id().to_owned(),
+                        name: project.name().to_owned(),
+                        kind: project.kind().to_string(),
+                        path: project.path().to_path_buf(),
+                        manifest: project.manifest().to_path_buf(),
+                    })
+                    .collect(),
                 error: None,
             },
             Err(error) => Self {
                 status: ResourceState::Invalid,
                 id: None,
+                kind: None,
                 projects: Vec::new(),
+                registered_projects: Vec::new(),
                 error: Some(error.clone()),
             },
         }
@@ -287,6 +310,15 @@ struct ProjectReport {
     manifest: PathBuf,
     documentation: bool,
     binaries: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RegisteredProjectReport {
+    id: String,
+    name: String,
+    kind: String,
+    path: PathBuf,
+    manifest: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize)]

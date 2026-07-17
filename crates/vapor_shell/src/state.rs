@@ -1,10 +1,9 @@
-//! Mutable source navigation and derived source-root context.
+//! Mutable source selection and derived source-root context.
 //!
 //! # Lifecycle
 //!
 //! [`ShellState::new`] validates the external source-root identity, generates an
-//! optional Cargo index, and starts at the source root. Navigation methods
-//! canonicalize user paths and enforce that root as a hard ceiling.
+//! optional Cargo index, and anchors source-backed workflows at the source root.
 //!
 //! # Installation access
 //!
@@ -14,13 +13,10 @@
 
 use crate::{
     cargo_metadata::{CargoIndex, CargoWorkspace},
-    discovery::{EnvironmentPaths, InstallationPaths, ensure_contained},
+    discovery::{EnvironmentPaths, InstallationPaths},
     manifest::{self, ContentKind, VaporEntity},
 };
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 const EMPTY_CONTEXT: &str = "none";
 
@@ -303,77 +299,6 @@ impl ShellState {
         }
 
         warnings
-    }
-
-    /// Resolve a directory and enforce the external source boundary.
-    ///
-    /// # Errors
-    ///
-    /// Fails for nonexistent paths, non-directories, and canonical paths outside
-    /// the source root (including symlink escapes).
-    pub fn resolve_directory(&self, target: &Path) -> Result<PathBuf, String> {
-        let candidate = if target.is_absolute() {
-            target.to_path_buf()
-        } else {
-            self.current_dir()?.join(target)
-        };
-        let canonical = fs::canonicalize(&candidate).map_err(|error| {
-            format!(
-                "cannot resolve directory '{}': {error}",
-                candidate.display()
-            )
-        })?;
-        if !canonical.is_dir() {
-            return Err(format!("not a directory: {}", canonical.display()));
-        }
-
-        ensure_contained(self.active_paths()?.source().root(), &canonical)?;
-        Ok(canonical)
-    }
-
-    /// Change to a user-supplied source path and refresh content context.
-    ///
-    /// # Errors
-    ///
-    /// Returns errors from [`Self::resolve_directory`].
-    pub fn change_directory(&mut self, target: &Path) -> Result<Vec<String>, String> {
-        let resolved = self.resolve_directory(target)?;
-        self.change_directory_to(resolved)
-    }
-
-    /// Change to a canonical, trusted source path and refresh content context.
-    ///
-    /// # Errors
-    ///
-    /// Fails when `target` is outside the source root.
-    pub fn change_directory_to(&mut self, target: PathBuf) -> Result<Vec<String>, String> {
-        ensure_contained(self.active_paths()?.source().root(), &target)?;
-        self.current_dir = Some(target);
-        Ok(self.refresh_context())
-    }
-
-    /// Move toward the source root by exactly `levels` parents.
-    ///
-    /// # Errors
-    ///
-    /// Fails rather than moving above the source root.
-    pub fn move_up(&mut self, levels: usize) -> Result<Vec<String>, String> {
-        let source_root = self.active_paths()?.source().root();
-        let mut target = self.current_dir()?.to_path_buf();
-
-        for _ in 0..levels {
-            if target == source_root {
-                return Err(format!(
-                    "source root boundary reached at {}",
-                    source_root.display()
-                ));
-            }
-            target = target.parent().map(Path::to_path_buf).ok_or_else(|| {
-                format!("source root boundary reached at {}", source_root.display())
-            })?;
-        }
-
-        self.change_directory_to(target)
     }
 }
 
