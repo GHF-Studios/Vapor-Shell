@@ -22,8 +22,14 @@ const RUSTUP_INIT_X86_64_LINUX: &str =
     "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init";
 const RUSTUP_INIT_AARCH64_LINUX: &str =
     "https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-gnu/rustup-init";
+const RUSTUP_INIT_X86_64_WINDOWS: &str =
+    "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe";
 const STEAMCMD_LINUX: &str =
     "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
+const STEAMCMD_WINDOWS: &str = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
+const MINGIT_X86_64_WINDOWS: &str = "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/MinGit-2.55.0.3-64-bit.zip";
+const MINGIT_X86_64_WINDOWS_SHA256: &str =
+    "f48e2bead5cbc31f36c5808d67bdc1826965e22729391d3874656b4056e61ab5";
 
 /// Relationship between the running app root and its explicitly accepted path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -489,8 +495,11 @@ fn bootstrap_tools(
     before: &SetupSelfStatus,
     repair: bool,
 ) -> Result<Vec<&'static str>, String> {
-    if !cfg!(target_os = "linux") {
-        return Err("self-setup installation is currently implemented only for Linux".to_owned());
+    if !cfg!(any(target_os = "linux", target_os = "windows")) {
+        return Err(
+            "self-setup installation is currently implemented only for Linux and Windows"
+                .to_owned(),
+        );
     }
     let mut installed_groups = Vec::new();
     if repair || !before.rust.installed() {
@@ -510,7 +519,7 @@ fn bootstrap_tools(
 
 fn bootstrap_rust(root: &Path) -> Result<(), String> {
     let downloads = downloads_dir(root)?;
-    let rustup_init = downloads.join("rustup-init");
+    let rustup_init = downloads.join(executable("rustup-init"));
     download(rustup_init_url()?, &rustup_init)?;
     make_executable(&rustup_init)?;
     let status = Command::new(&rustup_init)
@@ -536,12 +545,21 @@ fn bootstrap_rust(root: &Path) -> Result<(), String> {
 }
 
 fn bootstrap_steamcmd(root: &Path) -> Result<(), String> {
-    let archive = downloads_dir(root)?.join("steamcmd_linux.tar.gz");
-    download(STEAMCMD_LINUX, &archive)?;
     let target = root.join("tools/steamcmd");
     ensure_contained(root, &target)?;
+    if target.exists() {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("failed to reset '{}': {error}", target.display()))?;
+    }
     fs::create_dir_all(&target)
         .map_err(|error| format!("failed to create '{}': {error}", target.display()))?;
+    if cfg!(target_os = "windows") {
+        let archive = downloads_dir(root)?.join("steamcmd.zip");
+        download(STEAMCMD_WINDOWS, &archive)?;
+        return extract_zip(&archive, &target, "SteamCMD archive");
+    }
+    let archive = downloads_dir(root)?.join("steamcmd_linux.tar.gz");
+    download(STEAMCMD_LINUX, &archive)?;
     let status = Command::new("tar")
         .args(["-xzf"])
         .arg(&archive)
@@ -557,6 +575,28 @@ fn bootstrap_steamcmd(root: &Path) -> Result<(), String> {
 }
 
 fn bootstrap_git(root: &Path) -> Result<(), String> {
+    if cfg!(target_os = "windows") {
+        return bootstrap_windows_mingit(root);
+    }
+    bootstrap_host_git(root)
+}
+
+fn bootstrap_windows_mingit(root: &Path) -> Result<(), String> {
+    let archive = downloads_dir(root)?.join("MinGit-2.55.0.3-64-bit.zip");
+    download(MINGIT_X86_64_WINDOWS, &archive)?;
+    verify_sha256(&archive, MINGIT_X86_64_WINDOWS_SHA256)?;
+    let target = root.join("tools/git");
+    ensure_contained(root, &target)?;
+    if target.exists() {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("failed to reset '{}': {error}", target.display()))?;
+    }
+    fs::create_dir_all(&target)
+        .map_err(|error| format!("failed to create '{}': {error}", target.display()))?;
+    extract_zip(&archive, &target, "MinGit archive")
+}
+
+fn bootstrap_host_git(root: &Path) -> Result<(), String> {
     let host = find_host_git(root)?;
     let target = root.join("tools/git");
     ensure_contained(root, &target)?;
@@ -750,6 +790,7 @@ fn rustup_init_url() -> Result<&'static str, String> {
     match (env::consts::OS, env::consts::ARCH) {
         ("linux", "x86_64") => Ok(RUSTUP_INIT_X86_64_LINUX),
         ("linux", "aarch64") => Ok(RUSTUP_INIT_AARCH64_LINUX),
+        ("windows", "x86_64") => Ok(RUSTUP_INIT_X86_64_WINDOWS),
         (os, arch) => Err(format!(
             "Rust/Cargo self-setup installation is not configured for {arch}-{os}"
         )),
@@ -791,13 +832,107 @@ fn download(url: &str, destination: &Path) -> Result<(), String> {
         .arg("-O")
         .arg(destination)
         .arg(url)
+        .status();
+    match status {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => {
+            if cfg!(target_os = "windows") {
+                eprintln!("warning: wget download exited with {status}; trying PowerShell");
+                return powershell_download(url, destination);
+            }
+            Err(format!(
+                "failed to download '{url}': wget exited with {status}"
+            ))
+        }
+        Err(error) => {
+            if cfg!(target_os = "windows") {
+                eprintln!("warning: failed to start wget: {error}; trying PowerShell");
+                return powershell_download(url, destination);
+            }
+            Err(format!("failed to start curl or wget for '{url}': {error}"))
+        }
+    }
+}
+
+fn powershell_download(url: &str, destination: &Path) -> Result<(), String> {
+    let status = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -Uri $args[0] -OutFile $args[1]",
+        ])
+        .arg(url)
+        .arg(destination)
         .status()
-        .map_err(|error| format!("failed to start curl or wget for '{url}': {error}"))?;
+        .map_err(|error| format!("failed to start PowerShell download for '{url}': {error}"))?;
     if status.success() {
         Ok(())
     } else {
         Err(format!(
-            "failed to download '{url}': wget exited with {status}"
+            "failed to download '{url}': PowerShell exited with {status}"
+        ))
+    }
+}
+
+fn extract_zip(archive: &Path, target: &Path, label: &str) -> Result<(), String> {
+    let status = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
+        ])
+        .arg(archive)
+        .arg(target)
+        .status()
+        .map_err(|error| format!("failed to start PowerShell for {label}: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{label} extraction exited with {status}"))
+    }
+}
+
+fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
+    if !cfg!(target_os = "windows") {
+        return Ok(());
+    }
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "(Get-FileHash -Algorithm SHA256 -LiteralPath $args[0]).Hash",
+        ])
+        .arg(path)
+        .output()
+        .map_err(|error| {
+            format!(
+                "failed to start PowerShell checksum verification for '{}': {error}",
+                path.display()
+            )
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "checksum verification for '{}' exited with {}",
+            path.display(),
+            output.status
+        ));
+    }
+    let actual = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(format!(
+            "checksum mismatch for '{}'\n  expected: {expected}\n  actual:   {actual}",
+            path.display()
         ))
     }
 }
@@ -892,9 +1027,16 @@ fn inspect_root(root: &Path) -> SetupSelfStatus {
         missing,
     };
 
-    let git_path = root.join("tools/git/bin").join(executable("git"));
-    let git_delegates_to_system = setup_self_packages::is_delegating_git_script(&git_path);
-    let git_installed = !git_delegates_to_system && is_healthy_executable(&git_path, root);
+    let git_paths = git_candidates(root);
+    let git_path = git_paths
+        .iter()
+        .find(|path| is_healthy_git(path, root))
+        .cloned()
+        .unwrap_or_else(|| preferred_git_path(root));
+    let git_delegates_to_system = git_paths
+        .iter()
+        .any(|path| setup_self_packages::is_delegating_git_script(path));
+    let git_installed = git_paths.iter().any(|path| is_healthy_git(path, root));
     let git = SetupSelfComponentStatus {
         label: "Git",
         installed: git_installed,
@@ -927,6 +1069,25 @@ fn inspect_root(root: &Path) -> SetupSelfStatus {
         steamcmd,
         package: setup_self_packages::inspect_setup_self_package(root),
     }
+}
+
+fn preferred_git_path(root: &Path) -> PathBuf {
+    if cfg!(target_os = "windows") {
+        root.join("tools/git/cmd").join(executable("git"))
+    } else {
+        root.join("tools/git/bin").join(executable("git"))
+    }
+}
+
+fn git_candidates(root: &Path) -> Vec<PathBuf> {
+    vec![
+        root.join("tools/git/bin").join(executable("git")),
+        root.join("tools/git/cmd").join(executable("git")),
+    ]
+}
+
+fn is_healthy_git(path: &Path, root: &Path) -> bool {
+    !setup_self_packages::is_delegating_git_script(path) && is_healthy_executable(path, root)
 }
 
 fn inspect_rust(toolchains: &Path, active_root: Option<&Path>) -> (Option<PathBuf>, Vec<String>) {

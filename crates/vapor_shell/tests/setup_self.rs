@@ -68,6 +68,41 @@ fn active_app_local_tools_satisfy_setup_self_preflight() {
 
 #[cfg(unix)]
 #[test]
+fn mingit_style_git_layout_satisfies_setup_self_preflight() {
+    let installation = TestTree::new("setup-self-mingit-layout");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    let vapor_executable = write_executable(&installation, "bin/vapor");
+    for path in [
+        "rustup/bin/rustup",
+        "rustup-home/toolchains/nightly-host/bin/cargo",
+        "rustup-home/toolchains/nightly-host/bin/rustc",
+        "rustup-home/toolchains/nightly-host/bin/rustfmt",
+        "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
+        "rustup-home/toolchains/nightly-host/bin/rustdoc",
+        "tools/git/cmd/git",
+        "tools/steamcmd/steamcmd",
+    ] {
+        write_executable(&installation, path);
+    }
+    installation.write("cargo-home/registry/.keep", "");
+
+    let source = TestTree::new("setup-self-mingit-layout-source");
+    source.write(
+        "Vapor.toml",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
+    );
+    let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
+    let status = setup_self::inspect(paths.installation());
+
+    assert!(status.git().installed(), "{:?}", status.git().missing());
+    assert!(status.complete());
+}
+
+#[cfg(unix)]
+#[test]
 fn delegating_git_script_is_not_app_owned_git() {
     let installation = TestTree::new("setup-self-git-delegating-script");
     installation.write(
@@ -269,6 +304,50 @@ fn setup_self_install_applies_existing_payload() {
             .join("tools/steamcmd/steamcmd")
             .is_file()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_self_install_applies_mingit_style_payload() {
+    let installation = TestTree::new("setup-self-mingit-payload");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    let vapor_executable = write_executable(&installation, "bin/vapor");
+    for path in [
+        "packages/setup/rustup/bin/rustup",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/cargo",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/rustc",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/rustfmt",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/cargo-clippy",
+        "packages/setup/rustup-home/toolchains/nightly-host/bin/rustdoc",
+        "packages/setup/git/cmd/git",
+        "packages/setup/steamcmd/steamcmd",
+    ] {
+        write_executable(&installation, path);
+    }
+    installation.write("packages/setup/cargo-home/registry/.keep", "");
+
+    let source = TestTree::new("setup-self-mingit-payload-source");
+    source.write(
+        "Vapor.toml",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n",
+    );
+    source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
+    let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
+    let home = TestTree::new("setup-self-mingit-payload-home");
+    let setup = PathSetup::new(
+        home.root().to_path_buf(),
+        installation.root().join("bin"),
+        Some("/bin/bash".to_owned()),
+    );
+    setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
+
+    let report = setup_self::install(paths.installation()).unwrap();
+    assert_eq!(report.installed_groups(), ["Rust/Cargo", "Git", "SteamCMD"]);
+    assert!(report.status().complete());
+    assert!(installation.root().join("tools/git/cmd/git").is_file());
 }
 
 #[cfg(unix)]

@@ -88,9 +88,10 @@ package status, and tool group actions without changing files or shell profile
 state.
 
 When complete `packages/setup` payloads exist, Git is copied from the app-owned
-payload. Otherwise Linux setup imports a usable host Git binary into
-`tools/git`, copies its Git exec-path support files, and replaces any script
-that delegates to system Git.
+payload. Otherwise Windows setup downloads the portable MinGit zip into the app
+root and extracts it under `tools/git`. Linux setup imports a usable host Git
+binary into `tools/git`, copies its Git exec-path support files, and replaces
+any script that delegates to system Git.
 
 ### `setup self repair [--dry-run]`
 

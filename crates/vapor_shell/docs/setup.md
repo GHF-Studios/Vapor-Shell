@@ -59,15 +59,19 @@ implicitly.
 Explicit `setup self install` performs app-local installation into the app root:
 
 - Rust is installed through `rustup-init` with `RUSTUP_HOME` and `CARGO_HOME`
-  pointing inside the app root.
+  pointing inside the app root. Rustup itself is a platform bootstrap
+  executable, but the installed toolchain state is scoped to the Steam app.
 - Git is applied from a complete app-owned `packages/setup/git` payload when
-  one exists. Otherwise Linux setup imports a usable host Git binary into
-  `tools/git`, copies its Git exec-path support files, and replaces delegating
-  scripts with an app-owned launcher.
-- SteamCMD is downloaded and extracted under `tools/steamcmd`.
+  one exists. Otherwise Windows setup downloads the portable MinGit zip and
+  extracts it under `tools/git`. Linux setup imports a usable host Git binary
+  into `tools/git`, copies its Git exec-path support files, and replaces
+  delegating scripts with an app-owned launcher.
+- SteamCMD is downloaded as the platform archive and extracted under
+  `tools/steamcmd`.
 
 This is still app-local operation: active tools and build outputs live under the
-Steam app root, and no workflow command performs this installation implicitly.
+Steam app root, no downloaded setup tool runs a system installer, and no
+workflow command performs this installation implicitly.
 
 ## Installed layout
 

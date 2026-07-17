@@ -1519,10 +1519,17 @@ fn preview_setup_self_install(
         "would apply app-owned Git from {} when complete self-setup payloads exist",
         status.package_root().display()
     );
-    println!(
-        "would otherwise import a real host Git binary into {} and replace delegating scripts",
-        installation.root().join("tools/git").display()
-    );
+    if cfg!(target_os = "windows") {
+        println!(
+            "would otherwise download portable MinGit into {}",
+            installation.root().join("tools/git").display()
+        );
+    } else {
+        println!(
+            "would otherwise import a real host Git binary into {} and replace delegating scripts",
+            installation.root().join("tools/git").display()
+        );
+    }
     println!(
         "would download and extract SteamCMD into {} when SteamCMD is missing or repair is requested",
         installation.root().join("tools/steamcmd").display()

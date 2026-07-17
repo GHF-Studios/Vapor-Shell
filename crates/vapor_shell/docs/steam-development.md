@@ -34,6 +34,11 @@ Steam starts it without a terminal. The Windows wrapper opens a persistent
 `cmd` window. Both wrappers are intentionally thin; Vapor Shell remains the
 central implementation surface.
 
+On Windows, the Shell launch option is expected to be single-click-to-shell.
+First-run tool preparation happens inside that visible shell with
+`setup self install`; it downloads app-local portable Git and SteamCMD payloads
+instead of requiring system Git to be installed before launch.
+
 The `play` wrapper mode opens the normal interactive Vapor Shell, runs the
 installed `.vapor/scripts/loo-cast.vapor` script, and leaves the shell open.
 That script currently calls `launch loo-cast --account ghf_vapor_build` so

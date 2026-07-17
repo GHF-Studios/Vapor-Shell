@@ -461,10 +461,11 @@ pub(crate) fn managed_path(paths: &EnvironmentPaths) -> Result<OsString, String>
         entries.push(parent.to_path_buf());
     }
     entries.extend([
+        root.join("tools/git/cmd"),
         root.join("tools/git/bin"),
         root.join("cargo-home/bin"),
         root.join("rustup/bin"),
-        root.join("steam/steamcmd"),
+        root.join("tools/steamcmd"),
         root.join("bin"),
     ]);
     if let Some(existing) = env::var_os("PATH") {

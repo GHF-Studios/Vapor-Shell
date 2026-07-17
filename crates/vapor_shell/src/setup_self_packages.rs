@@ -247,11 +247,25 @@ fn inspect_package_tools(package: &Path) -> Vec<String> {
             .into_iter()
             .map(|name| format!("rustup-home/toolchains/*/bin/{}", executable(&name))),
     );
-    let git = package.join("git/bin").join(executable("git"));
-    if !is_executable(&git) {
-        missing.push(format!("git/bin/{}", executable("git")));
-    } else if is_delegating_git_script(&git) {
-        missing.push("git/bin/git (replace with app-owned Git executable)".to_owned());
+    let git_candidates = package_git_candidates(package);
+    let git_ready = git_candidates
+        .iter()
+        .any(|path| is_executable(path) && !is_delegating_git_script(path));
+    if !git_ready {
+        if let Some(git) = git_candidates
+            .iter()
+            .find(|path| is_delegating_git_script(path))
+        {
+            missing.push(format!(
+                "{} (replace with app-owned Git executable)",
+                git.strip_prefix(package)
+                    .unwrap_or(git)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            ));
+        } else {
+            missing.push(format!("git/bin/{0} or git/cmd/{0}", executable("git")));
+        }
     }
     if !steam_candidates(&package.join("steamcmd"))
         .iter()
@@ -284,11 +298,28 @@ pub(crate) fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(),
             .into_iter()
             .map(|name| format!("rustup-home/toolchains/*/bin/{}", executable(&name))),
     );
-    let git = app_root.join("tools/git/bin").join(executable("git"));
-    if !is_executable(&git) {
-        missing.push(format!("tools/git/bin/{}", executable("git")));
-    } else if is_delegating_git_script(&git) {
-        missing.push("tools/git/bin/git (replace with app-owned Git executable)".to_owned());
+    let git_candidates = active_git_candidates(app_root);
+    let git_ready = git_candidates
+        .iter()
+        .any(|path| is_executable(path) && !is_delegating_git_script(path));
+    if !git_ready {
+        if let Some(git) = git_candidates
+            .iter()
+            .find(|path| is_delegating_git_script(path))
+        {
+            missing.push(format!(
+                "{} (replace with app-owned Git executable)",
+                git.strip_prefix(app_root)
+                    .unwrap_or(git)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            ));
+        } else {
+            missing.push(format!(
+                "tools/git/bin/{0} or tools/git/cmd/{0}",
+                executable("git")
+            ));
+        }
     }
     if !steam_candidates(&app_root.join("tools/steamcmd"))
         .iter()
@@ -304,6 +335,20 @@ pub(crate) fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(),
             missing.join("\n  - ")
         ))
     }
+}
+
+fn package_git_candidates(package: &Path) -> Vec<PathBuf> {
+    vec![
+        package.join("git/bin").join(executable("git")),
+        package.join("git/cmd").join(executable("git")),
+    ]
+}
+
+fn active_git_candidates(app_root: &Path) -> Vec<PathBuf> {
+    vec![
+        app_root.join("tools/git/bin").join(executable("git")),
+        app_root.join("tools/git/cmd").join(executable("git")),
+    ]
 }
 
 fn inspect_rust_bins(toolchains: &Path) -> Vec<String> {

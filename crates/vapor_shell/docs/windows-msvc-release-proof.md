@@ -1,7 +1,8 @@
 # Windows/MSVC release proof
 
 This checklist proves the Windows side of the release target matrix without
-publishing Steam depot or Workshop changes.
+publishing Steam depot or Workshop changes. It starts from the product path:
+Steam opens a visible Vapor Shell, then Vapor prepares app-local tools.
 
 The target is:
 
@@ -9,9 +10,64 @@ The target is:
 x86_64-pc-windows-msvc
 ```
 
-Use a normal Windows Steam install of Loo-Cast, a Git checkout of the pushed
-source repositories, and the installed Vapor Shell. Run commands from a visible
-terminal, not a silent Steam process.
+## Steam launch
+
+The Windows Steam launch option should target the wrapper shipped in the depot:
+
+```text
+executable: .vapor\launch\windows\vapor.cmd
+arguments:  shell
+```
+
+If Steam refuses to execute `.cmd` directly, use:
+
+```text
+executable: cmd.exe
+arguments:  /c ".vapor\launch\windows\vapor.cmd" shell
+```
+
+Clicking that launch option should open a persistent `cmd` window running Vapor
+Shell. The user should not need to install Git before clicking Play.
+
+## First-run setup
+
+Run this from the visible Vapor Shell:
+
+```text
+setup self status
+setup self install
+setup self status
+```
+
+Expected setup behavior:
+
+- Rustup is downloaded and run with `RUSTUP_HOME` and `CARGO_HOME` inside the
+  Steam app root.
+- Git is downloaded as the portable MinGit zip and extracted under
+  `tools\git`.
+- SteamCMD is downloaded as the Windows zip and extracted under
+  `tools\steamcmd`.
+
+No downloaded setup component should run a system installer, require global
+Git, write to a global Git location, or mutate machine-wide PATH state.
+
+## Source handoff
+
+The source import/template command is still a product gap. Until that exists,
+the source root must be present by one of these explicit handoff methods:
+
+- a prepared source checkout or archive;
+- a future Vapor workspace/template import command;
+- a manual clone using app-local Git after `setup self install`.
+
+If a manual clone is needed for this proof, use the app-local Git binary:
+
+```cmd
+set "APP_ROOT=C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
+"%APP_ROOT%\tools\git\cmd\git.exe" clone --recurse-submodules REPO_URL "%USERPROFILE%\Documents\Loo Cast Repos\Vapor-Root"
+```
+
+Do not ask the Windows machine to install system Git.
 
 ## Windows build
 
@@ -19,19 +75,8 @@ Set paths for the local machine:
 
 ```cmd
 set "APP_ROOT=C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
-set "REPOS=C:\Users\YOU\Documents\GitHub\Loo Cast Repos"
+set "REPOS=%USERPROFILE%\Documents\Loo Cast Repos"
 set "VAPOR=%APP_ROOT%\bin\x86_64-pc-windows-msvc\vapor.exe"
-```
-
-Refresh source checkouts:
-
-```cmd
-cd /d "%REPOS%\Vapor-Root"
-git pull --recurse-submodules
-git submodule update --init --recursive
-
-cd /d "%REPOS%\Loo-Cast"
-git pull
 ```
 
 Build and promote the Windows Vapor Shell app binary:
@@ -54,6 +99,11 @@ Build the example runtime outputs:
 "%VAPOR%" source open "%REPOS%\Vapor-Root\Vapor-Examples"
 "%VAPOR%" content build --target x86_64-pc-windows-msvc
 ```
+
+This proof still requires a working MSVC linker for
+`x86_64-pc-windows-msvc`. Git, Rustup state, Cargo state, and SteamCMD are
+app-local; the Microsoft compiler/linker toolchain is not yet a portable Vapor
+payload.
 
 ## Windows artifact checks
 

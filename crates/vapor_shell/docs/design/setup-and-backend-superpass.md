@@ -285,8 +285,9 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 - Detect app-local, imported host, system, and configured Git/SteamCMD
   providers.
 - Reject delegating Git scripts as app-owned providers.
-- Use host Git only as an explicit import source for app-owned setup until a
-  full portable Git payload exists.
+- Use a portable MinGit archive for Windows app-owned Git setup. Keep Linux
+  host Git import as the explicit fallback until a Linux portable Git payload is
+  chosen.
 - Add OS/distro/package-manager detection as diagnostic data.
 
 ### Phase 5: Self-Setup Repair Actions
