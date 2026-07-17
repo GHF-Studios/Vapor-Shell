@@ -53,8 +53,8 @@ Cargo workspace. Direct Git submodules that contain `[workspace]` manifests and
 
 This is source, not the Steam installation/app root.
 `[root.runtime].targets` declares the release target matrix for app/depot
-builds and staging. Host-only local commands may omit target flags; release
-commands use `--release-targets` to consume this list.
+builds and staging. Target-aware root commands consume this matrix by default;
+use `--host-only` for local host-only smoke passes.
 
 ### Normal source workspace
 
@@ -80,8 +80,9 @@ Its root must contain `Cargo.toml`.
 A workspace may contain several Cargo packages, several Vapor projects, and
 several publishable Workshop artifacts.
 `[workspace.runtime].targets` declares the release target matrix for content
-build/package/deploy/create/publish operations. Host-only local commands may
-omit target flags; release content operations use `--release-targets`.
+build/package/deploy/create/publish operations. Target-aware content commands
+consume this matrix by default; use `--host-only` for local host-only smoke
+passes.
 
 Application workspaces that contribute installed commands may add
 `binaries = ["name"]` under `[workspace]`. `root build` promotes those Cargo

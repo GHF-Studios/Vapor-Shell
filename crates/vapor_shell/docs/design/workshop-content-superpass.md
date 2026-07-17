@@ -150,9 +150,9 @@ implemented grammar is:
 content status
 content list
 content validate
-content build [--target TARGET]... [--release-targets]
-content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets]
-content package ARTIFACT [--target TARGET]... [--release-targets]
+content build [--target TARGET]... [--release-targets] [--host-only]
+content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets] [--host-only]
+content package ARTIFACT [--target TARGET]... [--release-targets] [--host-only]
 content acquire ARTIFACT_OR_WORKSHOP_ID
 content subscribe ARTIFACT_OR_WORKSHOP_ID
 content download ARTIFACT_OR_WORKSHOP_ID...
@@ -166,8 +166,8 @@ content disable ARTIFACT_OR_WORKSHOP_ID
 content enable ARTIFACT_OR_WORKSHOP_ID
 content uninstall ARTIFACT_OR_WORKSHOP_ID
 content repair [ARTIFACT_OR_WORKSHOP_ID]
-content create ARTIFACT [--target TARGET]... [--release-targets] --dry-run
-content publish ARTIFACT... [--target TARGET]... [--release-targets] [--dry-run]
+content create ARTIFACT [--target TARGET]... [--release-targets] [--host-only] --dry-run
+content publish ARTIFACT... [--target TARGET]... [--release-targets] [--host-only] [--dry-run]
 content delete ARTIFACT_OR_WORKSHOP_ID --dry-run
 ```
 

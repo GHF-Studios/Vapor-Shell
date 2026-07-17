@@ -149,8 +149,8 @@ release matrix without rebuilding Windows on Linux:
 
 ```text
 source open /home/leslieghf/Documents/GitHub/Loo Cast Repos/Vapor-Root
-root package --release-targets
-root publish --release-targets --skip-build --dry-run
+root package
+root publish --skip-build --dry-run
 ```
 
 Expected app staging shape:
@@ -166,7 +166,7 @@ Then prove the Loo-Cast Workshop package preview:
 
 ```text
 source open /home/leslieghf/Documents/GitHub/Loo Cast Repos/Loo-Cast
-content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --release-targets --dry-run
+content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --dry-run
 ```
 
 No command in this checklist performs a real Steam upload. Real publication

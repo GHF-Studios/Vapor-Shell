@@ -324,9 +324,12 @@ pub enum RootCommand {
         /// Rust target triple for root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Build the release target matrix declared in `[root.runtime].targets`.
+        /// Build the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Build only Cargo's host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
     },
     /// Build and locally deploy root binaries and docs into the Steam app root.
     Deploy {
@@ -336,9 +339,12 @@ pub enum RootCommand {
         /// Rust target triple for root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Build the release target matrix declared in `[root.runtime].targets`.
+        /// Build the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Build and deploy only Cargo's host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
     },
     /// Assemble and smoke-check the local application/depot package.
     Package {
@@ -348,9 +354,12 @@ pub enum RootCommand {
         /// Runtime target triple to stage launchers for. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Stage the release target matrix declared in `[root.runtime].targets`.
+        /// Stage the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Stage only the host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
     },
     /// Validate, build, stage, preview, or upload the complete Steam app/depot.
     Publish {
@@ -366,9 +375,12 @@ pub enum RootCommand {
         /// Rust target triple for root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Build and stage the release target matrix declared in `[root.runtime].targets`.
+        /// Build and stage the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Build and stage only the host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
         /// Use already-promoted app binaries instead of running Cargo validate/build.
         #[arg(long)]
         skip_build: bool,
@@ -402,9 +414,12 @@ pub enum ContentCommand {
         /// Rust target triple for content runtime outputs. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Build the release target matrix declared in `[workspace.runtime].targets`.
+        /// Build the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Build only Cargo's host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
     },
     /// Build and locally install source content without Workshop publication.
     Deploy {
@@ -417,9 +432,12 @@ pub enum ContentCommand {
         /// Rust target triple for content runtime outputs. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Deploy the release target matrix declared in `[workspace.runtime].targets`.
+        /// Deploy the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Deploy only Cargo's host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
     },
     /// Stage a content package under the app root.
     Package {
@@ -429,9 +447,12 @@ pub enum ContentCommand {
         /// Rust target triple for content runtime outputs. May be repeated for multi-platform packages.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Package the release target matrix declared in `[workspace.runtime].targets`.
+        /// Package the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Package only the host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
         /// Preview package output without writing it.
         #[arg(long)]
         dry_run: bool,
@@ -529,9 +550,12 @@ pub enum ContentCommand {
         /// Rust target triple for content runtime outputs. May be repeated for multi-platform packages.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Package the release target matrix declared in `[workspace.runtime].targets`.
+        /// Package the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Package only the host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
         /// Preview the SteamUGC create request without changing authority.
         #[arg(long)]
         dry_run: bool,
@@ -550,9 +574,12 @@ pub enum ContentCommand {
         /// Rust target triple for content runtime outputs. May be repeated for multi-platform packages.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
-        /// Package the release target matrix declared in `[workspace.runtime].targets`.
+        /// Package the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
+        /// Package only the host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
         /// Workshop update note.
         #[arg(long)]
         change_note: Option<String>,
@@ -1315,22 +1342,31 @@ fn resolve_runtime_targets(
     manifest: &WorkspaceManifest,
     explicit_targets: &[String],
     release_targets: bool,
+    host_only: bool,
 ) -> Result<Vec<String>, String> {
-    if release_targets && !explicit_targets.is_empty() {
-        return Err("use either --target or --release-targets, not both".to_owned());
+    let selected_modes = usize::from(!explicit_targets.is_empty())
+        + usize::from(release_targets)
+        + usize::from(host_only);
+    if selected_modes > 1 {
+        return Err("use only one of --target, --release-targets, or --host-only".to_owned());
     }
-    if release_targets {
-        if manifest.runtime_targets().is_empty() {
-            return Err(
-                "source Vapor.toml declares no runtime targets; add [root.runtime]/[workspace.runtime] targets or pass --target"
-                    .to_owned(),
-            );
-        }
-        Ok(manifest.runtime_targets().to_vec())
-    } else {
+    if !explicit_targets.is_empty() {
         validate_command_runtime_targets(explicit_targets)?;
-        Ok(explicit_targets.to_vec())
+        return Ok(explicit_targets.to_vec());
     }
+    if host_only {
+        return Ok(Vec::new());
+    }
+    if release_targets && manifest.runtime_targets().is_empty() {
+        return Err(
+            "source Vapor.toml declares no runtime targets; add [root.runtime]/[workspace.runtime] targets or pass --target"
+                .to_owned(),
+        );
+    }
+    if !manifest.runtime_targets().is_empty() {
+        return Ok(manifest.runtime_targets().to_vec());
+    }
+    Ok(Vec::new())
 }
 
 fn validate_command_runtime_targets(targets: &[String]) -> Result<(), String> {
@@ -1696,6 +1732,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         RootCommand::Build {
             target,
             release_targets,
+            host_only,
         } => {
             metadata.validate(
                 &ValidationPlan::new("rebuild the Vapor application")
@@ -1703,8 +1740,12 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                     .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
                     .workspace(),
             )?;
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             run_workflow_targets(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
@@ -1723,6 +1764,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             skip_docs,
             target,
             release_targets,
+            host_only,
         } => {
             metadata.validate(
                 &ValidationPlan::new("locally deploy the Vapor application")
@@ -1730,8 +1772,12 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                     .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
                     .workspace(),
             )?;
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             run_workflow_targets(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
@@ -1763,6 +1809,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             include_setup_payload,
             target,
             release_targets,
+            host_only,
         } => {
             metadata.validate(
                 &ValidationPlan::new("package the Vapor application")
@@ -1771,8 +1818,12 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                     .workspace()
                     .distribution(),
             )?;
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             let stage_options = if include_setup_payload {
                 setup_self_packages::validate_setup_self_package(state.installation().root())?;
                 StageOptions::with_setup_payload()
@@ -1812,6 +1863,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             branch,
             target,
             release_targets,
+            host_only,
             skip_build,
             description,
             dry_run,
@@ -1839,8 +1891,12 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                     .workspace()
                     .distribution(),
             )?;
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             let stage_options = if include_setup_payload {
                 setup_self_packages::validate_setup_self_package(state.installation().root())?;
                 StageOptions::with_setup_payload()
@@ -2099,6 +2155,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
         ContentCommand::Build {
             target,
             release_targets,
+            host_only,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
@@ -2107,8 +2164,12 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
                     .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
                     .workspace(),
             )?;
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             run_workflow_targets(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
@@ -2122,6 +2183,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             select,
             target,
             release_targets,
+            host_only,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
@@ -2130,8 +2192,12 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
                     .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
                     .workspace(),
             )?;
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             run_workflow_targets(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
@@ -2165,11 +2231,16 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             artifact,
             target,
             release_targets,
+            host_only,
             dry_run,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             let report =
                 content::package_for_targets(state.active_paths()?, &artifact, dry_run, &targets)?;
             print_package_report(&report);
@@ -2349,12 +2420,17 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             account,
             target,
             release_targets,
+            host_only,
             dry_run,
             yes,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             let report = content::create_workshop_item_for_targets(
                 state.active_paths()?,
                 &artifact,
@@ -2388,13 +2464,18 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             account,
             target,
             release_targets,
+            host_only,
             change_note,
             dry_run,
             yes,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
-            let targets =
-                resolve_runtime_targets(metadata.workspace_manifest()?, &target, release_targets)?;
+            let targets = resolve_runtime_targets(
+                metadata.workspace_manifest()?,
+                &target,
+                release_targets,
+                host_only,
+            )?;
             let reports = content::publish_workshop_items_for_targets(
                 state.active_paths()?,
                 &artifacts,

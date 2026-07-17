@@ -72,8 +72,8 @@ default-launch = "loo-cast"
 Direct Git submodules define its application/depot workspace membership. Each
 member must be a `[workspace]` repository with a root `Cargo.toml`.
 `[root.runtime].targets` declares the app/depot release target matrix consumed
-by `root * --release-targets`; ordinary local root commands remain host-only
-unless explicit targets are requested.
+by target-aware root commands by default. Use `--host-only` for local host-only
+smoke passes.
 
 `[[root.content]]` records first-party installed-app discovery seeds for public
 Workshop content that the app may need before any external source checkout or
@@ -111,8 +111,8 @@ Cargo member paths. Vapor project registration is a separate relationship:
 `[[workspace.projects]]` declares which child paths are Vapor-managed projects
 inside this source workspace.
 `[workspace.runtime].targets` declares the content release target matrix
-consumed by content `--release-targets`; ordinary local content commands remain
-host-only unless explicit targets are requested.
+consumed by target-aware content commands by default. Use `--host-only` for
+local host-only smoke passes.
 
 ```toml
 [[workspace.projects]]

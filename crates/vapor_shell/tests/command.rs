@@ -98,6 +98,7 @@ fn help_uses_defined_argument_domains() {
         root_build_help.contains("--release-targets"),
         "{root_build_help}"
     );
+    assert!(root_build_help.contains("--host-only"), "{root_build_help}");
     ShellCommand::try_parse_from([
         "",
         "root",
@@ -120,10 +121,19 @@ fn help_uses_defined_argument_domains() {
         root_deploy_help.contains("--release-targets"),
         "{root_deploy_help}"
     );
+    assert!(
+        root_deploy_help.contains("--host-only"),
+        "{root_deploy_help}"
+    );
     let root_package_help = ShellCommand::try_parse_from(["", "root", "package", "--help"])
         .expect_err("root package help should exit through Clap")
         .to_string();
-    for argument in ["--include-setup-payload", "--target", "--release-targets"] {
+    for argument in [
+        "--include-setup-payload",
+        "--target",
+        "--release-targets",
+        "--host-only",
+    ] {
         assert!(
             root_package_help.contains(argument),
             "missing {argument}: {root_package_help}"
@@ -138,6 +148,7 @@ fn help_uses_defined_argument_domains() {
         "--branch",
         "--target",
         "--release-targets",
+        "--host-only",
         "--skip-build",
         "--yes",
     ] {
@@ -194,6 +205,10 @@ fn help_uses_defined_argument_domains() {
         content_deploy_help.contains("--release-targets"),
         "{content_deploy_help}"
     );
+    assert!(
+        content_deploy_help.contains("--host-only"),
+        "{content_deploy_help}"
+    );
     let content_build_help = ShellCommand::try_parse_from(["", "content", "build", "--help"])
         .expect_err("content build help should exit through Clap")
         .to_string();
@@ -205,6 +220,10 @@ fn help_uses_defined_argument_domains() {
         content_build_help.contains("--release-targets"),
         "{content_build_help}"
     );
+    assert!(
+        content_build_help.contains("--host-only"),
+        "{content_build_help}"
+    );
     let content_package_help = ShellCommand::try_parse_from(["", "content", "package", "--help"])
         .expect_err("content package help should exit through Clap")
         .to_string();
@@ -214,6 +233,10 @@ fn help_uses_defined_argument_domains() {
     );
     assert!(
         content_package_help.contains("--release-targets"),
+        "{content_package_help}"
+    );
+    assert!(
+        content_package_help.contains("--host-only"),
         "{content_package_help}"
     );
     ShellCommand::try_parse_from([
@@ -239,6 +262,7 @@ fn help_uses_defined_argument_domains() {
             .to_string();
         assert!(help.contains("--target"), "{help}");
         assert!(help.contains("--release-targets"), "{help}");
+        assert!(help.contains("--host-only"), "{help}");
     }
 
     let launch_help = ShellCommand::try_parse_from(["", "launch", "--help"])

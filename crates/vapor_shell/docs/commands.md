@@ -273,30 +273,32 @@ scripts may run `ide status` and `ide repair --dry-run`, but not real
 
 ## Root application/depot workflows
 
-### `root build [--target TARGET]... [--release-targets]`
+### `root build [--target TARGET]... [--release-targets] [--host-only]`
 
 Build discovered Cargo workspaces and promote declared application binaries
 from `[workspace].binaries` into the Steam installation/app root under
-`bin/<target>/`. Omitting `--target` uses Cargo's host-default output and
-promotes into `bin/<host-target>/`. Repeat `--target` to promote specific
-platform payloads, such as Linux and Windows/MSVC.
+`bin/<target>/`. When `[root.runtime].targets` is declared, omitting target
+flags builds and promotes that full runtime matrix by default. Repeat
+`--target` to promote an explicit custom subset, such as only Windows/MSVC.
 
-Use `--release-targets` to build the target matrix declared in
-`[root.runtime].targets`. Do not combine it with explicit `--target` values.
+`--release-targets` is accepted as an explicit spelling of the manifest-matrix
+default. Use `--host-only` for a local smoke pass that builds only Cargo's host
+target. Do not combine `--target`, `--release-targets`, and `--host-only`.
 
-### `root deploy [--skip-docs] [--target TARGET]... [--release-targets]`
+### `root deploy [--skip-docs] [--target TARGET]... [--release-targets] [--host-only]`
 
 Build discovered Cargo workspaces, promote declared application binaries into
 the Steam installation/app root under `bin/<target>/`, and rebuild installed
 docs. This is local-only: it does not stage a SteamPipe VDF, upload a depot, or
 touch Workshop authority.
 
-Use `--skip-docs` for a faster local binary-only deploy. Omitting target flags
-deploys only the host target. `--release-targets` deploys every target declared
-in `[root.runtime].targets` and copies only the matching platform launch
-wrappers.
+Use `--skip-docs` for a faster local binary-only deploy. When
+`[root.runtime].targets` is declared, omitting target flags deploys every
+declared runtime target and copies only the matching platform launch wrappers.
+Use `--host-only` when the intent is a quick local deploy for the current
+machine.
 
-### `root package [--include-setup-payload] [--target TARGET]... [--release-targets]`
+### `root package [--include-setup-payload] [--target TARGET]... [--release-targets] [--host-only]`
 
 Build installed documentation, assemble the clean allowlisted app/depot payload,
 and smoke-check the staged package without invoking SteamCMD. The default root
@@ -304,26 +306,28 @@ payload is runtime-only: `Vapor.toml`, selected `bin/<target>/` application
 binaries, `docs/`, app scripts, target-matching launch wrappers, and packaged
 examples.
 
-Omitting target flags stages the host target only. Repeat `--target` to stage
-specific platform binaries that already exist in the app root. Use
-`--release-targets` to stage the `[root.runtime].targets` matrix.
+When `[root.runtime].targets` is declared, omitting target flags stages that
+full matrix by default. Repeat `--target` to stage a deliberate custom subset
+of platform binaries that already exist in the app root. Use `--host-only` for
+a local host-only package.
 
 Use `--include-setup-payload` only for an intentional stacked bootstrap/depot
 package. That mode additionally validates and stages `packages/setup`; run
 `setup self package install` or `setup self package repair` first when metadata
 reports missing self-setup payloads.
 
-### `root publish [--include-setup-payload] [--account ACCOUNT] [--branch BRANCH] [--target TARGET]... [--release-targets] [--skip-build] [--dry-run] [--yes]`
+### `root publish [--include-setup-payload] [--account ACCOUNT] [--branch BRANCH] [--target TARGET]... [--release-targets] [--host-only] [--skip-build] [--dry-run] [--yes]`
 
 Validate, build, promote binaries, build docs, stage the clean app/depot
 payload, smoke-check it, generate a SteamPipe VDF, and optionally upload it.
 The default upload payload is runtime-only; Loo-Cast and other content
 artifacts are published through `content publish`, not through the app depot.
 
-Repeat `--target` for release-mode app builds that must ship more than one
-platform binary, or use `--release-targets` for the `[root.runtime].targets`
-matrix. The depot smoke check rejects platform launch wrappers when their
-matching `bin/<target>/vapor[.exe]` payload is missing.
+When `[root.runtime].targets` is declared, publication defaults to that runtime
+matrix. Repeat `--target` only for an intentional custom subset, and use
+`--host-only` only for local smoke or emergency narrow publication. The depot
+smoke check rejects platform launch wrappers when their matching
+`bin/<target>/vapor[.exe]` payload is missing.
 
 Use `--skip-build` only when the selected target binaries were already promoted
 into the app root, such as after importing Windows/MSVC artifacts built on a
@@ -358,16 +362,16 @@ Validate source content metadata, required composition/dependency references,
 conflicts, and Workshop publication intent. Omit `ARTIFACT` to validate every
 registered source artifact.
 
-### `content build [--target TARGET]... [--release-targets]`
+### `content build [--target TARGET]... [--release-targets] [--host-only]`
 
 Build the active content workspace through app-local Cargo. This uses the same
 setup preflight as other Cargo workflows and writes build output under the app
-root. Use `--target` to build explicit runtime output such as
-`x86_64-pc-windows-msvc`; otherwise Vapor builds the host target. Use
-`--release-targets` to build every target declared in
-`[workspace.runtime].targets`.
+root. When `[workspace.runtime].targets` is declared, omitting target flags
+builds that full matrix by default. Use `--target` to build an explicit custom
+subset such as only `x86_64-pc-windows-msvc`. Use `--host-only` for a local
+host build.
 
-### `content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets]`
+### `content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets] [--host-only]`
 
 Build the active content workspace and install the selected source artifact into
 the app-owned installed-content tree. Dependencies present in the same source
@@ -377,18 +381,20 @@ from app-local Cargo output into each deployed artifact root under
 publish, delete, subscribe to, or upload Workshop items.
 
 Use `--select` when deploying a packagepack that should become the active
-playable packagepack. Omitting target flags deploys only the host target;
-`--release-targets` deploys the `[workspace.runtime].targets` matrix.
+playable packagepack. When `[workspace.runtime].targets` is declared, omitting
+target flags deploys the full matrix. Use `--host-only` for quick local
+iteration on the current machine.
 
-### `content package ARTIFACT [--target TARGET]... [--release-targets] [--dry-run]`
+### `content package ARTIFACT [--target TARGET]... [--release-targets] [--host-only] [--dry-run]`
 
 Stage one deployable artifact root under `output/content/packages/`, write a
 resolved deployed `Vapor.toml`, fingerprint the staged root, and record a
 receipt. Declared `binaries` and `libraries` are copied from app-local Cargo
 output into `bin/<target>/` and `lib/<target>/`, and the deployed manifest
-records the staged filenames in target-specific `runtime` entries. Repeat
-`--target` to stage several platform payloads into one package root, or use
-`--release-targets` for the workspace runtime matrix.
+records the staged filenames in target-specific `runtime` entries. When
+`[workspace.runtime].targets` is declared, omitting target flags stages that
+full matrix into one package root. Repeat `--target` for an intentional custom
+subset, or use `--host-only` for a local host-only package.
 
 Release Workshop packages should be single logical artifact roots that contain
 every shipped runtime target, for example Linux and Windows/MSVC side by side.
@@ -474,28 +480,29 @@ Remove installed or disabled artifact roots and delete the app-owned
 installed-state record. Dependency artifact roots are not removed implicitly;
 uninstall them explicitly when desired.
 
-### `content create ARTIFACT [--target TARGET]... [--release-targets] --dry-run`
+### `content create ARTIFACT [--target TARGET]... [--release-targets] [--host-only] --dry-run`
 
 Record a safe preview of creating a new Workshop item. Real item creation is a
 SteamUGC authority-changing action and must be performed manually through a
-SteamUGC-enabled provider. Repeat `--target` to stage the package payload for
-each runtime target before the Workshop create/upload boundary, or use
-`--release-targets` for the workspace runtime matrix.
+SteamUGC-enabled provider. When `[workspace.runtime].targets` is declared,
+creation previews and real creation package that matrix by default. Repeat
+`--target` only for a custom subset, or use `--host-only` for a local host-only
+preview.
 
-### `content publish ARTIFACT... [--target TARGET]... [--release-targets] [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
+### `content publish ARTIFACT... [--target TARGET]... [--release-targets] [--host-only] [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
 
 Package one or more artifacts and write Workshop provider VDFs. `--dry-run`
 performs no upload. A real upload requires `--account ACCOUNT`, `--yes`,
 existing PublishedFileIds in the artifacts' `Vapor.toml` files, and must be
 typed manually in the interactive shell. Multiple artifacts are sent through one
-SteamCMD provider session. Repeat `--target` when publishing a package that
-must contain more than one platform payload, or use `--release-targets` for the
-workspace runtime matrix.
+SteamCMD provider session. When `[workspace.runtime].targets` is declared,
+publishing packages that matrix by default. Repeat `--target` only for an
+intentional custom subset, or use `--host-only` for local smoke previews.
 
-The intended release path is `content publish ... --release-targets`: one
-Workshop item update per artifact, with all supported platform binaries and
-libraries inside that item. Steam Workshop beta-branch versioning is reserved
-for app-branch compatibility ranges, not for Linux-vs-Windows payload splitting.
+The intended release path is plain `content publish ...`: one Workshop item
+update per artifact, with all supported platform binaries and libraries inside
+that item. Steam Workshop beta-branch versioning is reserved for app-branch
+compatibility ranges, not for Linux-vs-Windows payload splitting.
 
 ### `content delete ARTIFACT_OR_WORKSHOP_ID --dry-run`
 

@@ -355,10 +355,11 @@ The implemented first pass exposes this as `root build`, `root package`, and
 `root publish [--dry-run]`. Default staging is runtime-only; the large
 self-setup/toolchain payload is explicit. Dry-run publication validates, builds,
 stages, smoke-checks, and writes a preview VDF without requiring active
-SteamCMD. Host-only local staging is the default. Release publication uses the
-`[root.runtime].targets` matrix through `--release-targets` and stages only the
-matching `bin/<target>/` app binaries and launch wrappers. Real publication is
-manual and requires an account plus explicit confirmation.
+SteamCMD. When `[root.runtime].targets` is declared, target-aware root commands
+use that matrix by default and stage only the matching `bin/<target>/` app
+binaries and launch wrappers. Host-only local staging is an explicit
+`--host-only` opt-out. Real publication is manual and requires an account plus
+explicit confirmation.
 
 ## First-party authority
 

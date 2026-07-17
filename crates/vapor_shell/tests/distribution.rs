@@ -52,6 +52,12 @@ organization = "example"
 app-id = 123
 depot-id = 124
 development-branch = "vapor-dev"
+
+[root.runtime]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
 "#,
     );
     source.write(".vapor/scripts/loo-cast.vapor", "launch loo-cast\n");
@@ -287,6 +293,12 @@ organization = "example"
 app-id = 123
 depot-id = 124
 development-branch = "vapor-dev"
+
+[root.runtime]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
 "#,
     );
     source.write(
@@ -329,6 +341,7 @@ development-branch = "vapor-dev"
                 branch: None,
                 target: Vec::new(),
                 release_targets: false,
+                host_only: false,
                 skip_build: false,
                 description: "dry-run build".to_owned(),
                 dry_run: true,
@@ -345,4 +358,16 @@ development-branch = "vapor-dev"
     let vdf = fs::read_to_string(script).unwrap();
     assert!(vdf.contains("\"Preview\" \"1\""), "{vdf}");
     assert!(vdf.contains("\"SetLive\" \"vapor-dev\""), "{vdf}");
+    assert!(
+        installation
+            .root()
+            .join("output/root/content/bin/x86_64-unknown-linux-gnu/vapor")
+            .is_file()
+    );
+    assert!(
+        installation
+            .root()
+            .join("output/root/content/bin/x86_64-pc-windows-msvc/vapor.exe")
+            .is_file()
+    );
 }

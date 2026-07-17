@@ -54,14 +54,16 @@ repair diagnostics are generated state and stay under the app root.
 
 `content build`, `content deploy`, and `content package` accept
 `--target TARGET` for explicit platform output such as
-`x86_64-pc-windows-msvc`. These commands also accept `--release-targets`,
-which expands to `[workspace.runtime].targets` in the source `Vapor.toml`.
+`x86_64-pc-windows-msvc`. When `[workspace.runtime].targets` is declared in
+the source `Vapor.toml`, omitting target flags uses that full matrix by
+default. `--release-targets` is accepted as an explicit spelling of the same
+manifest-matrix behavior.
 `content package`, `content create`, and `content publish` may repeat
-`--target` or use `--release-targets` to stage one package root containing
-multiple platform payloads. Omitting target flags uses the host target and
-reads the normal app-local Cargo output directory. Explicit or release targets
-read from `output/dev/<workspace>/<target>/debug/` and stage files under the
-same target name inside the deployed content root.
+`--target` to stage a custom subset into one package root. Use `--host-only`
+for quick local smoke passes that should read the normal app-local Cargo output
+directory. Manifest or explicit targets read from
+`output/dev/<workspace>/<target>/debug/` and stage files under the same target
+name inside the deployed content root.
 
 This is the release shape for Workshop content. A Workshop item represents one
 logical content artifact and may carry every shipped runtime target under the
@@ -155,18 +157,18 @@ manual interactive confirmation:
 content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --account ACCOUNT --yes
 ```
 
-For platform-specific runtime payloads, build each target, then publish one
-package containing every target that should be present in the Workshop item:
+For platform-specific runtime payloads, the default release path builds and
+publishes the workspace target matrix:
 
 ```text
-content build --release-targets
-content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --release-targets --dry-run
+content build
+content publish ghf-studios/loo-cast/spacetime-engine ghf-studios/loo-cast/loo-cast-game ghf-studios/loo-cast/loo-cast-packagepack --dry-run
 ```
 
-For quick local Linux iteration, omit target flags:
+For quick local Linux iteration, opt out explicitly:
 
 ```text
-content deploy ghf-studios/loo-cast/loo-cast-packagepack --select
+content deploy ghf-studios/loo-cast/loo-cast-packagepack --select --host-only
 ```
 
 Scripts cannot perform real Workshop create, publish, or delete operations.

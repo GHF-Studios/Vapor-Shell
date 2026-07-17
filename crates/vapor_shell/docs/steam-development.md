@@ -89,26 +89,27 @@ The bootstrap sequence is:
 7. run `vapor`; it should discover the app from its own executable and reopen
    the last active source;
 8. run `validate` using app-local Rust/Cargo;
-9. run `root build`, `root package`, and `root publish --dry-run`;
-10. upload the rebuilt app with `root publish --account NAME --yes` from the
-    interactive shell.
+9. for a local Linux-only bootstrap proof, run `root build --host-only`,
+   `root package --host-only`, and `root publish --host-only --dry-run`;
+10. upload a real release only after the runtime matrix is present, with
+    `root publish --account NAME --yes` from the interactive shell.
 
 Release-mode depot builds should target every shipped app platform:
 
 ```text
-root build --release-targets
-root publish --release-targets --dry-run
+root build
+root publish --dry-run
 ```
 
 The Windows/MSVC target normally needs to be built on Windows after Steam has
 installed the Visual Studio 2022 Build Tools redistributable, then staged
 alongside the Linux payload before publication.
-For quick local Linux smoke, omit target flags and Vapor stages only the host
-`bin/<target>/` directory plus the matching launch wrapper.
+For quick local Linux smoke, pass `--host-only`; Vapor then stages only the
+host `bin/<target>/` directory plus the matching launch wrapper.
 When Windows artifacts were imported from another machine, use
-`root publish --release-targets --skip-build --dry-run` so the publishing
-machine stages and smoke-checks the imported `bin/<target>/` payloads without
-trying to rebuild Windows/MSVC locally.
+`root publish --skip-build --dry-run` so the publishing machine stages and
+smoke-checks the imported `bin/<target>/` payloads without trying to rebuild
+Windows/MSVC locally.
 
 The concrete Windows build and Linux handoff checklist is documented in
 [`windows-msvc-release-proof.md`](windows-msvc-release-proof.md).
@@ -173,7 +174,7 @@ self-setup/toolchain payload in the app depot.
 Workshop content publication is separate from app/depot publication. Use
 `content publish ARTIFACT --dry-run` from a content workspace for package and
 Workshop VDF previews, then perform any real content upload manually with
-`content publish ARTIFACT --account ACCOUNT --yes`. Use `--release-targets`
-when one Workshop item should receive every platform-specific runtime payload
-declared in `[workspace.runtime].targets`; use repeated `--target` only for an
-ad hoc subset.
+`content publish ARTIFACT --account ACCOUNT --yes`. When
+`[workspace.runtime].targets` is declared, that matrix is the default Workshop
+payload. Use `--host-only` for local smoke previews, and repeated `--target`
+only for an ad hoc subset.

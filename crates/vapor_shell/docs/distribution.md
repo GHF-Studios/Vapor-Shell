@@ -33,11 +33,11 @@ Steam authentication, logs, and SteamPipe cache state are not staged.
 The examples payload is source material for learning and templating; it is
 copied without its `.git/` or `target/` directories and is not Workshop content.
 
-No target flag means host-only staging, so quick local Linux packages do not
-require or advertise Windows launch wrappers. Repeat `--target` to stage
-specific already-promoted target directories, or use `--release-targets` to
-stage every target declared in `[root.runtime].targets`. Staging fails when a
-selected `bin/<target>/` directory is missing.
+When `[root.runtime].targets` is declared, no target flag means release-matrix
+staging. Repeat `--target` to stage a deliberate custom subset of
+already-promoted target directories. Use `--host-only` for quick local Linux
+packages that should not require or advertise Windows launch wrappers. Staging
+fails when a selected `bin/<target>/` directory is missing.
 
 Release staging is one unified app/depot content root. Linux and Windows
 runtime binaries live side by side under `bin/<target>/`; Vapor does not create
@@ -46,9 +46,8 @@ multiple operating systems.
 
 For a release assembled from artifacts built on multiple machines, import the
 target-specific app binaries into `bin/<target>/`, run
-`root package --release-targets`, then use
-`root publish --release-targets --skip-build --dry-run` so publish does not
-rebuild imported targets.
+`root package`, then use `root publish --skip-build --dry-run` so publish does
+not rebuild imported targets.
 
 Launch wrappers are the minimal OS-facing entrypoint split. They select the
 installed platform binary and command mode:
