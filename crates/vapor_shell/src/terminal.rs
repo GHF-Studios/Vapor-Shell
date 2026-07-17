@@ -1,5 +1,6 @@
 //! Guarded terminal relaunch for GUI/Steam application starts.
 
+use crate::discovery::InstallationPaths;
 use std::{
     env,
     ffi::OsString,
@@ -21,10 +22,12 @@ pub(crate) fn relaunch() -> Result<(), String> {
     }
 
     let executable = env::current_exe().map_err(|error| error.to_string())?;
-    let app_root = executable
-        .parent()
-        .and_then(|directory| directory.parent())
-        .map(|path| path.to_path_buf());
+    let installation = InstallationPaths::from_executable(&executable).ok();
+    let app_root = installation
+        .as_ref()
+        .map(|installation| installation.root().to_path_buf())
+        .or_else(|| fallback_app_root(&executable));
+    let executable_dir = executable.parent().map(Path::to_path_buf);
     let mut log = LaunchLog::open(app_root.as_deref());
     log.write(format!(
         "relaunch requested for '{}' with DISPLAY={:?}, WAYLAND_DISPLAY={:?}, XDG_RUNTIME_DIR={:?}, DBUS_SESSION_BUS_ADDRESS={:?}",
@@ -85,7 +88,10 @@ exit "$status""#;
         .arg(&executable)
         .args(env::args_os().skip(1))
         .env("VAPOR_TERMINAL_RELAUNCHED", "1")
-        .env("PATH", terminal_path(app_root.as_deref())?)
+        .env(
+            "PATH",
+            terminal_path(app_root.as_deref(), executable_dir.as_deref())?,
+        )
         .env("TERM", terminal_type())
         .env("COLORTERM", "truecolor")
         .env_remove("LD_PRELOAD")
@@ -170,19 +176,48 @@ fn terminal_type() -> OsString {
         .unwrap_or_else(|| OsString::from("xterm-256color"))
 }
 
-fn terminal_path(app_root: Option<&Path>) -> Result<OsString, String> {
+fn terminal_path(
+    app_root: Option<&Path>,
+    executable_dir: Option<&Path>,
+) -> Result<OsString, String> {
     let mut entries = Vec::new();
+    if let Some(directory) = executable_dir {
+        push_unique_path(&mut entries, directory.to_path_buf());
+    }
     if let Some(root) = app_root {
-        entries.push(root.join("bin"));
+        push_unique_path(&mut entries, root.join("bin"));
     }
     if let Some(existing) = env::var_os("PATH") {
-        entries.extend(env::split_paths(&existing));
-    }
-    for fallback in ["/usr/local/bin", "/usr/bin", "/bin"] {
-        let path = PathBuf::from(fallback);
-        if !entries.iter().any(|entry| entry == &path) {
-            entries.push(path);
+        for path in env::split_paths(&existing) {
+            push_unique_path(&mut entries, path);
         }
     }
+    for fallback in ["/usr/local/bin", "/usr/bin", "/bin"] {
+        push_unique_path(&mut entries, PathBuf::from(fallback));
+    }
     env::join_paths(entries).map_err(|error| format!("failed to construct terminal PATH: {error}"))
+}
+
+fn fallback_app_root(executable: &Path) -> Option<PathBuf> {
+    let directory = executable.parent()?;
+    if directory.file_name().is_some_and(|name| name == "bin") {
+        return directory.parent().map(Path::to_path_buf);
+    }
+    if directory
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == "bin")
+    {
+        return directory
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+    }
+    directory.parent().map(Path::to_path_buf)
+}
+
+fn push_unique_path(entries: &mut Vec<PathBuf>, path: PathBuf) {
+    if !entries.iter().any(|entry| entry == &path) {
+        entries.push(path);
+    }
 }
