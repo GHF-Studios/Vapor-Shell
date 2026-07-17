@@ -106,7 +106,7 @@ fn help_uses_defined_argument_domains() {
         "--target",
         "x86_64-unknown-linux-gnu",
         "--target",
-        "x86_64-pc-windows-msvc",
+        "x86_64-pc-windows-gnullvm",
     ])
     .expect("root build should accept repeated runtime targets");
     let root_deploy_help = ShellCommand::try_parse_from(["", "root", "deploy", "--help"])
@@ -247,7 +247,7 @@ fn help_uses_defined_argument_domains() {
         "--target",
         "x86_64-unknown-linux-gnu",
         "--target",
-        "x86_64-pc-windows-msvc",
+        "x86_64-pc-windows-gnullvm",
     ])
     .expect("content package should accept repeated runtime targets");
     for command in ["package", "create", "publish", "delete"] {

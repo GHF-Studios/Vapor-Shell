@@ -42,7 +42,7 @@ development-branch = "vapor-dev"
 [root.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 ```
 
@@ -70,7 +70,7 @@ repository = "https://github.com/GHF-Studios/Loo-Cast"
 [workspace.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 ```
 
@@ -262,7 +262,7 @@ entries with the actual staged filenames:
 
 ```toml
 [[engine.runtime]]
-target = "x86_64-pc-windows-msvc"
+target = "x86_64-pc-windows-gnullvm"
 binaries = ["spacetime-engine.exe"]
 libraries = ["spacetime_engine.dll"]
 ```

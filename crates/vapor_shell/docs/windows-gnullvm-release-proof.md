@@ -1,4 +1,4 @@
-# Windows/MSVC release proof
+# Windows GNU/LLVM release proof
 
 This checklist proves the Windows side of the release target matrix without
 publishing Steam depot or Workshop changes. It starts from the product path:
@@ -7,7 +7,7 @@ Steam opens a visible Vapor Shell, then Vapor prepares app-local tools.
 The target is:
 
 ```text
-x86_64-pc-windows-msvc
+x86_64-pc-windows-gnullvm
 ```
 
 ## Steam launch
@@ -47,14 +47,18 @@ Expected setup behavior:
   `tools\git`.
 - SteamCMD is downloaded as the Windows zip and extracted under
   `tools\steamcmd`.
+- Zig is downloaded as the portable Windows zip and extracted under
+  `tools\zig`; Vapor writes linker wrappers under `tools\cross`.
+- llvm-mingw is downloaded as a portable archive and extracted under
+  `tools\llvm-mingw`.
 
 No downloaded setup component should run a system installer, require global
 Git, write to a global Git location, or mutate machine-wide PATH state.
 
-The MSVC compiler/linker prerequisite is expected to come from Steam's
-configured Visual Studio 2022 Build Tools redistributable with Desktop
-development with C++. Vapor does not install that redistributable itself; the
-Steam app install/update flow owns it.
+The Windows GNU/LLVM and Linux GNU cross-linker path is app-local and portable.
+Vapor uses llvm-mingw from `tools\llvm-mingw` for Windows GNU/LLVM and Zig
+from `tools\zig` for Linux GNU cross-links. This proof must not require Visual
+Studio, MSVC, system MinGW, or a machine-wide compiler install.
 
 ## Source handoff
 
@@ -81,45 +85,44 @@ Set paths for the local machine:
 ```cmd
 set "APP_ROOT=C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
 set "REPOS=%USERPROFILE%\Documents\Loo Cast Repos"
-set "VAPOR=%APP_ROOT%\bin\x86_64-pc-windows-msvc\vapor.exe"
+set "VAPOR=%APP_ROOT%\bin\x86_64-pc-windows-gnullvm\vapor.exe"
 ```
 
 Build and promote the Windows Vapor Shell app binary:
 
 ```cmd
 "%VAPOR%" source open "%REPOS%\Vapor-Root"
-"%VAPOR%" root build --target x86_64-pc-windows-msvc
+"%VAPOR%" root build --target x86_64-pc-windows-gnullvm
 ```
 
 Build the first-party Loo-Cast content runtime outputs:
 
 ```cmd
 "%VAPOR%" source open "%REPOS%\Loo-Cast"
-"%VAPOR%" content build --target x86_64-pc-windows-msvc
+"%VAPOR%" content build --target x86_64-pc-windows-gnullvm
 ```
 
 Build the example runtime outputs:
 
 ```cmd
 "%VAPOR%" source open "%REPOS%\Vapor-Root\Vapor-Examples"
-"%VAPOR%" content build --target x86_64-pc-windows-msvc
+"%VAPOR%" content build --target x86_64-pc-windows-gnullvm
 ```
 
-This proof expects Steam to have installed the Visual Studio 2022 Build Tools
-redistributable before the Windows build commands run. Git, Rustup state, Cargo
-state, and SteamCMD are app-local Vapor setup; the Microsoft compiler/linker
-toolchain is a Steam-managed redistributable prerequisite.
+This proof expects `setup self install` to have prepared app-local Git, Rustup
+state, Cargo state, SteamCMD, Zig, and linker wrappers. No Microsoft
+compiler/linker toolchain is part of this proof path.
 
 ## Windows artifact checks
 
 Confirm these files exist:
 
 ```text
-%APP_ROOT%\bin\x86_64-pc-windows-msvc\vapor.exe
-%APP_ROOT%\output\dev\loo-cast\x86_64-pc-windows-msvc\debug\spacetime-engine.exe
-%APP_ROOT%\output\dev\loo-cast\x86_64-pc-windows-msvc\debug\loo_cast_game.dll
-%APP_ROOT%\output\dev\vapor-examples\x86_64-pc-windows-msvc\debug\terminal-engine.exe
-%APP_ROOT%\output\dev\vapor-examples\x86_64-pc-windows-msvc\debug\hello_world_on_steroids_game.dll
+%APP_ROOT%\bin\x86_64-pc-windows-gnullvm\vapor.exe
+%APP_ROOT%\output\dev\loo-cast\x86_64-pc-windows-gnullvm\debug\spacetime-engine.exe
+%APP_ROOT%\output\dev\loo-cast\x86_64-pc-windows-gnullvm\debug\loo_cast_game.dll
+%APP_ROOT%\output\dev\vapor-examples\x86_64-pc-windows-gnullvm\debug\terminal-engine.exe
+%APP_ROOT%\output\dev\vapor-examples\x86_64-pc-windows-gnullvm\debug\hello_world_on_steroids_game.dll
 ```
 
 The exact `.dll` names come from Cargo crate names. If a content artifact adds
@@ -132,12 +135,12 @@ Copy these Windows app-root paths back to the Linux publishing app root,
 preserving the same relative paths:
 
 ```text
-bin\x86_64-pc-windows-msvc\
-output\dev\loo-cast\x86_64-pc-windows-msvc\debug\
-output\dev\vapor-examples\x86_64-pc-windows-msvc\debug\
+bin\x86_64-pc-windows-gnullvm\
+output\dev\loo-cast\x86_64-pc-windows-gnullvm\debug\
+output\dev\vapor-examples\x86_64-pc-windows-gnullvm\debug\
 ```
 
-The root app package only needs `bin\x86_64-pc-windows-msvc\vapor.exe`.
+The root app package only needs `bin\x86_64-pc-windows-gnullvm\vapor.exe`.
 Content dry-runs and Workshop package dry-runs need the `output\dev\...`
 directories because `content package` stages runtime outputs from app-local
 Cargo output.
@@ -157,7 +160,7 @@ Expected app staging shape:
 
 ```text
 output/root/content/bin/x86_64-unknown-linux-gnu/vapor
-output/root/content/bin/x86_64-pc-windows-msvc/vapor.exe
+output/root/content/bin/x86_64-pc-windows-gnullvm/vapor.exe
 output/root/content/.vapor/launch/linux/vapor.sh
 output/root/content/.vapor/launch/windows/vapor.cmd
 ```

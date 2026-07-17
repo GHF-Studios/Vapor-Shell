@@ -54,7 +54,7 @@ repair diagnostics are generated state and stay under the app root.
 
 `content build`, `content deploy`, and `content package` accept
 `--target TARGET` for explicit platform output such as
-`x86_64-pc-windows-msvc`. When `[workspace.runtime].targets` is declared in
+`x86_64-pc-windows-gnullvm`. When `[workspace.runtime].targets` is declared in
 the source `Vapor.toml`, omitting target flags uses that full matrix by
 default. `--release-targets` is accepted as an explicit spelling of the same
 manifest-matrix behavior.

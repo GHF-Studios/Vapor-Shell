@@ -21,7 +21,7 @@ wrapper and let it hand off to the installed platform binary:
 These paths are not valid for already-published depots that predate the
 `.vapor/launch/` payload. For those depots, use only files that actually exist
 in the installed app root. Windows launch options also require a shipped Windows
-`bin\x86_64-pc-windows-msvc\vapor.exe`; a Linux
+`bin\x86_64-pc-windows-gnullvm\vapor.exe`; a Linux
 `bin/x86_64-unknown-linux-gnu/vapor` cannot satisfy a Windows Steam launch
 entry.
 
@@ -36,11 +36,11 @@ central implementation surface.
 
 On Windows, the Shell launch option is expected to be single-click-to-shell.
 First-run Vapor tool preparation happens inside that visible shell with
-`setup self install`; it downloads app-local portable Git and SteamCMD payloads
-instead of requiring system Git to be installed before launch. The MSVC
-compiler/linker prerequisite is supplied separately by the Steam-configured
-Visual Studio 2022 Build Tools redistributable with Desktop development with
-C++.
+`setup self install`; it downloads app-local portable Git, SteamCMD, Zig, and
+llvm-mingw payloads instead of requiring system Git to be installed before
+launch. The Windows GNU/LLVM and Linux GNU cross-linker path is app-local and
+portable; it must not depend on Visual Studio, system MinGW, or a machine-wide
+compiler install.
 
 The `play` wrapper mode opens the normal interactive Vapor Shell, runs the
 installed `.vapor/scripts/loo-cast.vapor` script, and leaves the shell open.
@@ -101,18 +101,20 @@ root build
 root publish --dry-run
 ```
 
-The Windows/MSVC target normally needs to be built on Windows after Steam has
-installed the Visual Studio 2022 Build Tools redistributable, then staged
-alongside the Linux payload before publication.
+The Windows GNU/LLVM target can be built from Linux with app-local llvm-mingw,
+and the Linux GNU target can be built from Windows with the app-local Zig
+wrapper model. If a target is built on another machine, preserve the same
+`bin/<target>/` and `output/dev/<workspace>/<target>/debug/` relative paths
+when copying artifacts back to the publishing app root.
 For quick local Linux smoke, pass `--host-only`; Vapor then stages only the
 host `bin/<target>/` directory plus the matching launch wrapper.
 When Windows artifacts were imported from another machine, use
 `root publish --skip-build --dry-run` so the publishing machine stages and
 smoke-checks the imported `bin/<target>/` payloads without trying to rebuild
-Windows/MSVC locally.
+Windows GNU/LLVM locally.
 
 The concrete Windows build and Linux handoff checklist is documented in
-[`windows-msvc-release-proof.md`](windows-msvc-release-proof.md).
+[`windows-gnullvm-release-proof.md`](windows-gnullvm-release-proof.md).
 
 From step 5 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
 application. `setup self install` is the explicit bootstrap operation that installs

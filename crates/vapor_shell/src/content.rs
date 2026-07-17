@@ -1019,6 +1019,54 @@ pub fn acquire_many(
         .collect()
 }
 
+/// Download one or more content items into the app-owned cache.
+///
+/// An explicit account means the caller wants a live provider refresh when the
+/// selector can be resolved to a Workshop item. Other selectors fall back to
+/// the ordinary acquisition path.
+///
+/// # Errors
+///
+/// Returns provider, discovery, package, or filesystem errors.
+pub fn download_many(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    selectors: &[String],
+    account: Option<&str>,
+) -> Result<Vec<AcquireReport>, String> {
+    if selectors.is_empty() {
+        return Err("at least one content target is required".to_owned());
+    }
+    if account.unwrap_or("").trim().is_empty() {
+        return acquire_many(installation, paths, selectors, account);
+    }
+
+    let index = load_index(&ContentLayout::new(installation))?;
+    let mut downloads = Vec::new();
+    let mut fallback = Vec::new();
+    let mut seen = BTreeSet::new();
+    for selector in selectors {
+        if let Some(download) =
+            resolve_live_workshop_download(installation, paths, &index, selector)?
+        {
+            if seen.insert((download.app_id, download.published_file_id.clone())) {
+                downloads.push(download);
+            }
+        } else {
+            fallback.push(selector);
+        }
+    }
+
+    let mut reports = Vec::new();
+    if !downloads.is_empty() {
+        reports.extend(acquire_workshop_items(installation, &downloads, account)?);
+    }
+    for selector in fallback {
+        reports.push(acquire(installation, paths, selector, account)?);
+    }
+    Ok(reports)
+}
+
 fn acquire_workshop_item(
     installation: &InstallationPaths,
     app_id: u32,
@@ -2641,13 +2689,7 @@ pub(crate) fn host_runtime_target() -> String {
     match (arch, std::env::consts::OS, std::env::consts::FAMILY) {
         ("x86_64", "linux", _) => "x86_64-unknown-linux-gnu".to_owned(),
         ("aarch64", "linux", _) => "aarch64-unknown-linux-gnu".to_owned(),
-        ("x86_64", "windows", _) => {
-            if cfg!(target_env = "msvc") {
-                "x86_64-pc-windows-msvc".to_owned()
-            } else {
-                "x86_64-pc-windows-gnu".to_owned()
-            }
-        }
+        ("x86_64", "windows", _) => "x86_64-pc-windows-gnullvm".to_owned(),
         ("aarch64", "windows", _) => "aarch64-pc-windows-msvc".to_owned(),
         ("x86_64", "macos", _) => "x86_64-apple-darwin".to_owned(),
         ("aarch64", "macos", _) => "aarch64-apple-darwin".to_owned(),
@@ -2668,7 +2710,7 @@ fn validate_runtime_target(target: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "runtime target must be a Rust target triple such as x86_64-pc-windows-msvc: {target}"
+            "runtime target must be a Rust target triple such as x86_64-pc-windows-gnullvm: {target}"
         ))
     }
 }
@@ -3330,6 +3372,58 @@ fn resolve_download_app_id(
         }
     }
     root_steam_app_id(installation)
+}
+
+fn resolve_live_workshop_download(
+    installation: &InstallationPaths,
+    paths: Option<&EnvironmentPaths>,
+    index: &ContentIndex,
+    selector: &str,
+) -> Result<Option<WorkshopDownload>, String> {
+    if is_published_file_id(selector) {
+        return Ok(Some(WorkshopDownload {
+            app_id: resolve_download_app_id(installation, paths, selector)?,
+            published_file_id: selector.to_owned(),
+        }));
+    }
+
+    if let Some(paths) = paths {
+        let catalog = discover(paths)?;
+        if let Some(artifact) = catalog.find(selector)
+            && let (Some(app_id), Some(published_file_id)) = (
+                artifact.workshop().app_id(),
+                artifact.workshop().published_file_id(),
+            )
+        {
+            return Ok(Some(WorkshopDownload {
+                app_id,
+                published_file_id: published_file_id.to_owned(),
+            }));
+        }
+    }
+
+    if let Some(seed) = root_content_seed(installation, selector)? {
+        return Ok(Some(WorkshopDownload {
+            app_id: seed.app_id,
+            published_file_id: seed.workshop_id,
+        }));
+    }
+
+    if let Some((_artifact_id, cache)) = index.cache_by_selector(selector)
+        && let Some(published_file_id) = &cache.workshop_id
+    {
+        let artifact = read_deployed_manifest(&cache.cache_root)?;
+        let app_id = artifact
+            .workshop()
+            .app_id()
+            .map_or_else(|| root_steam_app_id(installation), Ok)?;
+        return Ok(Some(WorkshopDownload {
+            app_id,
+            published_file_id: published_file_id.clone(),
+        }));
+    }
+
+    Ok(None)
 }
 
 fn root_steam_app_id(installation: &InstallationPaths) -> Result<u32, String> {

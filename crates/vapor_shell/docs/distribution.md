@@ -13,7 +13,7 @@ development-branch = "vapor-dev"
 [root.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 ```
 
@@ -54,7 +54,7 @@ installed platform binary and command mode:
 
 ```text
 .vapor/launch/linux/vapor.sh    -> bin/x86_64-unknown-linux-gnu/vapor
-.vapor/launch/windows/vapor.cmd -> bin/x86_64-pc-windows-msvc/vapor.exe
+.vapor/launch/windows/vapor.cmd -> bin/x86_64-pc-windows-gnullvm/vapor.exe
 ```
 
 The real implementation remains Vapor Shell. Wrappers are not a substitute for

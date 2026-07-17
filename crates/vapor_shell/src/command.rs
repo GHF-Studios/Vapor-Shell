@@ -1378,7 +1378,7 @@ fn validate_command_runtime_targets(targets: &[String]) -> Result<(), String> {
             });
         if !valid {
             return Err(format!(
-                "runtime target must be a Rust target triple such as x86_64-pc-windows-msvc: {target}"
+                "runtime target must be a Rust target triple such as x86_64-pc-windows-gnullvm: {target}"
             ));
         }
         if !seen.insert(target) {
@@ -1428,6 +1428,7 @@ fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Resu
             );
             print_tool_summary(status.rust());
             print_tool_summary(status.git());
+            print_tool_summary(status.cross_toolchains());
             print_tool_summary(status.steamcmd());
             println!(
                 "  Bootstrap payload: {}",
@@ -1544,6 +1545,7 @@ fn preview_setup_self_install(
     );
     print_tool_action(status.rust(), repair);
     print_tool_action(status.git(), repair);
+    print_tool_action(status.cross_toolchains(), repair);
     print_tool_action(status.steamcmd(), repair);
     print_package_status(&status);
     println!(
@@ -1570,6 +1572,14 @@ fn preview_setup_self_install(
         "would download and extract SteamCMD into {} when SteamCMD is missing or repair is requested",
         installation.root().join("tools/steamcmd").display()
     );
+    println!(
+        "would download and extract portable Zig 0.16.0 into {} when cross toolchains are missing or repair is requested",
+        installation.root().join("tools/zig").display()
+    );
+    println!(
+        "would download and extract portable llvm-mingw 20260616 into {} when Windows cross toolchains are missing or repair is requested",
+        installation.root().join("tools/llvm-mingw").display()
+    );
     println!("dry-run: no files, PATH registration, or app-root lock were changed");
     Ok(())
 }
@@ -1586,6 +1596,9 @@ fn preview_setup_self_uninstall(
         installation.root().join("rustup-home"),
         installation.root().join("cargo-home"),
         installation.root().join("tools/git"),
+        installation.root().join("tools/zig"),
+        installation.root().join("tools/llvm-mingw"),
+        installation.root().join("tools/cross"),
         installation.root().join("tools/steamcmd"),
     ] {
         println!(
@@ -1601,6 +1614,7 @@ fn preview_setup_self_uninstall(
     println!("would clear app-root location lock and PATH registration");
     print_tool_status(status.rust());
     print_tool_status(status.git());
+    print_tool_status(status.cross_toolchains());
     print_tool_status(status.steamcmd());
     print_package_status(&status);
     println!("dry-run: no files, PATH registration, or app-root lock were changed");
@@ -1746,7 +1760,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 release_targets,
                 host_only,
             )?;
-            run_workflow_targets(
+            run_root_workflow_targets(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
                 CargoWorkflow::Build,
@@ -1778,7 +1792,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 release_targets,
                 host_only,
             )?;
-            run_workflow_targets(
+            run_root_workflow_targets(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
                 CargoWorkflow::Build,
@@ -1907,13 +1921,13 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             if skip_build {
                 println!("build: skipped; using already-promoted app binaries");
             } else {
-                run_workflow_targets(
+                run_root_workflow_targets(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
                     CargoWorkflow::Validate,
                     &targets,
                 )?;
-                run_workflow_targets(
+                run_root_workflow_targets(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
                     CargoWorkflow::Build,
@@ -1970,17 +1984,36 @@ fn run_workflow_targets(
     workflow: CargoWorkflow,
     targets: &[String],
 ) -> Result<(), String> {
+    run_selected_workflow_targets(paths, manifest, ProjectSelection::All, workflow, targets)
+}
+
+fn run_root_workflow_targets(
+    paths: &EnvironmentPaths,
+    manifest: &WorkspaceManifest,
+    workflow: CargoWorkflow,
+    targets: &[String],
+) -> Result<(), String> {
+    run_selected_workflow_targets(
+        paths,
+        manifest,
+        ProjectSelection::Installable,
+        workflow,
+        targets,
+    )
+}
+
+fn run_selected_workflow_targets(
+    paths: &EnvironmentPaths,
+    manifest: &WorkspaceManifest,
+    selection: ProjectSelection,
+    workflow: CargoWorkflow,
+    targets: &[String],
+) -> Result<(), String> {
     if targets.is_empty() {
-        workflow::run(paths, manifest, ProjectSelection::All, workflow)
+        workflow::run(paths, manifest, selection, workflow)
     } else {
         for target in targets {
-            workflow::run_with_target(
-                paths,
-                manifest,
-                ProjectSelection::All,
-                workflow,
-                Some(target),
-            )?;
+            workflow::run_with_target(paths, manifest, selection.clone(), workflow, Some(target))?;
         }
         Ok(())
     }
@@ -2287,7 +2320,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             );
         }
         ContentCommand::Download { targets, account } => {
-            let reports = content::acquire_many(
+            let reports = content::download_many(
                 state.installation(),
                 state.active_paths().ok(),
                 &targets,

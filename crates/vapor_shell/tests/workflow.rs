@@ -15,13 +15,7 @@ fn host_runtime_target() -> String {
     match (arch, std::env::consts::OS, std::env::consts::FAMILY) {
         ("x86_64", "linux", _) => "x86_64-unknown-linux-gnu".to_owned(),
         ("aarch64", "linux", _) => "aarch64-unknown-linux-gnu".to_owned(),
-        ("x86_64", "windows", _) => {
-            if cfg!(target_env = "msvc") {
-                "x86_64-pc-windows-msvc".to_owned()
-            } else {
-                "x86_64-pc-windows-gnu".to_owned()
-            }
-        }
+        ("x86_64", "windows", _) => "x86_64-pc-windows-gnullvm".to_owned(),
         ("aarch64", "windows", _) => "aarch64-pc-windows-msvc".to_owned(),
         ("x86_64", "macos", _) => "x86_64-apple-darwin".to_owned(),
         ("aarch64", "macos", _) => "aarch64-apple-darwin".to_owned(),
@@ -89,6 +83,67 @@ fn test_workflow_uses_installed_cargo_and_app_owned_output() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn explicit_windows_gnullvm_build_uses_app_local_llvm_mingw_linker() {
+    let installation = TestTree::new("workflow-cross-linker-installation");
+    installation.write(
+        "Vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    let executable = installation.write("bin/vapor", "binary");
+    let cargo = installation.write(
+        "rustup-home/toolchains/test-host/bin/cargo",
+        "#!/bin/sh\nprintf '%s\\n' \"$CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER\" > \"$VAPOR_HOME/workflow-linker\"\nprintf '%s\\n' \"$@\" > \"$VAPOR_HOME/workflow-args\"\n",
+    );
+    make_executable(&cargo);
+    make_executable(&installation.write("tools/zig/zig", "#!/bin/sh\nexit 0\n"));
+    let linker = installation.write(
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "#!/bin/sh\nexit 0\n",
+    );
+    make_executable(&linker);
+    make_executable(&installation.write(
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "#!/bin/sh\nexit 0\n",
+    ));
+    make_executable(
+        &installation.write("tools/llvm-mingw/bin/llvm-dlltool", "#!/bin/sh\nexit 0\n"),
+    );
+    make_executable(&installation.write(
+        "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
+        "#!/bin/sh\nexit 0\n",
+    ));
+
+    let source = TestTree::new("workflow-cross-linker-source");
+    source.write(
+        "Vapor.toml",
+        "[workspace]\nname = \"workflow-source\"\norganization = \"example\"\n",
+    );
+    source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
+
+    let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
+    let manifest = WorkspaceManifest::load(&paths).unwrap();
+    workflow::run_with_target(
+        &paths,
+        &manifest,
+        ProjectSelection::One("workflow-source".to_owned()),
+        CargoWorkflow::Build,
+        Some("x86_64-pc-windows-gnullvm"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(installation.root().join("workflow-linker")).unwrap(),
+        format!("{}\n", linker.display())
+    );
+    let args = fs::read_to_string(installation.root().join("workflow-args")).unwrap();
+    assert!(
+        args.contains("--target\nx86_64-pc-windows-gnullvm"),
+        "{args}"
+    );
+}
+
 #[test]
 fn promote_places_root_binaries_under_host_target_directory() {
     let installation = TestTree::new("workflow-promote-installation");
@@ -126,6 +181,13 @@ fn promote_places_root_binaries_under_host_target_directory() {
     );
 }
 
+#[cfg(unix)]
+fn make_executable(path: &std::path::Path) {
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
+}
+
 #[test]
 fn promote_places_explicit_windows_root_binaries_under_target_directory() {
     let installation = TestTree::new("workflow-promote-windows-installation");
@@ -135,7 +197,7 @@ fn promote_places_explicit_windows_root_binaries_under_target_directory() {
     );
     let executable = installation.write("bin/vapor", "binary");
     installation.write(
-        "output/dev/workflow-source/x86_64-pc-windows-msvc/debug/vapor.exe",
+        "output/dev/workflow-source/x86_64-pc-windows-gnullvm/debug/vapor.exe",
         "promoted binary",
     );
 
@@ -148,7 +210,7 @@ fn promote_places_explicit_windows_root_binaries_under_target_directory() {
 
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
     let manifest = WorkspaceManifest::load(&paths).unwrap();
-    let targets = vec!["x86_64-pc-windows-msvc".to_owned()];
+    let targets = vec!["x86_64-pc-windows-gnullvm".to_owned()];
 
     let promoted = workflow::promote_for_targets(&paths, &manifest, &targets).unwrap();
 
@@ -156,7 +218,7 @@ fn promote_places_explicit_windows_root_binaries_under_target_directory() {
     assert!(
         installation
             .root()
-            .join("bin/x86_64-pc-windows-msvc/vapor.exe")
+            .join("bin/x86_64-pc-windows-gnullvm/vapor.exe")
             .is_file()
     );
 }

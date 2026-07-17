@@ -14,13 +14,7 @@ fn host_runtime_target() -> String {
     match (arch, std::env::consts::OS, std::env::consts::FAMILY) {
         ("x86_64", "linux", _) => "x86_64-unknown-linux-gnu".to_owned(),
         ("aarch64", "linux", _) => "aarch64-unknown-linux-gnu".to_owned(),
-        ("x86_64", "windows", _) => {
-            if cfg!(target_env = "msvc") {
-                "x86_64-pc-windows-msvc".to_owned()
-            } else {
-                "x86_64-pc-windows-gnu".to_owned()
-            }
-        }
+        ("x86_64", "windows", _) => "x86_64-pc-windows-gnullvm".to_owned(),
         ("aarch64", "windows", _) => "aarch64-pc-windows-msvc".to_owned(),
         ("x86_64", "macos", _) => "x86_64-apple-darwin".to_owned(),
         ("aarch64", "macos", _) => "aarch64-apple-darwin".to_owned(),
@@ -251,7 +245,7 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
     );
     let executable = installation.write("bin/vapor", "binary");
     let linux_target = "x86_64-unknown-linux-gnu";
-    let windows_target = "x86_64-pc-windows-msvc";
+    let windows_target = "x86_64-pc-windows-gnullvm";
     installation.write(
         &format!("output/dev/loo-cast/{linux_target}/debug/spacetime-engine"),
         "engine executable",
@@ -300,7 +294,7 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
         .join("output/content/packages/example_loo-cast_spacetime-engine");
     assert!(
         package_root
-            .join("bin/x86_64-pc-windows-msvc/spacetime-engine.exe")
+            .join("bin/x86_64-pc-windows-gnullvm/spacetime-engine.exe")
             .is_file()
     );
     assert!(
@@ -310,7 +304,7 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
     );
     assert!(
         package_root
-            .join("lib/x86_64-pc-windows-msvc/spacetime_engine.dll")
+            .join("lib/x86_64-pc-windows-gnullvm/spacetime_engine.dll")
             .is_file()
     );
     assert!(
@@ -320,7 +314,7 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
     );
     let deployed = fs::read_to_string(package_root.join("Vapor.toml")).unwrap();
     assert!(
-        deployed.contains("target = \"x86_64-pc-windows-msvc\""),
+        deployed.contains("target = \"x86_64-pc-windows-gnullvm\""),
         "{deployed}"
     );
     assert!(
@@ -410,14 +404,14 @@ fn content_package_copies_declared_runtime_outputs() {
 }
 
 #[test]
-fn content_package_can_stage_explicit_windows_msvc_runtime_outputs() {
+fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
     let installation = TestTree::new("content-windows-runtime-installation");
     installation.write(
         "Vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
-    let target = "x86_64-pc-windows-msvc";
+    let target = "x86_64-pc-windows-gnullvm";
     installation.write(
         &format!("output/dev/loo-cast/{target}/debug/spacetime-engine.exe"),
         "engine executable",
@@ -446,19 +440,19 @@ fn content_package_can_stage_explicit_windows_msvc_runtime_outputs() {
     assert!(
         package
             .root()
-            .join("bin/x86_64-pc-windows-msvc/spacetime-engine.exe")
+            .join("bin/x86_64-pc-windows-gnullvm/spacetime-engine.exe")
             .is_file()
     );
     assert!(
         package
             .root()
-            .join("lib/x86_64-pc-windows-msvc/spacetime_engine.dll")
+            .join("lib/x86_64-pc-windows-gnullvm/spacetime_engine.dll")
             .is_file()
     );
     let deployed = fs::read_to_string(package.root().join("Vapor.toml")).unwrap();
     assert!(deployed.contains("[[engine.runtime]]"), "{deployed}");
     assert!(
-        deployed.contains("target = \"x86_64-pc-windows-msvc\""),
+        deployed.contains("target = \"x86_64-pc-windows-gnullvm\""),
         "{deployed}"
     );
     assert!(

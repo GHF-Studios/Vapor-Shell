@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod cross_toolchain;
 mod ide;
 mod prompt;
 mod setup_self_packages;

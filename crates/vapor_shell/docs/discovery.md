@@ -11,7 +11,7 @@ then validates exactly `<app-root>/Vapor.toml`. That manifest must declare
 ```text
 <app-root>/bin/vapor[.exe]
 <app-root>/bin/x86_64-unknown-linux-gnu/vapor
-<app-root>/bin/x86_64-pc-windows-msvc/vapor.exe
+<app-root>/bin/x86_64-pc-windows-gnullvm/vapor.exe
 ```
 
 The app root may contain app-owned resources including:
@@ -22,7 +22,7 @@ The app root may contain app-owned resources including:
 ├── bin/
 │   ├── vapor[.exe]                         bootstrap compatibility
 │   ├── x86_64-unknown-linux-gnu/vapor
-│   └── x86_64-pc-windows-msvc/vapor.exe
+│   └── x86_64-pc-windows-gnullvm/vapor.exe
 ├── rustup/
 ├── cargo-home/
 ├── lib/

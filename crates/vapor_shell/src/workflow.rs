@@ -1,6 +1,7 @@
 //! Cargo workflows routed through the Steam-installed Vapor setup.
 
 use crate::{
+    cross_toolchain,
     discovery::{EnvironmentPaths, ensure_contained},
     workspace::{CargoProject, WorkspaceManifest},
 };
@@ -17,6 +18,8 @@ use std::{
 pub enum ProjectSelection {
     /// Every Cargo workspace discovered for this source root.
     All,
+    /// Cargo workspaces that declare installed application binaries.
+    Installable,
     /// One named Cargo workspace discovered from the active source root.
     One(String),
 }
@@ -28,6 +31,9 @@ impl std::str::FromStr for ProjectSelection {
         let value = value.trim();
         if value == "all" {
             return Ok(Self::All);
+        }
+        if value == "installable" {
+            return Ok(Self::Installable);
         }
         if value.is_empty()
             || value.chars().any(|character| {
@@ -245,13 +251,7 @@ pub(crate) fn host_runtime_target() -> String {
     match (arch, std::env::consts::OS, std::env::consts::FAMILY) {
         ("x86_64", "linux", _) => "x86_64-unknown-linux-gnu".to_owned(),
         ("aarch64", "linux", _) => "aarch64-unknown-linux-gnu".to_owned(),
-        ("x86_64", "windows", _) => {
-            if cfg!(target_env = "msvc") {
-                "x86_64-pc-windows-msvc".to_owned()
-            } else {
-                "x86_64-pc-windows-gnu".to_owned()
-            }
-        }
+        ("x86_64", "windows", _) => "x86_64-pc-windows-gnullvm".to_owned(),
         ("aarch64", "windows", _) => "aarch64-pc-windows-msvc".to_owned(),
         ("x86_64", "macos", _) => "x86_64-apple-darwin".to_owned(),
         ("aarch64", "macos", _) => "aarch64-apple-darwin".to_owned(),
@@ -314,6 +314,21 @@ fn selected_projects(
                 ))
             } else {
                 Ok(manifest.cargo_projects().iter().collect())
+            }
+        }
+        ProjectSelection::Installable => {
+            let projects = manifest
+                .cargo_projects()
+                .iter()
+                .filter(|project| !project.binaries().is_empty())
+                .collect::<Vec<_>>();
+            if projects.is_empty() {
+                Err(format!(
+                    "source root '{}' declares no installable Cargo workspaces",
+                    manifest.id()
+                ))
+            } else {
+                Ok(projects)
             }
         }
         ProjectSelection::One(name) => manifest
@@ -402,6 +417,7 @@ fn run_step(
     if step.accepts_target()
         && let Some(target) = target_triple
     {
+        cross_toolchain::configure_linker_env(&mut command, installation, target)?;
         command.args(["--target", target]);
     }
     if !tool_args.is_empty() {
@@ -447,7 +463,7 @@ fn validate_target_triple(target: Option<&str>) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "target triple must be a Rust target triple such as x86_64-pc-windows-msvc: {target}"
+            "target triple must be a Rust target triple such as x86_64-pc-windows-gnullvm: {target}"
         ))
     }
 }
@@ -463,6 +479,9 @@ pub(crate) fn managed_path(paths: &EnvironmentPaths) -> Result<OsString, String>
     entries.extend([
         root.join("tools/git/cmd"),
         root.join("tools/git/bin"),
+        root.join("tools/cross/bin"),
+        root.join("tools/zig"),
+        root.join("tools/llvm-mingw/bin"),
         root.join("cargo-home/bin"),
         root.join("rustup/bin"),
         root.join("tools/steamcmd"),

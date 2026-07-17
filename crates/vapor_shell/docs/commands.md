@@ -275,11 +275,12 @@ scripts may run `ide status` and `ide repair --dry-run`, but not real
 
 ### `root build [--target TARGET]... [--release-targets] [--host-only]`
 
-Build discovered Cargo workspaces and promote declared application binaries
+Build installable Cargo workspaces and promote declared application binaries
 from `[workspace].binaries` into the Steam installation/app root under
-`bin/<target>/`. When `[root.runtime].targets` is declared, omitting target
+`bin/<target>/`. Installable means a workspace declares at least one
+`[workspace].binaries` entry. When `[root.runtime].targets` is declared, omitting target
 flags builds and promotes that full runtime matrix by default. Repeat
-`--target` to promote an explicit custom subset, such as only Windows/MSVC.
+`--target` to promote an explicit custom subset, such as only Windows GNU/LLVM.
 
 `--release-targets` is accepted as an explicit spelling of the manifest-matrix
 default. Use `--host-only` for a local smoke pass that builds only Cargo's host
@@ -287,7 +288,7 @@ target. Do not combine `--target`, `--release-targets`, and `--host-only`.
 
 ### `root deploy [--skip-docs] [--target TARGET]... [--release-targets] [--host-only]`
 
-Build discovered Cargo workspaces, promote declared application binaries into
+Build installable Cargo workspaces, promote declared application binaries into
 the Steam installation/app root under `bin/<target>/`, and rebuild installed
 docs. This is local-only: it does not stage a SteamPipe VDF, upload a depot, or
 touch Workshop authority.
@@ -330,7 +331,7 @@ smoke check rejects platform launch wrappers when their matching
 `bin/<target>/vapor[.exe]` payload is missing.
 
 Use `--skip-build` only when the selected target binaries were already promoted
-into the app root, such as after importing Windows/MSVC artifacts built on a
+into the app root, such as after importing Windows GNU/LLVM artifacts built on a
 Windows machine. Staging and smoke checks still run and will reject missing
 `bin/<target>/` payloads.
 
@@ -368,7 +369,7 @@ Build the active content workspace through app-local Cargo. This uses the same
 setup preflight as other Cargo workflows and writes build output under the app
 root. When `[workspace.runtime].targets` is declared, omitting target flags
 builds that full matrix by default. Use `--target` to build an explicit custom
-subset such as only `x86_64-pc-windows-msvc`. Use `--host-only` for a local
+subset such as only `x86_64-pc-windows-gnullvm`. Use `--host-only` for a local
 host build.
 
 ### `content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets] [--host-only]`
@@ -397,7 +398,7 @@ full matrix into one package root. Repeat `--target` for an intentional custom
 subset, or use `--host-only` for a local host-only package.
 
 Release Workshop packages should be single logical artifact roots that contain
-every shipped runtime target, for example Linux and Windows/MSVC side by side.
+every shipped runtime target, for example Linux and Windows GNU/LLVM side by side.
 Do not create separate Workshop items, app roots, or publication branches just
 to split operating systems. Runtime selection happens when Vapor installs or
 launches content by choosing the matching `bin/<target>/` and `lib/<target>/`

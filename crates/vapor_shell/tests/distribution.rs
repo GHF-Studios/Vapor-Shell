@@ -25,7 +25,7 @@ fn fixture() -> (TestTree, TestTree, EnvironmentPaths, DistributionManifest) {
     );
     let executable = installation.write("bin/vapor", "binary");
     installation.write("bin/x86_64-unknown-linux-gnu/vapor", "linux vapor");
-    installation.write("bin/x86_64-pc-windows-msvc/vapor.exe", "windows vapor");
+    installation.write("bin/x86_64-pc-windows-gnullvm/vapor.exe", "windows vapor");
     installation.write("docs/index.html", "docs");
     for path in [
         "packages/setup/rustup/bin/rustup",
@@ -56,7 +56,7 @@ development-branch = "vapor-dev"
 [root.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 "#,
     );
@@ -114,7 +114,7 @@ fn staging_is_allowlisted_and_uses_package_content() {
     assert!(
         !report
             .root()
-            .join("bin/x86_64-pc-windows-msvc/vapor.exe")
+            .join("bin/x86_64-pc-windows-gnullvm/vapor.exe")
             .exists()
     );
     assert!(report.root().join("docs/index.html").is_file());
@@ -168,7 +168,7 @@ fn staging_can_include_release_target_binaries_and_launchers() {
         &manifest,
         StageOptions::runtime().with_runtime_targets(vec![
             "x86_64-unknown-linux-gnu".to_owned(),
-            "x86_64-pc-windows-msvc".to_owned(),
+            "x86_64-pc-windows-gnullvm".to_owned(),
         ]),
     )
     .unwrap();
@@ -182,7 +182,7 @@ fn staging_can_include_release_target_binaries_and_launchers() {
     assert!(
         report
             .root()
-            .join("bin/x86_64-pc-windows-msvc/vapor.exe")
+            .join("bin/x86_64-pc-windows-gnullvm/vapor.exe")
             .is_file()
     );
     assert!(report.root().join(".vapor/launch/linux/vapor.sh").is_file());
@@ -266,7 +266,15 @@ fn root_publish_dry_run_requires_active_app_local_setup() {
     );
     let executable = write_tool(&installation, "bin/vapor");
     write_tool(&installation, "bin/x86_64-unknown-linux-gnu/vapor");
-    write_tool(&installation, "bin/x86_64-pc-windows-msvc/vapor.exe");
+    write_tool(&installation, "bin/x86_64-pc-windows-gnullvm/vapor.exe");
+    write_tool(
+        &installation,
+        "output/dev/vapor-shell/x86_64-unknown-linux-gnu/debug/vapor",
+    );
+    write_tool(
+        &installation,
+        "output/dev/vapor-shell/x86_64-pc-windows-gnullvm/debug/vapor.exe",
+    );
     write_tool(&installation, "rustup/bin/rustup");
     write_cargo(&installation, "rustup-home/toolchains/test-host/bin/cargo");
     for path in [
@@ -275,6 +283,12 @@ fn root_publish_dry_run_requires_active_app_local_setup() {
         "rustup-home/toolchains/test-host/bin/cargo-clippy",
         "rustup-home/toolchains/test-host/bin/rustdoc",
         "tools/git/bin/git",
+        "tools/zig/zig",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "tools/llvm-mingw/bin/llvm-dlltool",
+        "tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "tools/steamcmd/steamcmd",
     ] {
         write_tool(&installation, path);
@@ -297,7 +311,7 @@ development-branch = "vapor-dev"
 [root.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 "#,
     );
@@ -307,7 +321,7 @@ targets = [
     );
     source.write(
         "Vapor-Shell/Vapor.toml",
-        "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\n",
+        "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\nbinaries = [\"vapor\"]\n",
     );
     source.write("Vapor-Shell/Cargo.toml", "[workspace]\nresolver = \"3\"\n");
 
@@ -367,7 +381,7 @@ targets = [
     assert!(
         installation
             .root()
-            .join("output/root/content/bin/x86_64-pc-windows-msvc/vapor.exe")
+            .join("output/root/content/bin/x86_64-pc-windows-gnullvm/vapor.exe")
             .is_file()
     );
 }

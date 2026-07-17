@@ -29,6 +29,12 @@ fn active_app_local_tools_satisfy_setup_self_preflight() {
         "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "rustup-home/toolchains/nightly-host/bin/rustdoc",
         "tools/git/bin/git",
+        "tools/zig/zig",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "tools/llvm-mingw/bin/llvm-dlltool",
+        "tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "tools/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
@@ -83,6 +89,12 @@ fn mingit_style_git_layout_satisfies_setup_self_preflight() {
         "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "rustup-home/toolchains/nightly-host/bin/rustdoc",
         "tools/git/cmd/git",
+        "tools/zig/zig",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "tools/llvm-mingw/bin/llvm-dlltool",
+        "tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "tools/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
@@ -161,6 +173,12 @@ fn app_owned_git_launcher_satisfies_setup_self_preflight() {
         "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "rustup-home/toolchains/nightly-host/bin/rustdoc",
         "tools/git/libexec/git-core/git",
+        "tools/zig/zig",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "tools/llvm-mingw/bin/llvm-dlltool",
+        "tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "tools/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
@@ -198,6 +216,12 @@ fn setup_self_package_install_populates_payload_without_auth_state() {
         "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "rustup-home/toolchains/nightly-host/bin/rustdoc",
         "tools/git/bin/git",
+        "tools/zig/zig",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "tools/llvm-mingw/bin/llvm-dlltool",
+        "tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "tools/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
@@ -246,6 +270,17 @@ fn setup_self_package_install_populates_payload_without_auth_state() {
             .is_file()
     );
     assert!(package.join("git/bin/git").is_file());
+    assert!(package.join("zig/zig").is_file());
+    assert!(
+        package
+            .join("llvm-mingw/bin/x86_64-w64-mingw32-clang")
+            .is_file()
+    );
+    assert!(
+        package
+            .join("cross/bin/x86_64-pc-windows-gnullvm-zig-cc")
+            .is_file()
+    );
     assert!(package.join("steamcmd/steamcmd").is_file());
     assert!(!package.join("cargo-home/credentials.toml").exists());
     assert!(!package.join("cargo-home/registry/cache").exists());
@@ -272,6 +307,12 @@ fn setup_self_install_applies_existing_payload() {
         "packages/setup/rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "packages/setup/rustup-home/toolchains/nightly-host/bin/rustdoc",
         "packages/setup/git/bin/git",
+        "packages/setup/zig/zig",
+        "packages/setup/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "packages/setup/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "packages/setup/llvm-mingw/bin/llvm-dlltool",
+        "packages/setup/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "packages/setup/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "packages/setup/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
@@ -294,10 +335,20 @@ fn setup_self_install_applies_existing_payload() {
     setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
 
     let report = setup_self::install(paths.installation()).unwrap();
-    assert_eq!(report.installed_groups(), ["Rust/Cargo", "Git", "SteamCMD"]);
+    assert_eq!(
+        report.installed_groups(),
+        ["Rust/Cargo", "Git", "Zig/Cross", "SteamCMD"]
+    );
     assert!(report.status().complete());
     assert!(installation.root().join("rustup/bin/rustup").is_file());
     assert!(installation.root().join("tools/git/bin/git").is_file());
+    assert!(installation.root().join("tools/zig/zig").is_file());
+    assert!(
+        installation
+            .root()
+            .join("tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc")
+            .is_file()
+    );
     assert!(
         installation
             .root()
@@ -323,6 +374,12 @@ fn setup_self_install_applies_mingit_style_payload() {
         "packages/setup/rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "packages/setup/rustup-home/toolchains/nightly-host/bin/rustdoc",
         "packages/setup/git/cmd/git",
+        "packages/setup/zig/zig",
+        "packages/setup/llvm-mingw/bin/x86_64-w64-mingw32-clang",
+        "packages/setup/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
+        "packages/setup/llvm-mingw/bin/llvm-dlltool",
+        "packages/setup/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
+        "packages/setup/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "packages/setup/steamcmd/steamcmd",
     ] {
         write_executable(&installation, path);
@@ -345,7 +402,10 @@ fn setup_self_install_applies_mingit_style_payload() {
     setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
 
     let report = setup_self::install(paths.installation()).unwrap();
-    assert_eq!(report.installed_groups(), ["Rust/Cargo", "Git", "SteamCMD"]);
+    assert_eq!(
+        report.installed_groups(),
+        ["Rust/Cargo", "Git", "Zig/Cross", "SteamCMD"]
+    );
     assert!(report.status().complete());
     assert!(installation.root().join("tools/git/cmd/git").is_file());
 }
@@ -387,6 +447,19 @@ fn setup_self_install_dry_run_does_not_mutate_app_root() {
     );
     assert!(!installation.root().join("rustup/bin/rustup").exists());
     assert!(!installation.root().join("tools/git/bin/git").exists());
+    assert!(!installation.root().join("tools/zig/zig").exists());
+    assert!(
+        !installation
+            .root()
+            .join("tools/llvm-mingw/bin/x86_64-w64-mingw32-clang")
+            .exists()
+    );
+    assert!(
+        !installation
+            .root()
+            .join("tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc")
+            .exists()
+    );
     assert!(!installation.root().join("tools/steamcmd/steamcmd").exists());
 }
 

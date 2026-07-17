@@ -60,7 +60,7 @@ organization = "example"
 [workspace.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 "#,
     );
@@ -71,7 +71,7 @@ targets = [
 
     assert_eq!(
         manifest.runtime_targets(),
-        ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+        ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-gnullvm"]
     );
 }
 
@@ -197,7 +197,7 @@ name = "vapor-root"
 organization = "example"
 
 [root.runtime]
-targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-gnullvm"]
 "#,
     );
     source.write(
@@ -215,6 +215,6 @@ targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 
     assert_eq!(
         manifest.runtime_targets(),
-        ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+        ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-gnullvm"]
     );
 }

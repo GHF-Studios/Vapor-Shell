@@ -5,6 +5,7 @@
 //! implicitly.
 
 use crate::{
+    cross_toolchain,
     discovery::{InstallationPaths, ensure_contained},
     path_setup::{PathSetup, PathSetupReport},
     setup_self_packages,
@@ -23,13 +24,24 @@ const RUSTUP_INIT_X86_64_LINUX: &str =
 const RUSTUP_INIT_AARCH64_LINUX: &str =
     "https://static.rust-lang.org/rustup/dist/aarch64-unknown-linux-gnu/rustup-init";
 const RUSTUP_INIT_X86_64_WINDOWS: &str =
-    "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe";
+    "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-gnu/rustup-init.exe";
 const STEAMCMD_LINUX: &str =
     "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
 const STEAMCMD_WINDOWS: &str = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
 const MINGIT_X86_64_WINDOWS: &str = "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/MinGit-2.55.0.3-64-bit.zip";
 const MINGIT_X86_64_WINDOWS_SHA256: &str =
     "f48e2bead5cbc31f36c5808d67bdc1826965e22729391d3874656b4056e61ab5";
+const ZIG_VERSION: &str = "0.16.0";
+const ZIG_X86_64_LINUX: &str = "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz";
+const ZIG_X86_64_WINDOWS: &str =
+    "https://ziglang.org/download/0.16.0/zig-x86_64-windows-0.16.0.zip";
+const LLVM_MINGW_VERSION: &str = "20260616";
+const LLVM_MINGW_X86_64_LINUX: &str = "https://github.com/mstorsjo/llvm-mingw/releases/download/20260616/llvm-mingw-20260616-msvcrt-ubuntu-22.04-x86_64.tar.xz";
+const LLVM_MINGW_X86_64_LINUX_SHA256: &str =
+    "a1f7968b48ba8d949194d6dee6c76f3cd0f61cba91658599af2c2c834a55ab87";
+const LLVM_MINGW_X86_64_WINDOWS: &str = "https://github.com/mstorsjo/llvm-mingw/releases/download/20260616/llvm-mingw-20260616-msvcrt-x86_64.zip";
+const LLVM_MINGW_X86_64_WINDOWS_SHA256: &str =
+    "744809646fdefe24a357399788d68fb07ecc65fa0be71baa2406793ce25c9813";
 
 /// Relationship between the running app root and its explicitly accepted path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +121,8 @@ pub enum SetupSelfRequirement {
     Rust,
     /// Portable Git distribution.
     Git,
+    /// Portable Zig-based cross-linker wrappers.
+    CrossToolchains,
     /// SteamCMD distribution.
     SteamCmd,
 }
@@ -119,6 +133,7 @@ impl SetupSelfRequirement {
         match self {
             Self::Rust => "Rust/Cargo",
             Self::Git => "Git",
+            Self::CrossToolchains => "Zig/Cross",
             Self::SteamCmd => "SteamCMD",
         }
     }
@@ -155,11 +170,12 @@ impl SetupSelfComponentStatus {
     }
 }
 
-/// Complete status of active Rust, Git, SteamCMD, and self-setup payloads.
+/// Complete status of active Rust, Git, cross-linker, SteamCMD, and setup payloads.
 #[derive(Debug, Clone)]
 pub struct SetupSelfStatus {
     rust: SetupSelfComponentStatus,
     git: SetupSelfComponentStatus,
+    cross: SetupSelfComponentStatus,
     steamcmd: SetupSelfComponentStatus,
     package: setup_self_packages::SetupSelfPackageStatus,
 }
@@ -175,6 +191,11 @@ impl SetupSelfStatus {
         &self.git
     }
 
+    /// App-local portable cross-linker status.
+    pub fn cross_toolchains(&self) -> &SetupSelfComponentStatus {
+        &self.cross
+    }
+
     /// App-local SteamCMD status.
     pub fn steamcmd(&self) -> &SetupSelfComponentStatus {
         &self.steamcmd
@@ -182,7 +203,7 @@ impl SetupSelfStatus {
 
     /// Whether every active tool is installed.
     pub fn complete(&self) -> bool {
-        self.rust.installed && self.git.installed && self.steamcmd.installed
+        self.rust.installed && self.git.installed && self.cross.installed && self.steamcmd.installed
     }
 
     /// Whether the distributable self-setup payload required for app staging exists.
@@ -205,6 +226,7 @@ impl SetupSelfStatus {
         match requirement {
             SetupSelfRequirement::Rust => &self.rust,
             SetupSelfRequirement::Git => &self.git,
+            SetupSelfRequirement::CrossToolchains => &self.cross,
             SetupSelfRequirement::SteamCmd => &self.steamcmd,
         }
     }
@@ -433,6 +455,9 @@ pub fn uninstall(installation: &InstallationPaths) -> Result<UninstallReport, St
         "rustup-home",
         "cargo-home",
         "tools/git",
+        "tools/zig",
+        "tools/llvm-mingw",
+        "tools/cross",
         "tools/steamcmd",
     ] {
         let path = root.join(relative);
@@ -471,6 +496,7 @@ fn apply_setup_self_install(
             repair,
             before.rust.installed(),
             before.git.installed(),
+            before.cross.installed(),
             before.steamcmd.installed(),
         )?
     } else {
@@ -505,10 +531,16 @@ fn bootstrap_tools(
     if repair || !before.rust.installed() {
         bootstrap_rust(root)?;
         installed_groups.push("Rust/Cargo");
+    } else {
+        install_rust_targets(root)?;
     }
     if repair || !before.git.installed() {
         bootstrap_git(root)?;
         installed_groups.push("Git");
+    }
+    if repair || !before.cross.installed() {
+        bootstrap_cross_toolchains(root)?;
+        installed_groups.push("Zig/Cross");
     }
     if repair || !before.steamcmd.installed() {
         bootstrap_steamcmd(root)?;
@@ -522,6 +554,7 @@ fn bootstrap_rust(root: &Path) -> Result<(), String> {
     let rustup_init = downloads.join(executable("rustup-init"));
     download(rustup_init_url()?, &rustup_init)?;
     make_executable(&rustup_init)?;
+    let default_host = host_rust_target();
     let status = Command::new(&rustup_init)
         .args([
             "-y",
@@ -530,7 +563,9 @@ fn bootstrap_rust(root: &Path) -> Result<(), String> {
             "default",
             "--default-toolchain",
             "stable",
+            "--default-host",
         ])
+        .arg(&default_host)
         .env("RUSTUP_HOME", root.join("rustup-home"))
         .env("CARGO_HOME", root.join("cargo-home"))
         .status()
@@ -541,6 +576,128 @@ fn bootstrap_rust(root: &Path) -> Result<(), String> {
     let source = root.join("cargo-home/bin").join(executable("rustup"));
     let target = root.join("rustup/bin").join(executable("rustup"));
     copy_file(root, &source, &target)?;
+    install_rust_targets(root)?;
+    Ok(())
+}
+
+fn host_rust_target() -> String {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("linux", "x86_64") => cross_toolchain::LINUX_GNU_TARGET.to_owned(),
+        ("windows", "x86_64") => cross_toolchain::WINDOWS_GNU_TARGET.to_owned(),
+        ("linux", "aarch64") => "aarch64-unknown-linux-gnu".to_owned(),
+        ("windows", "aarch64") => "aarch64-pc-windows-msvc".to_owned(),
+        (os, arch) => format!("{arch}-{os}"),
+    }
+}
+
+fn install_rust_targets(root: &Path) -> Result<(), String> {
+    let rustup = root.join("rustup/bin").join(executable("rustup"));
+    for target in cross_toolchain::RELEASE_RUST_TARGETS {
+        let status = Command::new(&rustup)
+            .args(["target", "add", target])
+            .env("RUSTUP_HOME", root.join("rustup-home"))
+            .env("CARGO_HOME", root.join("cargo-home"))
+            .status()
+            .map_err(|error| format!("failed to start rustup target add {target}: {error}"))?;
+        if !status.success() {
+            return Err(format!("rustup target add {target} exited with {status}"));
+        }
+    }
+    Ok(())
+}
+
+fn bootstrap_cross_toolchains(root: &Path) -> Result<(), String> {
+    if !is_executable(&cross_toolchain::zig_executable(root)) {
+        bootstrap_zig(root)?;
+    }
+    if !is_executable(
+        &cross_toolchain::llvm_mingw_bin(root).join(executable("x86_64-w64-mingw32-clang")),
+    ) {
+        bootstrap_llvm_mingw(root)?;
+    }
+    cross_toolchain::write_wrappers(root)
+}
+
+fn bootstrap_zig(root: &Path) -> Result<(), String> {
+    let target = root.join("tools/zig");
+    ensure_contained(root, &target)?;
+    if target.exists() {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("failed to reset '{}': {error}", target.display()))?;
+    }
+    let extract_root = root.join(".vapor/extract/zig");
+    ensure_contained(root, &extract_root)?;
+    if extract_root.exists() {
+        fs::remove_dir_all(&extract_root)
+            .map_err(|error| format!("failed to reset '{}': {error}", extract_root.display()))?;
+    }
+    fs::create_dir_all(&extract_root)
+        .map_err(|error| format!("failed to create '{}': {error}", extract_root.display()))?;
+
+    if cfg!(target_os = "windows") {
+        let archive = downloads_dir(root)?.join(format!("zig-x86_64-windows-{ZIG_VERSION}.zip"));
+        download(ZIG_X86_64_WINDOWS, &archive)?;
+        extract_zip(&archive, &extract_root, "Zig archive")?;
+    } else {
+        let archive = downloads_dir(root)?.join(format!("zig-x86_64-linux-{ZIG_VERSION}.tar.xz"));
+        download(ZIG_X86_64_LINUX, &archive)?;
+        extract_tar_xz(&archive, &extract_root, "Zig archive")?;
+    }
+
+    let extracted = find_extracted_zig_root(&extract_root)?;
+    copy_app_tree(root, &extracted, &target)?;
+    make_executable(&cross_toolchain::zig_executable(root))?;
+    Ok(())
+}
+
+fn bootstrap_llvm_mingw(root: &Path) -> Result<(), String> {
+    let target = cross_toolchain::llvm_mingw_root(root);
+    ensure_contained(root, &target)?;
+    if target.exists() {
+        fs::remove_dir_all(&target)
+            .map_err(|error| format!("failed to reset '{}': {error}", target.display()))?;
+    }
+    let extract_root = root.join(".vapor/extract/llvm-mingw");
+    ensure_contained(root, &extract_root)?;
+    if extract_root.exists() {
+        fs::remove_dir_all(&extract_root)
+            .map_err(|error| format!("failed to reset '{}': {error}", extract_root.display()))?;
+    }
+    fs::create_dir_all(&extract_root)
+        .map_err(|error| format!("failed to create '{}': {error}", extract_root.display()))?;
+
+    if cfg!(target_os = "windows") {
+        let archive =
+            downloads_dir(root)?.join(format!("llvm-mingw-{LLVM_MINGW_VERSION}-msvcrt-x86_64.zip"));
+        download(LLVM_MINGW_X86_64_WINDOWS, &archive)?;
+        verify_sha256_with_powershell(&archive, LLVM_MINGW_X86_64_WINDOWS_SHA256)?;
+        extract_zip(&archive, &extract_root, "llvm-mingw archive")?;
+    } else {
+        let archive = downloads_dir(root)?.join(format!(
+            "llvm-mingw-{LLVM_MINGW_VERSION}-msvcrt-ubuntu-22.04-x86_64.tar.xz"
+        ));
+        download(LLVM_MINGW_X86_64_LINUX, &archive)?;
+        verify_sha256_with_sha256sum(&archive, LLVM_MINGW_X86_64_LINUX_SHA256)?;
+        extract_tar_xz(&archive, &extract_root, "llvm-mingw archive")?;
+    }
+
+    let extracted = find_extracted_tool_root(
+        &extract_root,
+        Path::new("bin").join(executable("x86_64-w64-mingw32-clang")),
+        "llvm-mingw",
+    )?;
+    copy_app_tree(root, &extracted, &target)?;
+    make_executable(
+        &target
+            .join("bin")
+            .join(executable("x86_64-w64-mingw32-clang")),
+    )?;
+    make_executable(
+        &target
+            .join("bin")
+            .join(executable("x86_64-w64-mingw32-dlltool")),
+    )?;
+    make_executable(&target.join("bin").join(executable("llvm-dlltool")))?;
     Ok(())
 }
 
@@ -898,10 +1055,97 @@ fn extract_zip(archive: &Path, target: &Path, label: &str) -> Result<(), String>
     }
 }
 
+fn extract_tar_xz(archive: &Path, target: &Path, label: &str) -> Result<(), String> {
+    let status = Command::new("tar")
+        .args(["-xJf"])
+        .arg(archive)
+        .arg("-C")
+        .arg(target)
+        .status()
+        .map_err(|error| format!("failed to start tar for {label}: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{label} extraction exited with {status}"))
+    }
+}
+
+fn find_extracted_zig_root(extract_root: &Path) -> Result<PathBuf, String> {
+    find_extracted_tool_root(extract_root, PathBuf::from(executable("zig")), "Zig")
+}
+
+fn find_extracted_tool_root(
+    extract_root: &Path,
+    required_relative: PathBuf,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let mut candidates = fs::read_dir(extract_root)
+        .map_err(|error| format!("failed to read '{}': {error}", extract_root.display()))?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .filter(|path| path.join(&required_relative).is_file())
+        .collect::<Vec<_>>();
+    candidates.sort();
+    candidates.into_iter().next().ok_or_else(|| {
+        format!(
+            "{label} archive did not contain an expected '{}' entry under '{}'",
+            required_relative.display(),
+            extract_root.display()
+        )
+    })
+}
+
+fn copy_app_tree(root: &Path, source: &Path, destination: &Path) -> Result<(), String> {
+    ensure_contained(root, source)?;
+    ensure_contained(root, destination)?;
+    copy_app_tree_entry(source, destination, source)
+}
+
+fn copy_app_tree_entry(source: &Path, destination: &Path, item_root: &Path) -> Result<(), String> {
+    let canonical = fs::canonicalize(source)
+        .map_err(|error| format!("failed to resolve '{}': {error}", source.display()))?;
+    ensure_contained(item_root, &canonical)?;
+    let metadata = fs::metadata(&canonical)
+        .map_err(|error| format!("failed to inspect '{}': {error}", canonical.display()))?;
+    if metadata.is_dir() {
+        fs::create_dir_all(destination)
+            .map_err(|error| format!("failed to create '{}': {error}", destination.display()))?;
+        for entry in fs::read_dir(&canonical)
+            .map_err(|error| format!("failed to read '{}': {error}", canonical.display()))?
+        {
+            let entry =
+                entry.map_err(|error| format!("failed to read directory entry: {error}"))?;
+            copy_app_tree_entry(
+                &entry.path(),
+                &destination.join(entry.file_name()),
+                item_root,
+            )?;
+        }
+    } else if metadata.is_file() {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
+        }
+        fs::copy(&canonical, destination).map_err(|error| {
+            format!(
+                "failed to copy '{}' to '{}': {error}",
+                canonical.display(),
+                destination.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
     if !cfg!(target_os = "windows") {
         return Ok(());
     }
+    verify_sha256_with_powershell(path, expected)
+}
+
+fn verify_sha256_with_powershell(path: &Path, expected: &str) -> Result<(), String> {
     let output = Command::new("powershell")
         .args([
             "-NoProfile",
@@ -937,6 +1181,35 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<(), String> {
     }
 }
 
+fn verify_sha256_with_sha256sum(path: &Path, expected: &str) -> Result<(), String> {
+    let output = Command::new("sha256sum")
+        .arg(path)
+        .output()
+        .map_err(|error| {
+            format!(
+                "failed to start sha256sum for '{}': {error}",
+                path.display()
+            )
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "checksum verification for '{}' exited with {}",
+            path.display(),
+            output.status
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let actual = stdout.split_whitespace().next().unwrap_or("");
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(format!(
+            "checksum mismatch for '{}'\n  expected: {expected}\n  actual:   {actual}",
+            path.display()
+        ))
+    }
+}
+
 fn copy_file(root: &Path, source: &Path, target: &Path) -> Result<(), String> {
     ensure_contained(root, source)?;
     ensure_contained(root, target)?;
@@ -955,6 +1228,7 @@ fn copy_file(root: &Path, source: &Path, target: &Path) -> Result<(), String> {
 }
 
 fn make_executable(path: &Path) -> Result<(), String> {
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1017,7 +1291,7 @@ fn inspect_root(root: &Path) -> SetupSelfStatus {
     let toolchains = root.join("rustup-home/toolchains");
     let (rust_bin, rust_missing) = inspect_rust(&toolchains, Some(root));
     let mut missing = rust_missing;
-    if !is_healthy_executable(&rustup, root) {
+    if !is_executable(&rustup) {
         missing.push(format!("rustup (expected at {})", rustup.display()));
     }
     let rust = SetupSelfComponentStatus {
@@ -1062,10 +1336,18 @@ fn inspect_root(root: &Path) -> SetupSelfStatus {
             vec!["steamcmd".to_owned()]
         },
     };
+    let cross_status = cross_toolchain::inspect(root);
+    let cross = SetupSelfComponentStatus {
+        label: "Zig/Cross",
+        installed: cross_status.installed,
+        path: cross_status.path,
+        missing: cross_status.missing,
+    };
 
     SetupSelfStatus {
         rust,
         git,
+        cross,
         steamcmd,
         package: setup_self_packages::inspect_setup_self_package(root),
     }
@@ -1128,6 +1410,7 @@ fn format_missing(status: &SetupSelfStatus) -> String {
         &[
             SetupSelfRequirement::Rust,
             SetupSelfRequirement::Git,
+            SetupSelfRequirement::CrossToolchains,
             SetupSelfRequirement::SteamCmd,
         ],
     )

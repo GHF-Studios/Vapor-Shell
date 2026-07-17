@@ -113,6 +113,24 @@ pub(crate) fn install_setup_self_package(
     )?;
     copy_tree(
         app_root,
+        &app_root.join("tools/zig"),
+        &package.join("zig"),
+        &[],
+    )?;
+    copy_tree(
+        app_root,
+        &app_root.join("tools/llvm-mingw"),
+        &package.join("llvm-mingw"),
+        &[],
+    )?;
+    copy_tree(
+        app_root,
+        &app_root.join("tools/cross"),
+        &package.join("cross"),
+        &[],
+    )?;
+    copy_tree(
+        app_root,
         &app_root.join("tools/steamcmd"),
         &package.join("steamcmd"),
         &[
@@ -142,6 +160,7 @@ pub(crate) fn copy_setup_self_package_to_active(
     repair: bool,
     active_rust_ready: bool,
     active_git_ready: bool,
+    active_cross_ready: bool,
     active_steamcmd_ready: bool,
 ) -> Result<Vec<&'static str>, String> {
     if !status.complete() {
@@ -183,6 +202,27 @@ pub(crate) fn copy_setup_self_package_to_active(
         )?;
         installed.push("Git");
     }
+    if repair || !active_cross_ready {
+        copy_tree(
+            app_root,
+            &package.join("zig"),
+            &app_root.join("tools/zig"),
+            &[],
+        )?;
+        copy_tree(
+            app_root,
+            &package.join("llvm-mingw"),
+            &app_root.join("tools/llvm-mingw"),
+            &[],
+        )?;
+        copy_tree(
+            app_root,
+            &package.join("cross"),
+            &app_root.join("tools/cross"),
+            &[],
+        )?;
+        installed.push("Zig/Cross");
+    }
     if repair || !active_steamcmd_ready {
         copy_tree(
             app_root,
@@ -222,6 +262,9 @@ fn inspect_package_at(package: &Path) -> SetupSelfPackageStatus {
         "cargo-home",
         "cargo-home/registry",
         "git",
+        "zig",
+        "llvm-mingw",
+        "cross",
         "steamcmd",
     ] {
         if !package.join(directory).is_dir() {
@@ -273,6 +316,11 @@ fn inspect_package_tools(package: &Path) -> Vec<String> {
     {
         missing.push("steamcmd/steamcmd[.sh|.exe]".to_owned());
     }
+    missing.extend(inspect_cross_tools(
+        package,
+        &package.join("zig"),
+        &package.join("cross"),
+    ));
     missing
 }
 
@@ -284,6 +332,9 @@ pub(crate) fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(),
         "cargo-home",
         "cargo-home/registry",
         "tools/git",
+        "tools/zig",
+        "tools/llvm-mingw",
+        "tools/cross",
         "tools/steamcmd",
     ] {
         if !app_root.join(directory).is_dir() {
@@ -327,6 +378,11 @@ pub(crate) fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(),
     {
         missing.push("tools/steamcmd/steamcmd[.sh|.exe]".to_owned());
     }
+    missing.extend(inspect_cross_tools(
+        app_root,
+        &app_root.join("tools/zig"),
+        &app_root.join("tools/cross"),
+    ));
     if missing.is_empty() {
         Ok(())
     } else {
@@ -335,6 +391,49 @@ pub(crate) fn validate_active_setup_for_packaging(app_root: &Path) -> Result<(),
             missing.join("\n  - ")
         ))
     }
+}
+
+fn inspect_cross_tools(root: &Path, zig_root: &Path, cross_root: &Path) -> Vec<String> {
+    let mut missing = Vec::new();
+    let zig = zig_root.join(executable("zig"));
+    if !is_executable(&zig) {
+        missing.push(relative_label(root, &zig));
+    }
+    for tool in [
+        "x86_64-w64-mingw32-clang",
+        "x86_64-w64-mingw32-dlltool",
+        "llvm-dlltool",
+    ] {
+        let path = root.join("tools/llvm-mingw/bin").join(executable(tool));
+        let package_path = root.join("llvm-mingw/bin").join(executable(tool));
+        let candidate = if path.exists() { path } else { package_path };
+        if !is_executable(&candidate) {
+            missing.push(relative_label(root, &candidate));
+        }
+    }
+    {
+        let target = "x86_64-unknown-linux-gnu";
+        let wrapper = cross_root.join("bin").join(linker_script_name(target));
+        if !is_executable(&wrapper) {
+            missing.push(relative_label(root, &wrapper));
+        }
+    }
+    missing
+}
+
+fn linker_script_name(target: &str) -> String {
+    if cfg!(windows) {
+        format!("{target}-zig-cc.cmd")
+    } else {
+        format!("{target}-zig-cc")
+    }
+}
+
+fn relative_label(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn package_git_candidates(package: &Path) -> Vec<PathBuf> {

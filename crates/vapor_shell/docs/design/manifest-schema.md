@@ -58,7 +58,7 @@ development-branch = "vapor-dev"
 [root.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 
 [[root.content]]
@@ -102,7 +102,7 @@ repository = "https://github.com/GHF-Studios/Loo-Cast"
 [workspace.runtime]
 targets = [
     "x86_64-unknown-linux-gnu",
-    "x86_64-pc-windows-msvc",
+    "x86_64-pc-windows-gnullvm",
 ]
 ```
 

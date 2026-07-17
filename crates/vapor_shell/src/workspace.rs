@@ -292,7 +292,7 @@ fn validate_runtime_targets(path: &Path, targets: Vec<String>) -> Result<Vec<Str
             });
         if !valid {
             return Err(format!(
-                "runtime target must be a Rust target triple such as x86_64-pc-windows-msvc in '{}': {target}",
+                "runtime target must be a Rust target triple such as x86_64-pc-windows-gnullvm in '{}': {target}",
                 path.display()
             ));
         }

@@ -357,7 +357,7 @@ fn validate_runtime_target(target: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "runtime target must be a Rust target triple such as x86_64-pc-windows-msvc: {target}"
+            "runtime target must be a Rust target triple such as x86_64-pc-windows-gnullvm: {target}"
         ))
     }
 }

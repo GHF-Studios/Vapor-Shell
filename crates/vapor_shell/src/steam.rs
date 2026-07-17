@@ -120,7 +120,7 @@ pub fn smoke(stage: &Path, options: &StageOptions) -> Result<(), String> {
         }
     }
     let linux_shell = stage.join("bin/x86_64-unknown-linux-gnu/vapor");
-    let windows_shell = stage.join("bin/x86_64-pc-windows-msvc/vapor.exe");
+    let windows_shell = stage.join("bin/x86_64-pc-windows-gnullvm/vapor.exe");
     let legacy_shell = stage.join(format!("bin/vapor{}", std::env::consts::EXE_SUFFIX));
     if !linux_shell.is_file() && !windows_shell.is_file() && !legacy_shell.is_file() {
         return Err("staged application has no vapor binary".to_owned());
