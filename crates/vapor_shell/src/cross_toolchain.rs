@@ -9,6 +9,7 @@ pub(crate) const WINDOWS_GNU_TARGET: &str = "x86_64-pc-windows-gnullvm";
 pub(crate) const RELEASE_RUST_TARGETS: &[&str] = &[LINUX_GNU_TARGET, WINDOWS_GNU_TARGET];
 
 const ZIG_LINKER_TARGETS: &[(&str, &str)] = &[(LINUX_GNU_TARGET, "x86_64-linux-gnu")];
+const WINDOWS_RUNTIME_DLLS: &[&str] = &["libunwind.dll"];
 
 #[derive(Debug, Clone)]
 pub(crate) struct CrossToolchainStatus {
@@ -79,6 +80,46 @@ pub(crate) fn write_wrappers(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn copy_windows_runtime_dlls(
+    root: &Path,
+    target: &str,
+    target_directory: &Path,
+) -> Result<usize, String> {
+    if target != WINDOWS_GNU_TARGET {
+        return Ok(0);
+    }
+    ensure_contained(root, target_directory)?;
+    fs::create_dir_all(target_directory).map_err(|error| {
+        format!(
+            "failed to create Windows runtime DLL directory '{}': {error}",
+            target_directory.display()
+        )
+    })?;
+
+    let source_directory = llvm_mingw_target_bin(root);
+    let mut copied = 0;
+    for dll in WINDOWS_RUNTIME_DLLS {
+        let source = source_directory.join(dll);
+        if !source.is_file() {
+            return Err(format!(
+                "cannot stage Windows runtime DLL '{dll}': missing {}\nhelp: run `setup self install` or `setup self repair` to install app-local llvm-mingw",
+                source.display()
+            ));
+        }
+        let target = target_directory.join(dll);
+        ensure_contained(root, &target)?;
+        fs::copy(&source, &target).map_err(|error| {
+            format!(
+                "failed to copy Windows runtime DLL '{}' to '{}': {error}",
+                source.display(),
+                target.display()
+            )
+        })?;
+        copied += 1;
+    }
+    Ok(copied)
+}
+
 pub(crate) fn zig_executable(root: &Path) -> PathBuf {
     root.join("tools/zig").join(executable("zig"))
 }
@@ -89,6 +130,10 @@ pub(crate) fn llvm_mingw_root(root: &Path) -> PathBuf {
 
 pub(crate) fn llvm_mingw_bin(root: &Path) -> PathBuf {
     llvm_mingw_root(root).join("bin")
+}
+
+fn llvm_mingw_target_bin(root: &Path) -> PathBuf {
+    llvm_mingw_root(root).join("x86_64-w64-mingw32/bin")
 }
 
 fn llvm_mingw_clang(root: &Path) -> PathBuf {

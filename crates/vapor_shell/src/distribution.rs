@@ -1,6 +1,7 @@
 //! Declarative assembly of the self-hosting Steam application payload.
 
 use crate::{
+    cross_toolchain,
     discovery::{EnvironmentPaths, ensure_contained},
     workflow,
 };
@@ -316,7 +317,13 @@ fn copy_runtime_binaries(
         let canonical =
             fs::canonicalize(&source).map_err(io("resolve runtime binaries", &source))?;
         ensure_contained(paths.installation().root(), &canonical)?;
-        files += copy_tree(&canonical, &target_root.join(target), &canonical, &[])?;
+        let target_directory = target_root.join(target);
+        files += copy_tree(&canonical, &target_directory, &canonical, &[])?;
+        files += cross_toolchain::copy_windows_runtime_dlls(
+            paths.installation().root(),
+            target,
+            &target_directory,
+        )?;
     }
     Ok(files)
 }

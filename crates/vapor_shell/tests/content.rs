@@ -262,6 +262,10 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
         &format!("output/dev/loo-cast/{windows_target}/debug/spacetime_engine.dll"),
         "engine library",
     );
+    installation.write(
+        "tools/llvm-mingw/x86_64-w64-mingw32/bin/libunwind.dll",
+        "runtime dll",
+    );
 
     let source = TestTree::new("content-publish-windows-runtime-source");
     source.write(
@@ -299,12 +303,22 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
     );
     assert!(
         package_root
+            .join("bin/x86_64-pc-windows-gnullvm/libunwind.dll")
+            .is_file()
+    );
+    assert!(
+        package_root
             .join("bin/x86_64-unknown-linux-gnu/spacetime-engine")
             .is_file()
     );
     assert!(
         package_root
             .join("lib/x86_64-pc-windows-gnullvm/spacetime_engine.dll")
+            .is_file()
+    );
+    assert!(
+        package_root
+            .join("lib/x86_64-pc-windows-gnullvm/libunwind.dll")
             .is_file()
     );
     assert!(
@@ -420,6 +434,10 @@ fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
         &format!("output/dev/loo-cast/{target}/debug/spacetime_engine.dll"),
         "engine library",
     );
+    installation.write(
+        "tools/llvm-mingw/x86_64-w64-mingw32/bin/libunwind.dll",
+        "runtime dll",
+    );
 
     let source = TestTree::new("content-windows-runtime-source");
     source.write(
@@ -446,7 +464,19 @@ fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
     assert!(
         package
             .root()
+            .join("bin/x86_64-pc-windows-gnullvm/libunwind.dll")
+            .is_file()
+    );
+    assert!(
+        package
+            .root()
             .join("lib/x86_64-pc-windows-gnullvm/spacetime_engine.dll")
+            .is_file()
+    );
+    assert!(
+        package
+            .root()
+            .join("lib/x86_64-pc-windows-gnullvm/libunwind.dll")
             .is_file()
     );
     let deployed = fs::read_to_string(package.root().join("Vapor.toml")).unwrap();

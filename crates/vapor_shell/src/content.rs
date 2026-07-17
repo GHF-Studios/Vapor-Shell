@@ -5,6 +5,7 @@
 //! app-owned state is written under the Steam installation/app root.
 
 use crate::{
+    cross_toolchain,
     discovery::{EnvironmentPaths, InstallationPaths, ensure_contained},
     manifest::{self, ContentKind, VaporEntity},
     steam,
@@ -2612,6 +2613,20 @@ fn stage_runtime_outputs(
         staged
             .libraries
             .push(copy_runtime_output(&source, &lib_root)?);
+    }
+    if !staged.binaries.is_empty() {
+        cross_toolchain::copy_windows_runtime_dlls(
+            paths.installation().root(),
+            runtime_target.triple(),
+            &bin_root,
+        )?;
+    }
+    if !staged.libraries.is_empty() {
+        cross_toolchain::copy_windows_runtime_dlls(
+            paths.installation().root(),
+            runtime_target.triple(),
+            &lib_root,
+        )?;
     }
     Ok(staged)
 }

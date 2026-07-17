@@ -200,6 +200,10 @@ fn promote_places_explicit_windows_root_binaries_under_target_directory() {
         "output/dev/workflow-source/x86_64-pc-windows-gnullvm/debug/vapor.exe",
         "promoted binary",
     );
+    installation.write(
+        "tools/llvm-mingw/x86_64-w64-mingw32/bin/libunwind.dll",
+        "runtime dll",
+    );
 
     let source = TestTree::new("workflow-promote-windows-source");
     source.write(
@@ -219,6 +223,12 @@ fn promote_places_explicit_windows_root_binaries_under_target_directory() {
         installation
             .root()
             .join("bin/x86_64-pc-windows-gnullvm/vapor.exe")
+            .is_file()
+    );
+    assert!(
+        installation
+            .root()
+            .join("bin/x86_64-pc-windows-gnullvm/libunwind.dll")
             .is_file()
     );
 }

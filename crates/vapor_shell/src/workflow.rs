@@ -183,7 +183,24 @@ pub fn promote_for_targets(
                     .join(&filename);
                 ensure_contained(installation, &destination)?;
                 promote_file(&source, &destination)?;
+                let destination_root = destination.parent().ok_or_else(|| {
+                    format!(
+                        "promoted binary destination has no parent: {}",
+                        destination.display()
+                    )
+                })?;
+                let support_dlls = cross_toolchain::copy_windows_runtime_dlls(
+                    installation,
+                    target.triple(),
+                    destination_root,
+                )?;
                 println!("promoted {} -> {}", source.display(), destination.display());
+                if support_dlls > 0 {
+                    println!(
+                        "promoted {support_dlls} Windows runtime DLL(s) -> {}",
+                        destination_root.display()
+                    );
+                }
                 promoted += 1;
             }
         }

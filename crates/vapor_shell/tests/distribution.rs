@@ -26,6 +26,10 @@ fn fixture() -> (TestTree, TestTree, EnvironmentPaths, DistributionManifest) {
     let executable = installation.write("bin/vapor", "binary");
     installation.write("bin/x86_64-unknown-linux-gnu/vapor", "linux vapor");
     installation.write("bin/x86_64-pc-windows-gnullvm/vapor.exe", "windows vapor");
+    installation.write(
+        "tools/llvm-mingw/x86_64-w64-mingw32/bin/libunwind.dll",
+        "runtime dll",
+    );
     installation.write("docs/index.html", "docs");
     for path in [
         "packages/setup/rustup/bin/rustup",
@@ -287,6 +291,7 @@ fn root_publish_dry_run_requires_active_app_local_setup() {
         "tools/llvm-mingw/bin/x86_64-w64-mingw32-clang",
         "tools/llvm-mingw/bin/x86_64-w64-mingw32-dlltool",
         "tools/llvm-mingw/bin/llvm-dlltool",
+        "tools/llvm-mingw/x86_64-w64-mingw32/bin/libunwind.dll",
         "tools/cross/bin/x86_64-pc-windows-gnullvm-zig-cc",
         "tools/cross/bin/x86_64-unknown-linux-gnu-zig-cc",
         "tools/steamcmd/steamcmd",
@@ -382,6 +387,12 @@ targets = [
         installation
             .root()
             .join("output/root/content/bin/x86_64-pc-windows-gnullvm/vapor.exe")
+            .is_file()
+    );
+    assert!(
+        installation
+            .root()
+            .join("output/root/content/bin/x86_64-pc-windows-gnullvm/libunwind.dll")
             .is_file()
     );
 }
