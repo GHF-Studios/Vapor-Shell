@@ -389,6 +389,14 @@ output into `bin/<target>/` and `lib/<target>/`, and the deployed manifest
 records the staged filenames in target-specific `runtime` entries. Repeat
 `--target` to stage several platform payloads into one package root, or use
 `--release-targets` for the workspace runtime matrix.
+
+Release Workshop packages should be single logical artifact roots that contain
+every shipped runtime target, for example Linux and Windows/MSVC side by side.
+Do not create separate Workshop items, app roots, or publication branches just
+to split operating systems. Runtime selection happens when Vapor installs or
+launches content by choosing the matching `bin/<target>/` and `lib/<target>/`
+payload.
+
 `--dry-run` computes the intended artifact path and deployed-artifact
 fingerprint without writing package files.
 
@@ -483,6 +491,11 @@ typed manually in the interactive shell. Multiple artifacts are sent through one
 SteamCMD provider session. Repeat `--target` when publishing a package that
 must contain more than one platform payload, or use `--release-targets` for the
 workspace runtime matrix.
+
+The intended release path is `content publish ... --release-targets`: one
+Workshop item update per artifact, with all supported platform binaries and
+libraries inside that item. Steam Workshop beta-branch versioning is reserved
+for app-branch compatibility ranges, not for Linux-vs-Windows payload splitting.
 
 ### `content delete ARTIFACT_OR_WORKSHOP_ID --dry-run`
 

@@ -63,6 +63,12 @@ reads the normal app-local Cargo output directory. Explicit or release targets
 read from `output/dev/<workspace>/<target>/debug/` and stage files under the
 same target name inside the deployed content root.
 
+This is the release shape for Workshop content. A Workshop item represents one
+logical content artifact and may carry every shipped runtime target under the
+same artifact root. Vapor does not split Linux and Windows content into
+separate Workshop items or separate app roots; platform-specific material is
+selected from `bin/<target>/` and `lib/<target>/` after download/install.
+
 ## New content workspace
 
 The installed app can create a minimal engine/game/packagepack workspace:

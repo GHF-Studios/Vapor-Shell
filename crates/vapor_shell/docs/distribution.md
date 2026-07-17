@@ -38,6 +38,12 @@ require or advertise Windows launch wrappers. Repeat `--target` to stage
 specific already-promoted target directories, or use `--release-targets` to
 stage every target declared in `[root.runtime].targets`. Staging fails when a
 selected `bin/<target>/` directory is missing.
+
+Release staging is one unified app/depot content root. Linux and Windows
+runtime binaries live side by side under `bin/<target>/`; Vapor does not create
+separate app roots or require separate depot publication shapes just to ship
+multiple operating systems.
+
 For a release assembled from artifacts built on multiple machines, import the
 target-specific app binaries into `bin/<target>/`, run
 `root package --release-targets`, then use
