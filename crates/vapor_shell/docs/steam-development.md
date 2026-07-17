@@ -35,9 +35,12 @@ Steam starts it without a terminal. The Windows wrapper opens a persistent
 central implementation surface.
 
 On Windows, the Shell launch option is expected to be single-click-to-shell.
-First-run tool preparation happens inside that visible shell with
+First-run Vapor tool preparation happens inside that visible shell with
 `setup self install`; it downloads app-local portable Git and SteamCMD payloads
-instead of requiring system Git to be installed before launch.
+instead of requiring system Git to be installed before launch. The MSVC
+compiler/linker prerequisite is supplied separately by the Steam-configured
+Visual Studio 2022 Build Tools redistributable with Desktop development with
+C++.
 
 The `play` wrapper mode opens the normal interactive Vapor Shell, runs the
 installed `.vapor/scripts/loo-cast.vapor` script, and leaves the shell open.
@@ -97,8 +100,9 @@ root build --release-targets
 root publish --release-targets --dry-run
 ```
 
-The Windows/MSVC target normally needs to be built on Windows with MSVC tooling,
-then staged alongside the Linux payload before publication.
+The Windows/MSVC target normally needs to be built on Windows after Steam has
+installed the Visual Studio 2022 Build Tools redistributable, then staged
+alongside the Linux payload before publication.
 For quick local Linux smoke, omit target flags and Vapor stages only the host
 `bin/<target>/` directory plus the matching launch wrapper.
 When Windows artifacts were imported from another machine, use

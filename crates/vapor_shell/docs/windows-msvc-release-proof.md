@@ -51,6 +51,11 @@ Expected setup behavior:
 No downloaded setup component should run a system installer, require global
 Git, write to a global Git location, or mutate machine-wide PATH state.
 
+The MSVC compiler/linker prerequisite is expected to come from Steam's
+configured Visual Studio 2022 Build Tools redistributable with Desktop
+development with C++. Vapor does not install that redistributable itself; the
+Steam app install/update flow owns it.
+
 ## Source handoff
 
 The source import/template command is still a product gap. Until that exists,
@@ -100,10 +105,10 @@ Build the example runtime outputs:
 "%VAPOR%" content build --target x86_64-pc-windows-msvc
 ```
 
-This proof still requires a working MSVC linker for
-`x86_64-pc-windows-msvc`. Git, Rustup state, Cargo state, and SteamCMD are
-app-local; the Microsoft compiler/linker toolchain is not yet a portable Vapor
-payload.
+This proof expects Steam to have installed the Visual Studio 2022 Build Tools
+redistributable before the Windows build commands run. Git, Rustup state, Cargo
+state, and SteamCMD are app-local Vapor setup; the Microsoft compiler/linker
+toolchain is a Steam-managed redistributable prerequisite.
 
 ## Windows artifact checks
 
