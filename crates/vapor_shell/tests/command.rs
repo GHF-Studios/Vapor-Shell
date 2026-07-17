@@ -138,6 +138,7 @@ fn help_uses_defined_argument_domains() {
         "--branch",
         "--target",
         "--release-targets",
+        "--skip-build",
         "--yes",
     ] {
         assert!(

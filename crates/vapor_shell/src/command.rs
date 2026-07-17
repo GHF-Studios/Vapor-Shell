@@ -369,6 +369,9 @@ pub enum RootCommand {
         /// Build and stage the release target matrix declared in `[root.runtime].targets`.
         #[arg(long)]
         release_targets: bool,
+        /// Use already-promoted app binaries instead of running Cargo validate/build.
+        #[arg(long)]
+        skip_build: bool,
         /// Internal Steam build description.
         #[arg(long, default_value = "Vapor development build")]
         description: String,
@@ -1802,6 +1805,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             branch,
             target,
             release_targets,
+            skip_build,
             description,
             dry_run,
             yes,
@@ -1837,24 +1841,28 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 StageOptions::runtime()
             }
             .with_runtime_targets(targets.clone());
-            run_workflow_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                CargoWorkflow::Validate,
-                &targets,
-            )?;
-            run_workflow_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                CargoWorkflow::Build,
-                &targets,
-            )?;
-            let promoted = workflow::promote_for_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                &targets,
-            )?;
-            println!("promoted {promoted} installation binaries");
+            if skip_build {
+                println!("build: skipped; using already-promoted app binaries");
+            } else {
+                run_workflow_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    CargoWorkflow::Validate,
+                    &targets,
+                )?;
+                run_workflow_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    CargoWorkflow::Build,
+                    &targets,
+                )?;
+                let promoted = workflow::promote_for_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    &targets,
+                )?;
+                println!("promoted {promoted} installation binaries");
+            }
             documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
             let script = steam::publish(
                 state.active_paths()?,

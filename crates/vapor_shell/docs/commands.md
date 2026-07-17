@@ -312,7 +312,7 @@ package. That mode additionally validates and stages `packages/setup`; run
 `setup self package install` or `setup self package repair` first when metadata
 reports missing self-setup payloads.
 
-### `root publish [--include-setup-payload] [--account ACCOUNT] [--branch BRANCH] [--target TARGET]... [--release-targets] [--dry-run] [--yes]`
+### `root publish [--include-setup-payload] [--account ACCOUNT] [--branch BRANCH] [--target TARGET]... [--release-targets] [--skip-build] [--dry-run] [--yes]`
 
 Validate, build, promote binaries, build docs, stage the clean app/depot
 payload, smoke-check it, generate a SteamPipe VDF, and optionally upload it.
@@ -323,6 +323,11 @@ Repeat `--target` for release-mode app builds that must ship more than one
 platform binary, or use `--release-targets` for the `[root.runtime].targets`
 matrix. The depot smoke check rejects platform launch wrappers when their
 matching `bin/<target>/vapor[.exe]` payload is missing.
+
+Use `--skip-build` only when the selected target binaries were already promoted
+into the app root, such as after importing Windows/MSVC artifacts built on a
+Windows machine. Staging and smoke checks still run and will reject missing
+`bin/<target>/` payloads.
 
 `--dry-run` writes the staged payload and preview VDF without requiring
 SteamCMD or performing an upload. A real upload requires `--account ACCOUNT`

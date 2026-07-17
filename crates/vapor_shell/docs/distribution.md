@@ -38,6 +38,11 @@ require or advertise Windows launch wrappers. Repeat `--target` to stage
 specific already-promoted target directories, or use `--release-targets` to
 stage every target declared in `[root.runtime].targets`. Staging fails when a
 selected `bin/<target>/` directory is missing.
+For a release assembled from artifacts built on multiple machines, import the
+target-specific app binaries into `bin/<target>/`, run
+`root package --release-targets`, then use
+`root publish --release-targets --skip-build --dry-run` so publish does not
+rebuild imported targets.
 
 Launch wrappers are the minimal OS-facing entrypoint split. They select the
 installed platform binary and command mode:

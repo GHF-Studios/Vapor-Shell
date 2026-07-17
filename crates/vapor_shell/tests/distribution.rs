@@ -329,6 +329,7 @@ development-branch = "vapor-dev"
                 branch: None,
                 target: Vec::new(),
                 release_targets: false,
+                skip_build: false,
                 description: "dry-run build".to_owned(),
                 dry_run: true,
                 yes: false,

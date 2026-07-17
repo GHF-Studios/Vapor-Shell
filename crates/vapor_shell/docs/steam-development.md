@@ -96,6 +96,13 @@ The Windows/MSVC target normally needs to be built on Windows with MSVC tooling,
 then staged alongside the Linux payload before publication.
 For quick local Linux smoke, omit target flags and Vapor stages only the host
 `bin/<target>/` directory plus the matching launch wrapper.
+When Windows artifacts were imported from another machine, use
+`root publish --release-targets --skip-build --dry-run` so the publishing
+machine stages and smoke-checks the imported `bin/<target>/` payloads without
+trying to rebuild Windows/MSVC locally.
+
+The concrete Windows build and Linux handoff checklist is documented in
+[`windows-msvc-release-proof.md`](windows-msvc-release-proof.md).
 
 From step 5 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
 application. `setup self install` is the explicit bootstrap operation that installs
