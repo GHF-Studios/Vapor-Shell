@@ -1,7 +1,7 @@
 //! Workshop/content discovery, packaging, installation state, and receipts.
 //!
 //! The module keeps SteamUGC and filesystem staging behind Vapor content
-//! operations. Authored intent is read from source `Vapor.toml` files; generated
+//! operations. Authored intent is read from source role-specific manifests; generated
 //! app-owned state is written under the Steam installation/app root.
 
 use crate::{
@@ -661,9 +661,7 @@ pub fn discover(paths: &EnvironmentPaths) -> Result<ContentCatalog, String> {
 
     let mut artifacts = Vec::new();
     for project in workspace.projects() {
-        let Some(kind) = project.kind().content_kind() else {
-            continue;
-        };
+        let kind = project.kind().content_kind();
         let manifest_path = source_root.join(project.manifest());
         match manifest::read(&manifest_path, source_root)? {
             VaporEntity::Content {
@@ -697,7 +695,6 @@ pub fn discover(paths: &EnvironmentPaths) -> Result<ContentCatalog, String> {
                     workshop: authored.workshop,
                 });
             }
-            VaporEntity::Project { .. } => {}
             VaporEntity::Root { id, .. } | VaporEntity::Workspace { id, .. } => {
                 return Err(format!(
                     "registered workspace project '{}' declares nested source root '{id}'",
@@ -2259,7 +2256,7 @@ fn select_artifacts<'a>(
 }
 
 fn workspace_version(root: &Path) -> Result<Option<String>, String> {
-    let path = root.join(manifest::FILE_NAME);
+    let path = root.join(manifest::WORKSPACE_FILE_NAME);
     let source = fs::read_to_string(&path).map_err(io("read source manifest", &path))?;
     #[derive(Deserialize)]
     struct Root {
@@ -2761,7 +2758,7 @@ fn content_build_output_root(
         name: String,
     }
 
-    let path = paths.source().root().join(manifest::FILE_NAME);
+    let path = paths.source().root().join(manifest::WORKSPACE_FILE_NAME);
     let source = fs::read_to_string(&path).map_err(io("read source manifest", &path))?;
     let parsed: RootManifest = toml::from_str(&source)
         .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
@@ -2873,12 +2870,17 @@ fn write_deployed_manifest(
     let manifest = DeployedManifest::from_artifact(artifact, runtime);
     let encoded = toml::to_string_pretty(&manifest)
         .map_err(|error| format!("failed to encode deployed content manifest: {error}"))?;
-    let path = package_root.join(manifest::FILE_NAME);
+    let path = package_root.join(artifact.kind().manifest_file_name());
     fs::write(&path, encoded).map_err(io("write deployed content manifest", &path))
 }
 
 fn read_deployed_manifest(package_root: &Path) -> Result<ContentArtifact, String> {
-    let path = package_root.join(manifest::FILE_NAME);
+    let path = manifest::content_marker_at(package_root).ok_or_else(|| {
+        format!(
+            "deployed content root '{}' has no role-specific content manifest",
+            package_root.display()
+        )
+    })?;
     let source = fs::read_to_string(&path).map_err(io("read deployed content manifest", &path))?;
     let manifest: DeployedManifest = toml::from_str(&source)
         .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
@@ -3456,7 +3458,7 @@ fn root_steam_app_id(installation: &InstallationPaths) -> Result<u32, String> {
         app_id: Option<u32>,
     }
 
-    let path = installation.root().join(manifest::FILE_NAME);
+    let path = installation.root().join(manifest::APP_FILE_NAME);
     let source = fs::read_to_string(&path).map_err(io("read root manifest", &path))?;
     let manifest: RootManifest = toml::from_str(&source)
         .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;
@@ -3496,7 +3498,7 @@ fn root_content_seed(
         content: Vec<RootContentSeed>,
     }
 
-    let path = installation.root().join(manifest::FILE_NAME);
+    let path = installation.root().join(manifest::APP_FILE_NAME);
     let source = fs::read_to_string(&path).map_err(io("read root manifest", &path))?;
     let manifest: RootManifest = toml::from_str(&source)
         .map_err(|error| format!("failed to parse '{}': {error}", path.display()))?;

@@ -2,23 +2,23 @@ mod common;
 
 use common::TestTree;
 use vapor_shell::{
+    app_local_tools::AppToolRequirement,
     discovery::EnvironmentPaths,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
-    setup_self::SetupSelfRequirement,
     state::ShellState,
 };
 
-fn fixture() -> (TestTree, TestTree, ShellState) {
+fn sample_metadata_state() -> (TestTree, TestTree, ShellState) {
     let installation = TestTree::new("metadata-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("metadata-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -30,19 +30,22 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
 
 #[test]
 fn metadata_reports_partial_state_in_human_and_json_formats() {
-    let (installation, source, state) = fixture();
+    let (installation, source, state) = sample_metadata_state();
     let metadata = ResolvedMetadata::resolve(&state);
 
     let human = metadata.render(MetadataFormat::Human).unwrap();
     assert!(human.contains("Metadata"), "{human}");
     assert!(human.contains("Source project: example/source"), "{human}");
+    assert!(human.contains("App root:"), "{human}");
     assert!(
-        human.contains("Install location: not confirmed yet"),
+        human.contains("Development tools: not installed"),
         "{human}"
     );
-    assert!(human.contains("Local tools: not installed"), "{human}");
     assert!(human.contains("Workspace manifest: ready"), "{human}");
-    assert!(human.contains("Next\n  setup self install"), "{human}");
+    assert!(
+        human.contains("Next\n  vapor-installer dev-env install --app-root <app-root>"),
+        "{human}"
+    );
 
     let json = metadata.render(MetadataFormat::Json).unwrap();
     let json: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -53,16 +56,16 @@ fn metadata_reports_partial_state_in_human_and_json_formats() {
         json["installation"]["root"],
         installation.root().display().to_string()
     );
-    assert_eq!(json["installation"]["location"]["status"], "unregistered");
-    assert!(json.get("setup_self").is_some(), "{json}");
-    assert_eq!(json["setup_self"]["rust"]["label"], "Rust/Cargo");
+    assert!(json["installation"].get("location").is_none(), "{json}");
+    assert!(json.get("app_local_tools").is_some(), "{json}");
+    assert_eq!(json["app_local_tools"]["rust"]["label"], "Rust/Cargo");
     assert_eq!(json["manifests"]["distribution"]["status"], "absent");
     assert!(json["diagnostics"].as_array().unwrap().len() >= 4);
 }
 
 #[test]
 fn validation_plans_check_only_requested_capabilities() {
-    let (_installation, _source, state) = fixture();
+    let (_installation, _source, state) = sample_metadata_state();
     let metadata = ResolvedMetadata::resolve(&state);
 
     metadata
@@ -70,13 +73,15 @@ fn validation_plans_check_only_requested_capabilities() {
         .unwrap();
 
     let error = metadata
-        .validate(&ValidationPlan::new("build projects").registered_location())
+        .validate(
+            &ValidationPlan::new("build projects").app_local_tools(&[AppToolRequirement::Rust]),
+        )
         .unwrap_err();
-    assert!(error.contains("setup self install"), "{error}");
+    assert!(error.contains("vapor-installer dev-env install"), "{error}");
 
     let error = metadata
         .validate(
-            &ValidationPlan::new("authenticate").setup_self(&[SetupSelfRequirement::SteamCmd]),
+            &ValidationPlan::new("authenticate").app_local_tools(&[AppToolRequirement::SteamCmd]),
         )
         .unwrap_err();
     assert!(error.contains("SteamCMD"), "{error}");

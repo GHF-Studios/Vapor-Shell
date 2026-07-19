@@ -4,12 +4,13 @@
 
 mod app;
 mod cross_toolchain;
+mod diagnostics;
 mod ide;
 mod prompt;
-mod setup_self_packages;
 mod source;
 mod terminal;
 
+pub mod app_local_tools;
 pub mod cargo_metadata;
 pub mod command;
 pub mod content;
@@ -18,8 +19,6 @@ pub mod distribution;
 pub mod documentation;
 pub mod manifest;
 pub mod metadata;
-pub mod path_setup;
-pub mod setup_self;
 pub mod source_registry;
 pub mod state;
 pub mod steam;

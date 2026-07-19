@@ -1,7 +1,12 @@
 # Vapor manifests
 
-`Vapor.toml` is the Vapor manifest. `Cargo.toml` is the Cargo manifest. Avoid
-unqualified “manifest” when both could be meant.
+Vapor manifest filenames are role-specific where the filesystem role matters.
+Application source roots use `App-Source.vapor.toml`; installed application
+roots use `App.vapor.toml`; source workspaces use `Workspace.vapor.toml`;
+registry checkouts use `Registry.vapor.toml`; content artifacts use their role
+filename, such as `Engine.vapor.toml`, `Game.vapor.toml`, or
+`Packagepack.vapor.toml`. `Cargo.toml` is the Cargo manifest.
+Avoid unqualified “manifest” when several could be meant.
 
 Vapor manifests describe Vapor-owned information: identity, content role,
 composition, capabilities, publication policy, authority, and managed
@@ -10,12 +15,12 @@ dependencies, crate targets, or generated Cargo metadata.
 
 ## One file, one declared identity
 
-Every `Vapor.toml` declares exactly one identity-bearing section.
+Every Vapor manifest declares exactly one identity-bearing section.
 
 - `[root]`, `[workspace]`, and `[registry]` require `name` and `organization`.
-- `[project]` and content sections require local `name`.
+- Content sections require local `name`.
 - Declaration-side `id` is invalid.
-- `[project].kind` is invalid; the table name selects the role.
+- The filename and table name select the role and must match.
 - References still use fully-qualified `id`.
 
 In declarations, `name` means “the local segment declared here.” In references,
@@ -24,6 +29,8 @@ In declarations, `name` means “the local segment declared here.” In referenc
 ## Source roots
 
 ### Application source root
+
+Filename: `App-Source.vapor.toml`.
 
 ```toml
 schema = 1
@@ -36,8 +43,55 @@ repository = "https://github.com/GHF-Studios/Vapor-Root"
 
 [root.steam]
 app-id = 2122620
-depot-id = 2122621
 development-branch = "vapor-dev"
+
+[root.steam.depots.common]
+id = 2122621
+
+[[root.steam.depots.common.include]]
+root = "source"
+from = "App.vapor.toml"
+to = "App.vapor.toml"
+required = true
+
+[root.steam.depots.linux]
+id = 2122622
+
+[[root.steam.depots.linux.include]]
+root = "source"
+from = "resources/vapor/shell-scripts/linux/vapor-launch.sh"
+to = "bin/vapor-launch.sh"
+required = true
+
+[[root.steam.depots.linux.include]]
+root = "installation"
+from = "bin/x86_64-unknown-linux-gnu"
+to = "bin/x86_64-unknown-linux-gnu"
+target = "x86_64-unknown-linux-gnu"
+required = true
+
+[root.steam.depots.windows]
+id = 2122623
+
+[[root.steam.depots.windows.include]]
+root = "source"
+from = "resources/vapor/shell-scripts/windows/vapor-launch.cmd"
+to = "bin/vapor-launch.cmd"
+required = true
+
+[[root.steam.depots.windows.include]]
+root = "installation"
+from = "bin/x86_64-pc-windows-gnullvm"
+to = "bin/x86_64-pc-windows-gnullvm"
+target = "x86_64-pc-windows-gnullvm"
+required = true
+
+[[root.steam.depots.windows.include]]
+root = "installation"
+from = "bin/x86_64-pc-windows-gnullvm/libunwind.dll"
+to = "bin/x86_64-pc-windows-gnullvm/libunwind.dll"
+target = "x86_64-pc-windows-gnullvm"
+required = true
 
 [root.runtime]
 targets = [
@@ -51,12 +105,20 @@ super-repository that assembles and publishes a Steam app/depot. It is not a
 Cargo workspace. Direct Git submodules that contain `[workspace]` manifests and
 `Cargo.toml` become app member workspaces.
 
-This is source, not the Steam installation/app root.
+This is source, not the Steam installation/app root. The installed app root
+carries the runtime marker `App.vapor.toml`.
 `[root.runtime].targets` declares the release target matrix for app/depot
 builds and staging. Target-aware root commands consume this matrix by default;
-use `--host-only` for local host-only smoke passes.
+use `--host-only` only for local package/dry-run smoke passes.
+`[root.steam.depots]` declares the Steamworks depot IDs and explicit include
+lists used by split-depot root publication. Each include copies one file or
+directory from either the source checkout or installation/app root into that
+depot. `target` makes an include apply only when that runtime target is staged.
+The numeric IDs in this example are Vapor's current Steamworks depot IDs.
 
 ### Normal source workspace
+
+Filename: `Workspace.vapor.toml`.
 
 ```toml
 schema = 1
@@ -77,7 +139,7 @@ targets = [
 `[workspace]` declares one source repository that is also one Cargo workspace.
 Its root must contain `Cargo.toml`.
 
-A workspace may contain several Cargo packages, several Vapor projects, and
+A workspace may contain several Cargo packages, several Vapor content artifacts, and
 several publishable Workshop artifacts.
 `[workspace.runtime].targets` declares the release target matrix for content
 build/package/deploy/create/publish operations. Target-aware content commands
@@ -90,20 +152,12 @@ binary outputs from `output/dev/<workspace>/debug/` or
 `output/dev/<workspace>/<target>/debug/` into the app root's
 `bin/<target>/`. Content-only workspaces should omit it.
 
-## Projects and content packages
+## Content packages
 
-Every source-authored Vapor project is a Cargo package inside a Vapor workspace.
-Non-content packages use `[project]`:
-
-```toml
-schema = 1
-
-[project]
-name = "cli"
-version.workspace = true
-```
-
-Content packages use their content role:
+Every source-authored Vapor content artifact is normally a Cargo package inside
+a Vapor workspace. Ordinary non-content crates are owned by Cargo only; they do
+not need their own Vapor manifest. Content packages use their content role and
+must use the matching filename:
 
 ```toml
 schema = 1
@@ -119,17 +173,17 @@ title = "Spacetime Engine"
 tags = ["engine", "first-party", "loo-cast"]
 ```
 
-Supported content sections are:
+Supported content filenames and sections are:
 
-- `[engine]`
-- `[game]`
-- `[packagepack]`
-- `[enginepack]`
-- `[gamepack]`
-- `[modpack]`
-- `[engine-mod]`
-- `[game-mod]`
-- `[extension-mod]`
+- `Engine.vapor.toml` with `[engine]`
+- `Game.vapor.toml` with `[game]`
+- `Packagepack.vapor.toml` with `[packagepack]`
+- `Enginepack.vapor.toml` with `[enginepack]`
+- `Gamepack.vapor.toml` with `[gamepack]`
+- `Modpack.vapor.toml` with `[modpack]`
+- `Engine-Mod.vapor.toml` with `[engine-mod]`
+- `Game-Mod.vapor.toml` with `[game-mod]`
+- `Extension-Mod.vapor.toml` with `[extension-mod]`
 
 For source root `ghf-studios/loo-cast`, `[engine] name =
 "spacetime-engine"` declares:
@@ -191,11 +245,11 @@ constituent:
 
 ```text
 Loo-Cast/
-├── Vapor.toml                 [workspace]
+├── Workspace.vapor.toml       [workspace]
 ├── Cargo.toml                 Cargo workspace
-├── spacetime-engine/          [engine]
-├── loo-cast-game/             [game]
-└── loo-cast-packagepack/      [packagepack]
+├── spacetime-engine/          Engine.vapor.toml
+├── loo-cast-game/             Game.vapor.toml
+└── loo-cast-packagepack/      Packagepack.vapor.toml
 ```
 
 That workspace is Workshop/content source. It is separate from Vapor-Root,
@@ -234,7 +288,7 @@ Declarations use local names. Full IDs are inferred:
 
 ```text
 workspace: ghf-studios/loo-cast
-project:   ghf-studios/loo-cast/spacetime-engine
+content:   ghf-studios/loo-cast/spacetime-engine
 trait:     ghf-studios/loo-cast/spacetime-engine/replacement-render-backend
 ```
 
@@ -257,8 +311,8 @@ libraries = ["spacetime_engine"]
 
 Packaging copies declared binaries into `bin/<target>/` and declared libraries
 into `lib/<target>/` inside the deployed artifact root. The deployed
-`Vapor.toml` keeps the authored logical names and adds target-specific runtime
-entries with the actual staged filenames:
+role-specific content manifest keeps the authored logical names and adds
+target-specific runtime entries with the actual staged filenames:
 
 ```toml
 [[engine.runtime]]
@@ -290,7 +344,7 @@ change-note = "Vapor content update."
 Use `published-file-id` only after the artifact has a real stable Workshop
 item. Local package fingerprints, cache locations, installed receipts, repair
 state, and last-seen provider observations are generated app-owned state and
-must stay out of source `Vapor.toml`.
+must stay out of source role-specific content manifests.
 
 ## Invalid combinations
 

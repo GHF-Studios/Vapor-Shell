@@ -8,20 +8,20 @@ Usage:
 
 Installs the minimum local Vapor shell bootstrap into a Steam app directory:
 
-  <target>/Vapor.toml
+  <target>/App.vapor.toml
   <target>/bin/vapor
 
 This intentionally does not copy authored source, Cargo workspaces, staged
-payloads, or full depot contents. After this, run the installed
-<target>/bin/vapor and let that app-local shell run setup, open
-external source repos, build, package, and eventually self-deploy.
+payloads, or full depot contents. After this, run the installed app-local
+installer for player-mode or developer-mode tooling, then open external source
+repos from Vapor Shell.
 
 Default mode is a dry run. Add --yes to write files.
 USAGE
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-default_manifest="$(realpath -m "$script_dir/../../../..")/Vapor.toml"
+default_manifest="$(realpath -m "$script_dir/../../../..")/App.vapor.toml"
 
 binary=
 manifest="$default_manifest"
@@ -107,7 +107,7 @@ case "$manifest" in
         ;;
 esac
 
-dest_manifest="$target/Vapor.toml"
+dest_manifest="$target/App.vapor.toml"
 dest_binary="$target/bin/vapor"
 
 if [ "$confirmed" = true ]; then
@@ -124,6 +124,6 @@ echo "  manifest: $manifest -> $dest_manifest"
 echo "  binary:   $binary -> $dest_binary"
 echo
 echo "next:"
-echo "  \"$dest_binary\" setup self status"
-echo "  \"$dest_binary\" setup self install"
+echo "  vapor-installer install --app-root \"$target\""
+echo "  vapor-installer dev-env install --app-root \"$target\""
 echo "  \"$dest_binary\" source open /path/to/external/source"

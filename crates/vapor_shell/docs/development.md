@@ -24,13 +24,11 @@ crates/vapor_shell/
 │   │   │   ├── mod.rs
 │   │   │   └── render.rs
 │   │   └── validation.rs
-│   ├── path_setup.rs
 │   ├── prompt.rs
 │   ├── source_registry.rs
 │   ├── steam.rs
 │   ├── terminal.rs
-│   ├── setup_self.rs
-│   ├── setup_self_packages.rs
+│   ├── app_local_tools.rs
 │   ├── workflow.rs
 │   ├── workspace.rs
 │   └── state.rs
@@ -38,6 +36,7 @@ crates/vapor_shell/
 │   └── ide/
 └── tests/
     ├── common/
+    ├── samples/
     ├── cargo_metadata.rs
     ├── command.rs
     ├── discovery.rs
@@ -45,9 +44,7 @@ crates/vapor_shell/
     ├── installation_commands.rs
     ├── manifest.rs
     ├── metadata.rs
-    ├── path_setup.rs
     ├── state.rs
-    ├── setup_self.rs
     ├── workflow.rs
     └── workspace.rs
 ```
@@ -58,14 +55,14 @@ contracts as downstream code would.
 
 ## Running locally
 
-A direct `cargo run` places the executable under the same repository that acts
-as authored source, intentionally violating the product surface. For a manual
-session, build the `vapor` binary once with host Cargo, copy that binary and a
-`[root]` `Vapor.toml` into the Steam app directory with
-`scripts/bootstrap-local-app-deploy.sh`, then invoke only that installed
-bootstrap shell. Release-mode launches use `.vapor/launch/...` wrappers and
-`bin/<target>/vapor[.exe]`. The integration fixtures automate this topology for
-tests.
+Direct `cargo run` places the executable under the source repository, which is
+not the product surface. Build and verification work should use the app-local
+Rust/Cargo toolchain prepared by `vapor-installer dev-env install`, then run
+installed Vapor commands from the Steam app root. The
+`scripts/bootstrap-local-app-deploy.sh` bridge exists only to seed or refresh a
+local Steam app root during development; release-mode launches use
+`bin/vapor-launch.*` wrappers and `bin/<target>/vapor[.exe]`. Integration tests
+build temporary sample trees for this topology when local coverage is useful.
 
 After the installed binary works, run `source open /path/to/source` from the
 installed shell. This validates and registers the external source selection for
@@ -116,12 +113,18 @@ instead of presenting design goals as already shipped commands.
 ## Adding a workspace package
 
 1. Add the Cargo package to its containing Cargo workspace.
-2. Add a colocated `[project]` or content `Vapor.toml` with `name`.
-3. Do not add declaration-side `id`; references use full IDs, declarations infer
+2. If it is Vapor content, add the matching role-specific manifest such as
+   `Engine.vapor.toml`, `Game.vapor.toml`, `Engine-Mod.vapor.toml`,
+   `Game-Mod.vapor.toml`, `Extension-Mod.vapor.toml`, or
+   `Packagepack.vapor.toml`.
+3. Do not add a Vapor manifest for an ordinary non-content Cargo package.
+4. Do not add declaration-side `id`; references use full IDs, declarations infer
    them.
-4. For Vapor-Root app membership, add or update a direct Git submodule that is a
-   `[workspace]` repository with its own `Cargo.toml`.
-5. Extend workspace, Cargo-metadata, and workflow integration tests.
+5. For Vapor-Root app membership, add or update a direct Git submodule that is a
+   `[workspace]` repository with its own `Workspace.vapor.toml` and
+   `Cargo.toml`.
+6. Extend workspace, Cargo-metadata, and workflow integration tests where the
+   package affects Vapor behavior.
 
 ## Changing discovery
 

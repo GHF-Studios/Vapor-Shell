@@ -4,10 +4,10 @@ use common::TestTree;
 use std::{fs, path::PathBuf, process::Command};
 
 #[test]
-fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
+fn direct_facade_allows_app_first_scripts_with_open_source() {
     let installation = TestTree::new("installation-command");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.root().join("bin/vapor");
@@ -19,6 +19,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         .arg("--help")
         .current_dir(outside.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
@@ -29,9 +30,11 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
     );
     let stdout = String::from_utf8(host_help.stdout).unwrap();
     assert!(stdout.contains("--startup-script"), "{stdout}");
-    for command in ["setup", "source", "script"] {
+    for command in ["source", "script"] {
         assert!(stdout.contains(command), "missing {command}: {stdout}");
     }
+    assert!(!stdout.contains("\n  setup"), "{stdout}");
+    assert!(stdout.contains("Vapor Installer"), "{stdout}");
     for legacy in ["\n  sources", "\n  open", "\n  close"] {
         assert!(
             !stdout.contains(legacy),
@@ -55,28 +58,23 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         .args(["setup", "self", "status"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
-    assert!(
-        setup.status.success(),
-        "{}",
-        String::from_utf8_lossy(&setup.stderr)
-    );
-    let stdout = String::from_utf8(setup.stdout).unwrap();
-    assert!(stdout.contains("Setup Status"), "{stdout}");
-    assert!(
-        stdout.contains("Install location: not confirmed yet"),
-        "{stdout}"
-    );
-    assert!(stdout.contains("Local tools: not installed"), "{stdout}");
-    assert!(stdout.contains("Next\n  setup self install"), "{stdout}");
+    assert!(!setup.status.success());
+    let stderr = String::from_utf8(setup.stderr).unwrap();
+    assert!(stderr.contains("unrecognized subcommand"), "{stderr}");
 
-    installation.write(".vapor/scripts/app-status.vapor", "installation\n");
+    installation.write(
+        "resources/vapor/vapor-scripts/app-status.vapor",
+        "installation\n",
+    );
     let app_script = Command::new(&executable)
         .args(["script", "run", "app-status"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
@@ -93,16 +91,20 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
 
     let source = TestTree::new("external-source-root");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
-    source.write(".vapor/scripts/status.vapor", "metadata --format json\n");
+    source.write(
+        "resources/vapor/vapor-scripts/status.vapor",
+        "metadata --format json\n",
+    );
 
     let rejected_one_shot = Command::new(&executable)
         .args(["validate"])
         .current_dir(source.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
@@ -113,7 +115,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         "{stderr}"
     );
     assert!(
-        stderr.contains("put repeatable commands in `.vapor/scripts/NAME.vapor`"),
+        stderr.contains("put repeatable commands in `resources/vapor/vapor-scripts/NAME.vapor`"),
         "{stderr}"
     );
 
@@ -121,6 +123,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         .args(["source", "add", source.root().to_str().unwrap()])
         .current_dir(outside.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
@@ -134,6 +137,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         .args(["source", "open", "source"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
@@ -147,6 +151,7 @@ fn direct_facade_allows_app_first_setup_and_scripts_with_open_source() {
         .args(["script", "run", "status"])
         .current_dir(outside.root())
         .env("HOME", outside.root())
+        .env_remove("VAPOR_WORKSPACE")
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();

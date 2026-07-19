@@ -1,14 +1,20 @@
 //! SteamCMD-backed beta-branch SteamPipe publishing.
 
 use crate::{
-    discovery::{EnvironmentPaths, InstallationPaths},
-    distribution::{self, DistributionManifest, StageOptions},
+    discovery::{EnvironmentPaths, InstallationPaths, ensure_contained},
+    distribution::{self, DistributionManifest, StageOptions, SteamDepotKind},
+    manifest,
 };
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
+
+const STEAMPIPE_TEMPLATE_ROOT: &str = "resources/steam/steampipe-templates";
+const APP_BUILD_TEMPLATE: &str = "app_build.vdf.tpl";
+const APP_BUILD_DEPOT_ENTRY_TEMPLATE: &str = "app_build_depot_entry.vdf.tpl";
+const DEPOT_BUILD_TEMPLATE: &str = "depot_build.vdf.tpl";
 
 /// Locate the installation-owned SteamCMD executable.
 pub fn executable(paths: &EnvironmentPaths) -> Result<PathBuf, String> {
@@ -47,12 +53,31 @@ pub struct PublishOptions<'a> {
     pub confirmed: bool,
 }
 
+/// Result of a SteamPipe publish or dry-run preview.
+#[derive(Debug, Clone)]
+pub struct PublishReport {
+    script: PathBuf,
+    stage: distribution::StageReport,
+}
+
+impl PublishReport {
+    /// Generated SteamPipe app build script.
+    pub fn script(&self) -> &Path {
+        &self.script
+    }
+
+    /// Staged depot content roots used by this publish attempt.
+    pub fn stage(&self) -> &distribution::StageReport {
+        &self.stage
+    }
+}
+
 /// Stage, validate, and publish the development beta through SteamCMD.
 pub fn publish(
     paths: &EnvironmentPaths,
     manifest: &DistributionManifest,
     options: PublishOptions<'_>,
-) -> Result<PathBuf, String> {
+) -> Result<PublishReport, String> {
     let branch = options
         .branch
         .unwrap_or(manifest.application().development_branch());
@@ -63,17 +88,17 @@ pub fn publish(
         return Err("publishing requires --yes after reviewing --dry-run".to_owned());
     }
     let stage = distribution::stage_with_options(paths, manifest, options.stage_options.clone())?;
-    smoke(stage.root(), &options.stage_options)?;
+    smoke(&stage, &options.stage_options)?;
     let script = write_build_script(
         paths,
         manifest,
-        stage.root(),
+        &stage,
         branch,
         options.description,
         options.dry_run,
     )?;
     if options.dry_run {
-        return Ok(script);
+        return Ok(PublishReport { script, stage });
     }
     let steamcmd = executable(paths)?;
     let status = Command::new(&steamcmd)
@@ -84,88 +109,96 @@ pub fn publish(
         .status()
         .map_err(|error| format!("failed to start SteamCMD: {error}"))?;
     if status.success() {
-        Ok(script)
+        Ok(PublishReport { script, stage })
     } else {
         Err(format!("Steam publish exited with {status}"))
     }
 }
 
 /// Validate essential staged self-hosting inputs.
-pub fn smoke(stage: &Path, options: &StageOptions) -> Result<(), String> {
-    for required in ["Vapor.toml", "bin", "docs"] {
-        let path = stage.join(required);
+pub fn smoke(stage: &distribution::StageReport, options: &StageOptions) -> Result<(), String> {
+    let common = stage
+        .depot(SteamDepotKind::Common)
+        .ok_or_else(|| "staged application has no common depot".to_owned())?;
+    for required in [manifest::APP_FILE_NAME, "docs"] {
+        let path = common.root().join(required);
         if !path.exists() {
             return Err(format!(
-                "staged application is missing required path: {}",
+                "staged common depot is missing required path: {}",
                 path.display()
             ));
         }
     }
-    if options.includes_setup_payload() {
-        for required in [
-            "packages/setup",
-            "packages/setup/rustup",
-            "packages/setup/rustup-home",
-            "packages/setup/cargo-home",
-            "packages/setup/git",
-            "packages/setup/steamcmd",
-        ] {
-            let path = stage.join(required);
-            if !path.exists() {
-                return Err(format!(
-                    "staged application is missing required path: {}",
-                    path.display()
-                ));
+
+    for target in options.runtime_targets() {
+        let kind = SteamDepotKind::for_runtime_target(target)?;
+        let depot = stage
+            .depot(kind)
+            .ok_or_else(|| format!("staged application has no {} depot", kind.label()))?;
+        match kind {
+            SteamDepotKind::Common => {}
+            SteamDepotKind::Linux => {
+                require_file(
+                    depot.root().join("bin/vapor-launch.sh"),
+                    "staged Linux depot has no launch wrapper",
+                )?;
+                require_file(
+                    depot.root().join("bin").join(target).join("vapor"),
+                    "staged Linux depot has no target Vapor binary",
+                )?;
+                require_file(
+                    depot
+                        .root()
+                        .join("bin")
+                        .join(target)
+                        .join("vapor-installer"),
+                    "staged Linux depot has no target Vapor Installer binary",
+                )?;
             }
-        }
-    }
-    let linux_shell = stage.join("bin/x86_64-unknown-linux-gnu/vapor");
-    let windows_shell = stage.join("bin/x86_64-pc-windows-gnullvm/vapor.exe");
-    let legacy_shell = stage.join(format!("bin/vapor{}", std::env::consts::EXE_SUFFIX));
-    if !linux_shell.is_file() && !windows_shell.is_file() && !legacy_shell.is_file() {
-        return Err("staged application has no vapor binary".to_owned());
-    }
-    if stage.join(".vapor/launch/linux/vapor.sh").is_file() && !linux_shell.is_file() {
-        return Err(format!(
-            "staged Linux launch wrapper has no target Vapor binary: {}",
-            linux_shell.display()
-        ));
-    }
-    if stage.join(".vapor/launch/windows/vapor.cmd").is_file() && !windows_shell.is_file() {
-        return Err(format!(
-            "staged Windows launch wrapper has no target Vapor binary: {}",
-            windows_shell.display()
-        ));
-    }
-    for forbidden in [
-        "packages/setup/cargo-home/credentials",
-        "packages/setup/cargo-home/credentials.toml",
-        "packages/setup/cargo-home/registry/cache",
-        "packages/setup/cargo-home/registry/src",
-        "packages/setup/steamcmd/config",
-        "packages/setup/steamcmd/logs",
-        "packages/setup/steamcmd/steamapps",
-        "packages/setup/steamcmd/dumps",
-    ] {
-        let path = stage.join(forbidden);
-        if path.exists() {
-            return Err(format!(
-                "staged application includes SteamCMD session state: {}",
-                path.display()
-            ));
+            SteamDepotKind::Windows => {
+                require_file(
+                    depot.root().join("bin/vapor-launch.cmd"),
+                    "staged Windows depot has no launch wrapper",
+                )?;
+                require_file(
+                    depot.root().join("bin").join(target).join("vapor.exe"),
+                    "staged Windows depot has no target Vapor binary",
+                )?;
+                require_file(
+                    depot
+                        .root()
+                        .join("bin")
+                        .join(target)
+                        .join("vapor-installer.exe"),
+                    "staged Windows depot has no target Vapor Installer binary",
+                )?;
+                require_file(
+                    depot.root().join("bin").join(target).join("libunwind.dll"),
+                    "staged Windows depot has no GNU runtime DLL",
+                )?;
+            }
         }
     }
     Ok(())
 }
 
+fn require_file(path: PathBuf, message: &str) -> Result<(), String> {
+    if path.is_file() {
+        Ok(())
+    } else {
+        Err(format!("{message}: {}", path.display()))
+    }
+}
+
 fn write_build_script(
     paths: &EnvironmentPaths,
     manifest: &DistributionManifest,
-    content: &Path,
+    stage: &distribution::StageReport,
     branch: &str,
     description: &str,
     preview: bool,
 ) -> Result<PathBuf, String> {
+    let templates = SteamPipeTemplates::load(paths.source().root())?;
     let scripts = paths.installation().root().join("output/root/scripts");
     let output = paths.installation().root().join("output/root/steam-build");
     fs::create_dir_all(&scripts).map_err(|e| e.to_string())?;
@@ -176,17 +209,79 @@ fn write_build_script(
     } else {
         ""
     };
-    let vdf = format!(
-        "\"AppBuild\"\n{{\n    \"AppID\" \"{}\"\n    \"Desc\" \"{}\"\n{preview}    \"SetLive\" \"{}\"\n    \"ContentRoot\" \"{}\"\n    \"BuildOutput\" \"{}\"\n    \"Depots\"\n    {{\n        \"{}\"\n        {{\n            \"FileMapping\" {{ \"LocalPath\" \"*\" \"DepotPath\" \".\" \"recursive\" \"1\" }}\n        }}\n    }}\n}}\n",
-        manifest.application().app_id(),
-        escape(description),
-        escape(branch),
-        escape(&content.display().to_string()),
-        escape(&output.display().to_string()),
-        manifest.application().depot_id()
+    let mut depot_entries = String::new();
+    for depot in stage.depots() {
+        let depot_id = manifest.application().depot_id(depot.kind());
+        let depot_script = scripts.join(format!("depot_build_{depot_id}.vdf"));
+        let depot_vdf = render_template(
+            &templates.depot_build,
+            &[
+                ("depot_id", depot_id.to_string()),
+                ("content_root", escape(&depot.root().display().to_string())),
+            ],
+        );
+        fs::write(&depot_script, depot_vdf).map_err(|e| e.to_string())?;
+        depot_entries.push_str(&render_template(
+            &templates.app_build_depot_entry,
+            &[
+                ("depot_id", depot_id.to_string()),
+                (
+                    "depot_build_script",
+                    escape(&depot_script.display().to_string()),
+                ),
+            ],
+        ));
+    }
+    let vdf = render_template(
+        &templates.app_build,
+        &[
+            ("app_id", manifest.application().app_id().to_string()),
+            ("description", escape(description)),
+            ("preview_line", preview.to_owned()),
+            ("branch", escape(branch)),
+            ("content_root", escape(&stage.root().display().to_string())),
+            ("build_output", escape(&output.display().to_string())),
+            ("depot_entries", depot_entries),
+        ],
     );
     fs::write(&path, vdf).map_err(|e| e.to_string())?;
     Ok(path)
+}
+
+struct SteamPipeTemplates {
+    app_build: String,
+    app_build_depot_entry: String,
+    depot_build: String,
+}
+
+impl SteamPipeTemplates {
+    fn load(source_root: &Path) -> Result<Self, String> {
+        let root = source_root.join(STEAMPIPE_TEMPLATE_ROOT);
+        ensure_contained(source_root, &root)?;
+        Ok(Self {
+            app_build: read_template(&root, APP_BUILD_TEMPLATE)?,
+            app_build_depot_entry: read_template(&root, APP_BUILD_DEPOT_ENTRY_TEMPLATE)?,
+            depot_build: read_template(&root, DEPOT_BUILD_TEMPLATE)?,
+        })
+    }
+}
+
+fn read_template(root: &Path, name: &str) -> Result<String, String> {
+    let path = root.join(name);
+    fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "failed to read SteamPipe template '{}': {error}\nhelp: keep Vapor-Root SteamPipe templates checked in under {STEAMPIPE_TEMPLATE_ROOT}",
+            path.display()
+        )
+    })
+}
+
+fn render_template(template: &str, values: &[(&str, String)]) -> String {
+    let mut rendered = template.to_owned();
+    for (key, value) in values {
+        rendered = rendered.replace(&format!("{{{{{key}}}}}"), value);
+    }
+    rendered
 }
 
 fn escape(value: &str) -> String {

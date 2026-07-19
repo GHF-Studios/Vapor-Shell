@@ -2,7 +2,8 @@
 
 This checklist proves the Windows side of the release target matrix without
 publishing Steam depot or Workshop changes. It starts from the product path:
-Steam opens a visible Vapor Shell, then Vapor prepares app-local tools.
+Steam opens a visible Vapor Shell through the wrapper, and the wrapper runs the
+installer-owned player-mode install before Shell starts.
 
 The target is:
 
@@ -15,7 +16,7 @@ x86_64-pc-windows-gnullvm
 The Windows Steam launch option should target the wrapper shipped in the depot:
 
 ```text
-executable: .vapor\launch\windows\vapor.cmd
+executable: bin\vapor-launch.cmd
 arguments:  shell
 ```
 
@@ -23,23 +24,41 @@ If Steam refuses to execute `.cmd` directly, use:
 
 ```text
 executable: cmd.exe
-arguments:  /c ".vapor\launch\windows\vapor.cmd" shell
+arguments:  /c "bin\vapor-launch.cmd" shell
 ```
 
 Clicking that launch option should open a persistent `cmd` window running Vapor
 Shell. The user should not need to install Git before clicking Play.
 
-## First-run setup
-
-Run this from the visible Vapor Shell:
+The installer should also be exposed as its own launch option:
 
 ```text
-setup self status
-setup self install
-setup self status
+executable: bin\vapor-launch.cmd
+arguments:  installer
 ```
 
-Expected setup behavior:
+Fallback form:
+
+```text
+executable: cmd.exe
+arguments:  /c "bin\vapor-launch.cmd" installer
+```
+
+Clicking that launch option should open a persistent `cmd` window running
+Vapor Installer directly. It should not run the quiet player-mode install
+before showing the installer surface.
+
+## First-run installer
+
+Player-mode install is automatic through the launch wrapper. For development
+build/proof work, run the installer visual surface or this explicit headless
+command:
+
+```text
+vapor-installer dev-env install --app-root "C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
+```
+
+Expected installer behavior:
 
 - Rustup is downloaded and run with `RUSTUP_HOME` and `CARGO_HOME` inside the
   Steam app root.
@@ -67,7 +86,7 @@ the source root must be present by one of these explicit handoff methods:
 
 - a prepared source checkout or archive;
 - a future Vapor workspace/template import command;
-- a manual clone using app-local Git after `setup self install`.
+- a manual clone using app-local Git after installer bootstrap/dev-env.
 
 If a manual clone is needed for this proof, use the app-local Git binary:
 
@@ -109,8 +128,8 @@ Build the example runtime outputs:
 "%VAPOR%" content build --target x86_64-pc-windows-gnullvm
 ```
 
-This proof expects `setup self install` to have prepared app-local Git, Rustup
-state, Cargo state, SteamCMD, Zig, and linker wrappers. No Microsoft
+This proof expects `vapor-installer dev-env install` to have prepared app-local
+Git, Rustup state, Cargo state, SteamCMD, Zig, and linker wrappers. No Microsoft
 compiler/linker toolchain is part of this proof path.
 
 ## Windows artifact checks
@@ -127,7 +146,7 @@ Confirm these files exist:
 
 The exact `.dll` names come from Cargo crate names. If a content artifact adds
 or removes declared `libraries` later, update this checklist with the new
-declared runtime outputs from that artifact's `Vapor.toml`.
+declared runtime outputs from that artifact's role manifest.
 
 ## Handoff back to Linux
 
@@ -161,8 +180,8 @@ Expected app staging shape:
 ```text
 output/root/content/bin/x86_64-unknown-linux-gnu/vapor
 output/root/content/bin/x86_64-pc-windows-gnullvm/vapor.exe
-output/root/content/.vapor/launch/linux/vapor.sh
-output/root/content/.vapor/launch/windows/vapor.cmd
+output/root/content/linux/bin/vapor-launch.sh
+output/root/content/windows/bin/vapor-launch.cmd
 ```
 
 Then prove the Loo-Cast Workshop package preview:

@@ -1,14 +1,13 @@
 mod common;
 
 use common::TestTree;
+#[cfg(unix)]
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use vapor_shell::{
-    discovery::EnvironmentPaths,
-    workflow::{self, CargoWorkflow, ProjectSelection},
-    workspace::WorkspaceManifest,
-};
+#[cfg(unix)]
+use vapor_shell::workflow::{CargoWorkflow, ProjectSelection};
+use vapor_shell::{discovery::EnvironmentPaths, workflow, workspace::WorkspaceManifest};
 
 fn host_runtime_target() -> String {
     let arch = std::env::consts::ARCH;
@@ -32,7 +31,7 @@ fn host_runtime_target() -> String {
 fn test_workflow_uses_installed_cargo_and_app_owned_output() {
     let installation = TestTree::new("workflow-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -46,7 +45,7 @@ fn test_workflow_uses_installed_cargo_and_app_owned_output() {
 
     let source = TestTree::new("workflow-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"workflow-source\"\norganization = \"example\"\n",
     );
     let cargo_manifest = source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -88,7 +87,7 @@ fn test_workflow_uses_installed_cargo_and_app_owned_output() {
 fn explicit_windows_gnullvm_build_uses_app_local_llvm_mingw_linker() {
     let installation = TestTree::new("workflow-cross-linker-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -117,7 +116,7 @@ fn explicit_windows_gnullvm_build_uses_app_local_llvm_mingw_linker() {
 
     let source = TestTree::new("workflow-cross-linker-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"workflow-source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -148,7 +147,7 @@ fn explicit_windows_gnullvm_build_uses_app_local_llvm_mingw_linker() {
 fn promote_places_root_binaries_under_host_target_directory() {
     let installation = TestTree::new("workflow-promote-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -160,7 +159,7 @@ fn promote_places_root_binaries_under_host_target_directory() {
 
     let source = TestTree::new("workflow-promote-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"workflow-source\"\norganization = \"example\"\nbinaries = [\"vapor\"]\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -192,7 +191,7 @@ fn make_executable(path: &std::path::Path) {
 fn promote_places_explicit_windows_root_binaries_under_target_directory() {
     let installation = TestTree::new("workflow-promote-windows-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -207,7 +206,7 @@ fn promote_places_explicit_windows_root_binaries_under_target_directory() {
 
     let source = TestTree::new("workflow-promote-windows-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"workflow-source\"\norganization = \"example\"\nbinaries = [\"vapor\"]\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");

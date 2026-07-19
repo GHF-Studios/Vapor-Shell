@@ -1,9 +1,9 @@
 //! Serializable metadata report model.
 //!
 use crate::{
+    app_local_tools::{AppToolComponentStatus, AppToolStatus},
     cargo_metadata::CargoIndex,
-    distribution::DistributionManifest,
-    setup_self::{LocationStatus, SetupSelfComponentStatus, SetupSelfStatus},
+    distribution::{DistributionManifest, SteamDepotKind},
     state::ShellState,
     workspace::{SourceRootKind, WorkspaceManifest},
 };
@@ -18,7 +18,7 @@ pub struct MetadataReport {
     schema_version: u32,
     source: SourceReport,
     installation: InstallationReport,
-    setup_self: SetupSelfReport,
+    app_local_tools: AppToolReport,
     manifests: ManifestReport,
     cargo: CargoReport,
     diagnostics: Vec<Diagnostic>,
@@ -29,20 +29,19 @@ impl MetadataReport {
         state: &ShellState,
         workspace: &Result<WorkspaceManifest, String>,
         distribution: &Result<Option<DistributionManifest>, String>,
-        location: &Result<LocationStatus, String>,
-        setup_self: &SetupSelfStatus,
+        app_local_tools: &AppToolStatus,
     ) -> Self {
         let source = SourceReport::new(state);
-        let installation = InstallationReport::new(state, location);
-        let setup_self_report = SetupSelfReport::new(setup_self);
+        let installation = InstallationReport::new(state);
+        let app_local_tools_report = AppToolReport::new(app_local_tools);
         let manifests = ManifestReport::new(workspace, distribution);
         let cargo = CargoReport::new(state.cargo_index());
-        let diagnostics = diagnostics(location, setup_self, workspace, distribution, &cargo);
+        let diagnostics = diagnostics(app_local_tools, workspace, distribution, &cargo);
         Self {
             schema_version: 1,
             source,
             installation,
-            setup_self: setup_self_report,
+            app_local_tools: app_local_tools_report,
             manifests,
             cargo,
             diagnostics,
@@ -107,11 +106,10 @@ struct InstallationReport {
     libraries: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     bundled_cargo: Option<PathBuf>,
-    location: LocationReport,
 }
 
 impl InstallationReport {
-    fn new(state: &ShellState, location: &Result<LocationStatus, String>) -> Self {
+    fn new(state: &ShellState) -> Self {
         let installation = state.installation();
         Self {
             root: installation.root().to_path_buf(),
@@ -119,103 +117,41 @@ impl InstallationReport {
             binaries: installation.binaries().to_path_buf(),
             libraries: installation.libraries().map(PathBuf::from),
             bundled_cargo: installation.bundled_cargo(),
-            location: LocationReport::new(location),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct LocationReport {
-    status: LocationState,
-    current: PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    registered: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-impl LocationReport {
-    fn new(location: &Result<LocationStatus, String>) -> Self {
-        match location {
-            Ok(LocationStatus::Unregistered { current }) => Self {
-                status: LocationState::Unregistered,
-                current: current.clone(),
-                registered: None,
-                error: None,
-            },
-            Ok(LocationStatus::Registered { path }) => Self {
-                status: LocationState::Registered,
-                current: path.clone(),
-                registered: Some(path.clone()),
-                error: None,
-            },
-            Ok(LocationStatus::Moved { locked, current }) => Self {
-                status: LocationState::Moved,
-                current: current.clone(),
-                registered: Some(locked.clone()),
-                error: None,
-            },
-            Err(error) => Self {
-                status: LocationState::Invalid,
-                current: PathBuf::new(),
-                registered: None,
-                error: Some(error.clone()),
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum LocationState {
-    Unregistered,
-    Registered,
-    Moved,
-    Invalid,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct SetupSelfReport {
+struct AppToolReport {
     complete: bool,
-    rust: SetupSelfComponentReport,
-    git: SetupSelfComponentReport,
-    steamcmd: SetupSelfComponentReport,
-    package: PackageReport,
+    rust: AppToolComponentReport,
+    git: AppToolComponentReport,
+    cross_toolchains: AppToolComponentReport,
+    steamcmd: AppToolComponentReport,
 }
 
-impl SetupSelfReport {
-    fn new(status: &SetupSelfStatus) -> Self {
+impl AppToolReport {
+    fn new(status: &AppToolStatus) -> Self {
         Self {
             complete: status.complete(),
-            rust: SetupSelfComponentReport::new(status.rust()),
-            git: SetupSelfComponentReport::new(status.git()),
-            steamcmd: SetupSelfComponentReport::new(status.steamcmd()),
-            package: PackageReport {
-                complete: status.package_complete(),
-                root: status.package_root().to_path_buf(),
-                missing: status.missing_package_entries().to_vec(),
-            },
+            rust: AppToolComponentReport::new(status.rust()),
+            git: AppToolComponentReport::new(status.git()),
+            cross_toolchains: AppToolComponentReport::new(status.cross_toolchains()),
+            steamcmd: AppToolComponentReport::new(status.steamcmd()),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct SetupSelfComponentReport {
+struct AppToolComponentReport {
     label: String,
     installed: bool,
     path: PathBuf,
     missing: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct PackageReport {
-    complete: bool,
-    root: PathBuf,
-    missing: Vec<String>,
-}
-
-impl SetupSelfComponentReport {
-    fn new(status: &SetupSelfComponentStatus) -> Self {
+impl AppToolComponentReport {
+    fn new(status: &AppToolComponentStatus) -> Self {
         Self {
             label: status.label().to_owned(),
             installed: status.installed(),
@@ -337,7 +273,18 @@ impl DistributionManifestReport {
                 status: ResourceState::Ready,
                 application: Some(ApplicationReport {
                     app_id: distribution.application().app_id(),
-                    depot_id: distribution.application().depot_id(),
+                    depots: [
+                        SteamDepotKind::Common,
+                        SteamDepotKind::Linux,
+                        SteamDepotKind::Windows,
+                    ]
+                    .into_iter()
+                    .map(|kind| SteamDepotReport {
+                        kind: kind.label().to_owned(),
+                        depot_id: distribution.application().depot_id(kind),
+                        steam_os_rule: kind.steam_os_rule().to_owned(),
+                    })
+                    .collect(),
                     development_branch: distribution.application().development_branch().to_owned(),
                 }),
                 error: None,
@@ -359,8 +306,15 @@ impl DistributionManifestReport {
 #[derive(Debug, Clone, Serialize)]
 struct ApplicationReport {
     app_id: u32,
-    depot_id: u32,
+    depots: Vec<SteamDepotReport>,
     development_branch: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SteamDepotReport {
+    kind: String,
+    depot_id: u32,
+    steam_os_rule: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -473,43 +427,22 @@ impl std::fmt::Display for DiagnosticLevel {
 }
 
 fn diagnostics(
-    location: &Result<LocationStatus, String>,
-    setup_self: &SetupSelfStatus,
+    app_local_tools: &AppToolStatus,
     workspace: &Result<WorkspaceManifest, String>,
     distribution: &Result<Option<DistributionManifest>, String>,
     cargo: &CargoReport,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    match location {
-        Ok(LocationStatus::Unregistered { current }) => diagnostics.push(Diagnostic {
-            level: DiagnosticLevel::Warning,
-            scope: "vapor_home",
-            message: format!(
-                "'{}' has not been accepted; review `vapor setup self status`, then run `vapor setup self install`",
-                current.display()
-            ),
-        }),
-        Ok(LocationStatus::Moved { locked, current }) => diagnostics.push(Diagnostic {
-            level: DiagnosticLevel::Warning,
-            scope: "vapor_home",
-            message: format!(
-                "accepted location '{}' differs from current location '{}'; run `vapor setup self repair` if the move was intentional, or restore the app",
-                locked.display(),
-                current.display()
-            ),
-        }),
-        Err(error) => diagnostics.push(Diagnostic {
-            level: DiagnosticLevel::Error,
-            scope: "vapor_home",
-            message: error.clone(),
-        }),
-        Ok(LocationStatus::Registered { .. }) => {}
-    }
-    for status in [setup_self.rust(), setup_self.git(), setup_self.steamcmd()] {
+    for status in [
+        app_local_tools.rust(),
+        app_local_tools.git(),
+        app_local_tools.cross_toolchains(),
+        app_local_tools.steamcmd(),
+    ] {
         if !status.installed() {
             diagnostics.push(Diagnostic {
                 level: DiagnosticLevel::Warning,
-                scope: "setup_self",
+                scope: "app_local_tools",
                 message: format!(
                     "{} is incomplete at {}: missing {}",
                     status.label(),
@@ -518,16 +451,6 @@ fn diagnostics(
                 ),
             });
         }
-    }
-    if !setup_self.package_complete() {
-        diagnostics.push(Diagnostic {
-            level: DiagnosticLevel::Warning,
-            scope: "setup_self_package",
-            message: format!(
-                "distributable self-setup payload is incomplete: {}; run `vapor setup self package install` after active tools are healthy",
-                setup_self.missing_package_entries().join(", ")
-            ),
-        });
     }
     if let Err(error) = workspace {
         diagnostics.push(Diagnostic {

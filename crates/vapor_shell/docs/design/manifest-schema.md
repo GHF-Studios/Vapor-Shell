@@ -7,22 +7,27 @@ validates the baseline identity shape today; later passes will add deeper
 semantic validation for composition, traits, slots, publication, and authority.
 
 `Cargo.toml` remains authoritative for Cargo packages, workspace membership,
-Rust dependencies, features, crate targets, and build behavior. `Vapor.toml`
-records Vapor-owned identity, content role, composition, capability,
-publication, installation, and authority metadata.
+Rust dependencies, features, crate targets, and build behavior. Vapor manifest
+files record Vapor-owned identity, content role, composition, capability,
+publication, installation, and authority metadata. Application source roots use
+`App-Source.vapor.toml`; installed app roots use `App.vapor.toml`; ordinary
+source workspaces use `Workspace.vapor.toml`; registry checkouts use
+`Registry.vapor.toml`; content artifacts use their role-specific manifest
+filename.
 
 ## Universal rules
 
 - Every manifest starts with `schema = 1`.
 - Every manifest declares exactly one primary identity section.
 - Declaration names and organization names use lowercase kebab-case.
-- Root, workspace, registry, project, content, and trait declarations use local
-  `name`; they do not repeat their fully-qualified identifier.
+- Root, workspace, registry, content, and trait declarations use local `name`;
+  they do not repeat their fully-qualified identifier.
 - Declaration-side `id` is invalid.
-- `[project].kind` is invalid; the identity section chooses the role.
+- Content role is selected by the manifest filename and matching identity
+  section; `kind` fields are invalid on content declarations.
 - A root, workspace, or registry identifier is inferred as
   `organization/name`.
-- A project or content identifier is inferred as
+- A content identifier is inferred as
   `organization/workspace/project`.
 - A trait identifier is inferred as
   `organization/workspace/project/trait`.
@@ -39,7 +44,8 @@ publication, installation, and authority metadata.
 ### Application source root
 
 The application source root is a pure Vapor-managed Git super-repository, not
-the Steam installation/app root and not a Cargo workspace:
+the Steam installation/app root and not a Cargo workspace. Its authority file is
+`App-Source.vapor.toml`:
 
 ```toml
 schema = 1
@@ -52,8 +58,55 @@ repository = "https://github.com/GHF-Studios/Vapor-Root"
 
 [root.steam]
 app-id = 2122620
-depot-id = 2122621
 development-branch = "vapor-dev"
+
+[root.steam.depots.common]
+id = 2122621
+
+[[root.steam.depots.common.include]]
+root = "source"
+from = "App.vapor.toml"
+to = "App.vapor.toml"
+required = true
+
+[root.steam.depots.linux]
+id = 2122622
+
+[[root.steam.depots.linux.include]]
+root = "source"
+from = "resources/vapor/shell-scripts/linux/vapor-launch.sh"
+to = "bin/vapor-launch.sh"
+required = true
+
+[[root.steam.depots.linux.include]]
+root = "installation"
+from = "bin/x86_64-unknown-linux-gnu"
+to = "bin/x86_64-unknown-linux-gnu"
+target = "x86_64-unknown-linux-gnu"
+required = true
+
+[root.steam.depots.windows]
+id = 2122623
+
+[[root.steam.depots.windows.include]]
+root = "source"
+from = "resources/vapor/shell-scripts/windows/vapor-launch.cmd"
+to = "bin/vapor-launch.cmd"
+required = true
+
+[[root.steam.depots.windows.include]]
+root = "installation"
+from = "bin/x86_64-pc-windows-gnullvm"
+to = "bin/x86_64-pc-windows-gnullvm"
+target = "x86_64-pc-windows-gnullvm"
+required = true
+
+[[root.steam.depots.windows.include]]
+root = "installation"
+from = "bin/x86_64-pc-windows-gnullvm/libunwind.dll"
+to = "bin/x86_64-pc-windows-gnullvm/libunwind.dll"
+target = "x86_64-pc-windows-gnullvm"
+required = true
 
 [root.runtime]
 targets = [
@@ -72,8 +125,13 @@ default-launch = "loo-cast"
 Direct Git submodules define its application/depot workspace membership. Each
 member must be a `[workspace]` repository with a root `Cargo.toml`.
 `[root.runtime].targets` declares the app/depot release target matrix consumed
-by target-aware root commands by default. Use `--host-only` for local host-only
-smoke passes.
+by target-aware root commands by default. Use `--host-only` only for local
+package/dry-run smoke passes.
+`[root.steam.depots]` declares the Steamworks depot IDs and explicit include
+lists used by split-depot root publication. Each include copies one file or
+directory from either the source checkout or installation/app root into that
+depot. `target` makes an include apply only when that runtime target is staged.
+The numeric IDs in this example are Vapor's current Steamworks depot IDs.
 
 `[[root.content]]` records first-party installed-app discovery seeds for public
 Workshop content that the app may need before any external source checkout or
@@ -111,8 +169,8 @@ Cargo member paths. Vapor project registration is a separate relationship:
 `[[workspace.projects]]` declares which child paths are Vapor-managed projects
 inside this source workspace.
 `[workspace.runtime].targets` declares the content release target matrix
-consumed by target-aware content commands by default. Use `--host-only` for
-local host-only smoke passes.
+consumed by target-aware content commands by default. Use `--host-only` only
+for local build/deploy/package or dry-run smoke passes.
 
 ```toml
 [[workspace.projects]]
@@ -125,11 +183,14 @@ path = "loo-cast-game"
 path = "loo-cast-packagepack"
 ```
 
-Each registered path must contain its own `Vapor.toml` with either `[project]`
-or a content identity section such as `[engine]`, `[game]`, or
-`[packagepack]`. The child manifest owns the project/content identity and role;
-the workspace manifest only owns membership. Unregistered nested manifests are
-not source content merely because they exist on disk.
+Each registered path must contain its own role-specific content manifest such
+as `Engine.vapor.toml`, `Game.vapor.toml`, `Packagepack.vapor.toml`,
+`Enginepack.vapor.toml`, `Gamepack.vapor.toml`, `Modpack.vapor.toml`,
+`Engine-Mod.vapor.toml`, `Game-Mod.vapor.toml`, or
+`Extension-Mod.vapor.toml`. The child manifest owns the content identity and
+role; the workspace manifest only owns membership. Ordinary non-content Cargo
+packages do not get Vapor manifests, and unregistered nested manifests are not
+source content merely because they exist on disk.
 
 A workspace that contributes installed app commands may declare
 `binaries = ["name"]` under `[workspace]`; root workflows promote those Cargo
@@ -155,20 +216,12 @@ Registry data verifies declared organization, inferred identity, containment,
 and first-party authority. Naming an organization in a source manifest is a
 namespace claim, not authorization.
 
-## Project and content manifests
+## Content manifests
 
-Every Vapor project is authored under a registered `[[workspace.projects]]`
-path in a Vapor workspace. A non-content package uses `[project]`:
-
-```toml
-schema = 1
-
-[project]
-name = "cli"
-version.workspace = true
-```
-
-A content artifact uses its content kind instead:
+Every Vapor content artifact is authored under a registered
+`[[workspace.projects]]` path in a Vapor workspace. The manifest filename and
+identity table must name the same role. For example, `Engine.vapor.toml`
+contains `[engine]`:
 
 ```toml
 schema = 1
@@ -253,7 +306,7 @@ artifact. It should be absent before item creation rather than replaced with a
 generated local placeholder.
 
 Generated or observed state does not belong in source manifests. Vapor writes
-resolved deployed `Vapor.toml` files into staged artifact roots, and writes
+resolved deployed role manifests into staged artifact roots, and writes
 fingerprints, cache records, installed indexes, locks, operation receipts, last
 local verification results, and quarantine diagnostics under the Steam
 installation/app root.
@@ -263,7 +316,7 @@ installation/app root.
 Custom content is authored inside a Vapor workspace, including first-party
 content such as Loo-Cast's engine, game, and packagepack. A deployed or
 installed content artifact is not a standalone authoring workspace, but it does
-carry its own resolved `Vapor.toml` at the artifact root:
+carry its own resolved role-specific manifest at the artifact root:
 
 ```toml
 schema = 1
@@ -354,7 +407,7 @@ constituent. It belongs in a workspace that owns the composition:
 
 ```text
 Loo-Cast/
-├── Vapor.toml                 [workspace]
+├── Workspace.vapor.toml       [workspace]
 ├── Cargo.toml                 Cargo workspace
 ├── spacetime-engine/          [engine]
 ├── loo-cast-game/             [game]

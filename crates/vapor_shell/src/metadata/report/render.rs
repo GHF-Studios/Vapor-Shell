@@ -1,6 +1,6 @@
 //! Human-readable rendering for resolved metadata reports.
 
-use super::{CargoState, Diagnostic, LocationState, MetadataReport, ResourceState, SourceState};
+use super::{CargoState, Diagnostic, MetadataReport, ResourceState, SourceState};
 use std::fmt::Write;
 
 impl MetadataReport {
@@ -48,21 +48,11 @@ fn write_source(output: &mut String, report: &MetadataReport) {
 }
 
 fn write_installation(output: &mut String, report: &MetadataReport) {
+    writeln!(output, "  App root: {}", report.installation.root.display()).unwrap();
     writeln!(
         output,
-        "  Install location: {}",
-        match report.installation.location.status {
-            LocationState::Registered => "confirmed",
-            LocationState::Unregistered => "not confirmed yet",
-            LocationState::Moved => "changed",
-            LocationState::Invalid => "needs attention",
-        }
-    )
-    .unwrap();
-    writeln!(
-        output,
-        "  Local tools: {}",
-        if report.setup_self.complete {
+        "  Development tools: {}",
+        if report.app_local_tools.complete {
             "ready"
         } else {
             "not installed"
@@ -122,10 +112,18 @@ fn write_manifests(output: &mut String, report: &MetadataReport) {
                 .expect("ready application");
             writeln!(
                 output,
-                "  Steam app: {} / depot {} / branch {}",
-                application.app_id, application.depot_id, application.development_branch
+                "  Steam app: {} / branch {}",
+                application.app_id, application.development_branch
             )
             .unwrap();
+            for depot in &application.depots {
+                writeln!(
+                    output,
+                    "    depot {}: {} ({})",
+                    depot.kind, depot.depot_id, depot.steam_os_rule
+                )
+                .unwrap();
+            }
         }
         ResourceState::Absent => {}
         ResourceState::Invalid => {
@@ -199,14 +197,8 @@ fn next_command(report: &MetadataReport) -> &'static str {
     if matches!(report.source.status, SourceState::Closed) {
         return "source open /path/to/source";
     }
-    match report.installation.location.status {
-        LocationState::Moved => return "setup self repair",
-        LocationState::Unregistered => return "setup self install",
-        LocationState::Invalid => return "setup self status",
-        LocationState::Registered => {}
-    }
-    if !report.setup_self.complete {
-        return "setup self install";
+    if !report.app_local_tools.complete {
+        return "vapor-installer dev-env install --app-root <app-root>";
     }
     if matches!(report.manifests.workspace.status, ResourceState::Invalid) {
         return "source status";
@@ -215,11 +207,7 @@ fn next_command(report: &MetadataReport) -> &'static str {
 }
 
 fn human_diagnostics(report: &MetadataReport) -> Vec<&Diagnostic> {
-    report
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.scope != "setup_self_package")
-        .collect()
+    report.diagnostics.iter().collect()
 }
 
 fn source_kind_label(kind: &str) -> &str {

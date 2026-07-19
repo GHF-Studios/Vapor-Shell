@@ -7,13 +7,14 @@
 //! the source cursor into the Steam application directory.
 
 use crate::{
+    app_local_tools::AppToolRequirement,
     content,
+    diagnostics::{self, SubmitOptions},
     discovery::{EnvironmentPaths, ensure_contained},
     distribution::StageOptions,
-    documentation, ide,
+    documentation, ide, manifest,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
-    setup_self::{self, SetupSelfRequirement},
-    setup_self_packages, source as source_tools, source_registry,
+    source as source_tools, source_registry,
     state::ShellState,
     steam,
     workflow::{self, CargoWorkflow, ProjectSelection},
@@ -34,7 +35,7 @@ const LOO_CAST_PACKAGEPACK_ID: &str = "ghf-studios/loo-cast/loo-cast-packagepack
 #[command(
     name = "vapor",
     bin_name = "vapor",
-    after_help = "Run `help COMMAND` for details on one command group.\nMost project work starts with `setup self status`, then `source open SOURCE`."
+    after_help = "Run `help COMMAND` for details on one command group.\nNormal tester launches start with `launch loo-cast`; developer work starts with installer-prepared tooling, then `source open SOURCE`."
 )]
 /// Commands accepted by the Vapor shell and its narrow host facades.
 pub enum ShellCommand {
@@ -103,13 +104,6 @@ pub enum ShellCommand {
         project: ProjectSelection,
     },
 
-    /// Inspect or repair Vapor setup domains.
-    Setup {
-        /// Setup operation.
-        #[command(subcommand)]
-        command: SetupCommand,
-    },
-
     /// Build, locate, or open installed documentation.
     Docs {
         /// Documentation operation.
@@ -145,6 +139,13 @@ pub enum ShellCommand {
         command: ScriptCommand,
     },
 
+    /// Inspect or ship private-test launch diagnostics.
+    Diagnostics {
+        /// Diagnostics operation.
+        #[command(subcommand)]
+        command: DiagnosticsCommand,
+    },
+
     /// Exit the Vapor sub-shell.
     #[command(alias = "quit")]
     Exit,
@@ -159,6 +160,29 @@ pub enum LaunchCommand {
         /// Steam account used when Workshop content must be downloaded.
         #[arg(long)]
         account: Option<String>,
+    },
+}
+
+/// Private-test diagnostics operations.
+#[derive(Debug, Subcommand)]
+pub enum DiagnosticsCommand {
+    /// Report local diagnostics capture and shipping state.
+    Status,
+    /// Copy diagnostics into a registry checkout; `--push` also commits and pushes.
+    #[command(alias = "ship")]
+    Submit {
+        /// Registry checkout used as the private diagnostics sink.
+        #[arg(long, value_name = "PATH")]
+        registry: Option<PathBuf>,
+        /// Copy every local run log instead of only the current/latest run.
+        #[arg(long)]
+        all: bool,
+        /// Commit and push diagnostics after copying them into the registry.
+        #[arg(long)]
+        push: bool,
+        /// Preview copied files and Git actions without changing the registry.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -254,74 +278,12 @@ pub enum IdeCommand {
     },
 }
 
-/// Vapor setup domain operations.
-#[derive(Debug, Subcommand)]
-pub enum SetupCommand {
-    /// Manage this installed Vapor app environment.
-    #[command(name = "self")]
-    Self_ {
-        /// Self-setup operation.
-        #[command(subcommand)]
-        command: SetupSelfCommand,
-    },
-}
-
-/// Installed app self-setup lifecycle operations.
-#[derive(Debug, Subcommand)]
-pub enum SetupSelfCommand {
-    /// Report app-root, PATH, app-local tool, and package-payload readiness.
-    Status,
-    /// Install missing self-setup components inside the app root.
-    Install {
-        /// Preview registration and file changes without applying them.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Remove app-local self-setup components, PATH registration, and location state.
-    Uninstall {
-        /// Preview removal without deleting files or registration state.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Reapply or reacquire self-setup components inside the app root.
-    Repair {
-        /// Preview registration and repair changes without applying them.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Manage distributable self-setup payloads used for app/depot staging.
-    Package {
-        /// Self-setup package payload operation.
-        #[command(subcommand)]
-        command: SetupSelfPackageCommand,
-    },
-}
-
-/// Distributable self-setup package payload operations.
-#[derive(Debug, Subcommand)]
-pub enum SetupSelfPackageCommand {
-    /// Report distributable self-setup payload readiness.
-    Status,
-    /// Populate missing distributable self-setup payloads from active tools.
-    Install {
-        /// Preview package writes without changing files.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// Rebuild distributable self-setup payloads from active tools.
-    Repair {
-        /// Preview package rebuild without changing files.
-        #[arg(long)]
-        dry_run: bool,
-    },
-}
-
 /// Complete application/depot root operations.
 #[derive(Debug, Subcommand)]
 pub enum RootCommand {
     /// Build every project and promote declared binaries into the installation.
     Build {
-        /// Rust target triple for root application binaries. May be repeated.
+        /// Rust target triple for dry-run/custom root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Build the manifest runtime target matrix. This is the default when declared.
@@ -336,7 +298,7 @@ pub enum RootCommand {
         /// Skip rebuilding installed documentation.
         #[arg(long)]
         skip_docs: bool,
-        /// Rust target triple for root application binaries. May be repeated.
+        /// Rust target triple for dry-run/custom root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Build the manifest runtime target matrix. This is the default when declared.
@@ -348,9 +310,6 @@ pub enum RootCommand {
     },
     /// Assemble and smoke-check the local application/depot package.
     Package {
-        /// Include the large distributable setup/toolchain payload in the staged depot.
-        #[arg(long)]
-        include_setup_payload: bool,
         /// Runtime target triple to stage launchers for. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
@@ -363,25 +322,22 @@ pub enum RootCommand {
     },
     /// Validate, build, stage, preview, or upload the complete Steam app/depot.
     Publish {
-        /// Include the large distributable setup/toolchain payload in the staged depot.
-        #[arg(long)]
-        include_setup_payload: bool,
         /// Dedicated Steam build account. Required for real uploads.
         #[arg(long)]
         account: Option<String>,
         /// Existing non-default beta branch; defaults to the distribution manifest.
         #[arg(long)]
         branch: Option<String>,
-        /// Rust target triple for root application binaries. May be repeated.
+        /// Rust target triple for dry-run/custom root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Build and stage the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
-        /// Build and stage only the host target for a local smoke pass.
+        /// Build and stage only the host target for a dry-run/local smoke pass.
         #[arg(long)]
         host_only: bool,
-        /// Use already-promoted app binaries instead of running Cargo validate/build.
+        /// Use already-promoted app binaries for dry-run previews only.
         #[arg(long)]
         skip_build: bool,
         /// Internal Steam build description.
@@ -444,13 +400,13 @@ pub enum ContentCommand {
         /// Artifact ID, local name, or PublishedFileId.
         #[arg(value_name = "ARTIFACT")]
         artifact: String,
-        /// Rust target triple for content runtime outputs. May be repeated for multi-platform packages.
+        /// Rust target triple for dry-run/custom content runtime outputs. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Package the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
-        /// Package only the host target for a local smoke pass.
+        /// Package only the host target for a dry-run/local smoke pass.
         #[arg(long)]
         host_only: bool,
         /// Preview package output without writing it.
@@ -547,13 +503,13 @@ pub enum ContentCommand {
         /// Dedicated Steam publishing account. Required for real creation.
         #[arg(long)]
         account: Option<String>,
-        /// Rust target triple for content runtime outputs. May be repeated for multi-platform packages.
+        /// Rust target triple for dry-run/custom content runtime outputs. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Package the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
-        /// Package only the host target for a local smoke pass.
+        /// Package only the host target for a dry-run/local smoke pass.
         #[arg(long)]
         host_only: bool,
         /// Preview the SteamUGC create request without changing authority.
@@ -571,13 +527,13 @@ pub enum ContentCommand {
         /// Dedicated Steam publishing account. Required for real uploads.
         #[arg(long)]
         account: Option<String>,
-        /// Rust target triple for content runtime outputs. May be repeated for multi-platform packages.
+        /// Rust target triple for dry-run/custom content runtime outputs. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Package the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
-        /// Package only the host target for a local smoke pass.
+        /// Package only the host target for a dry-run/local smoke pass.
         #[arg(long)]
         host_only: bool,
         /// Workshop update note.
@@ -607,9 +563,9 @@ pub enum ContentCommand {
 /// Vapor command-script operations.
 #[derive(Debug, Subcommand)]
 pub enum ScriptCommand {
-    /// Run `.vapor/scripts/<NAME>.vapor`.
+    /// Run `resources/vapor/vapor-scripts/<NAME>.vapor`.
     Run {
-        /// Script filename stem under `.vapor/scripts`.
+        /// Script filename stem under `resources/vapor/vapor-scripts`.
         name: String,
         /// Print commands without executing them.
         #[arg(long)]
@@ -664,12 +620,12 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
         ShellCommand::Validate { project } => {
             execute_workflow(CargoWorkflow::Validate, project, state)?;
         }
-        ShellCommand::Setup { command } => execute_setup(command, state)?,
         ShellCommand::Docs { command } => execute_docs(command, state)?,
         ShellCommand::Ide { command } => execute_ide(command, state)?,
         ShellCommand::Root { command } => execute_root(command, state)?,
         ShellCommand::Content { command } => execute_content(command, state)?,
         ShellCommand::Script { command } => execute_script_command(command, state)?,
+        ShellCommand::Diagnostics { command } => execute_diagnostics(command, state)?,
         ShellCommand::Exit => return Ok(Control::Exit),
     }
 
@@ -683,6 +639,10 @@ fn execute_launch(command: LaunchCommand, state: &ShellState) -> Result<(), Stri
 }
 
 fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), String> {
+    diagnostics::event(format!(
+        "launch loo-cast started; account={}",
+        account.unwrap_or("<default>")
+    ));
     let selection = match content::current_selection(state.installation())? {
         Some(selection) => selection,
         None => ensure_loo_cast_installed_and_selected(state, account)?,
@@ -693,8 +653,14 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
     println!("Status");
     println!("  Loo-Cast Packagepack: {}", selection.artifact_id());
     println!("    root: {}", selection.installed_root().display());
+    diagnostics::event(format!(
+        "launch selection: {} at {}",
+        selection.artifact_id(),
+        selection.installed_root().display()
+    ));
 
     let reports = content::verify(state.installation(), None)?;
+    diagnostics::event(format!("content verify reports: {}", reports.len()));
     if reports.is_empty() {
         println!("  Installed content: none");
         println!();
@@ -722,6 +688,10 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
     let engine_root = layout.installed().join(&engine_id);
     let runtime_target = content::host_runtime_target();
     let binary = engine_launch_binary(&engine_root, &runtime_target)?;
+    diagnostics::event(format!(
+        "engine handoff binary: {} ({runtime_target})",
+        binary.display()
+    ));
 
     println!("  Spacetime Engine: {engine_id}");
     println!("    runtime target: {runtime_target}");
@@ -740,6 +710,7 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
         .env("VAPOR_RUNTIME_TARGET", &runtime_target)
         .status()
         .map_err(|error| format!("failed to launch '{}': {error}", binary.display()))?;
+    diagnostics::event(format!("engine exited with {status}"));
     if status.success() {
         Ok(())
     } else {
@@ -759,13 +730,13 @@ fn print_loo_cast_first_run() {
 
 fn print_loo_cast_first_run_next() {
     println!("Next");
-    println!("  open Vapor Shell");
-    println!("  setup self install");
+    println!("  reinstall the Steam app if this is a normal tester install");
+    println!("  vapor-installer install --app-root /path/to/steam/app");
     println!("  launch loo-cast");
     println!();
     println!("Note");
     println!(
-        "  Steam Play can download the first-party Loo-Cast Packagepack after setup is installed."
+        "  Steam Play can download the first-party Loo-Cast Packagepack after player-mode tooling is installed."
     );
 }
 
@@ -784,6 +755,7 @@ fn ensure_loo_cast_installed_and_selected(
     println!("Status");
     println!("  Loo-Cast Packagepack: not installed");
     println!("  Workshop: downloading first-party Loo-Cast Packagepack and dependencies");
+    diagnostics::event("launch loo-cast installing first-party packagepack from Workshop");
     let reports = match content::install_with_account(
         state.installation(),
         None,
@@ -799,6 +771,7 @@ fn ensure_loo_cast_installed_and_selected(
     };
     for report in &reports {
         println!("    installed: {}", report.artifact_id());
+        diagnostics::event(format!("installed content: {}", report.artifact_id()));
     }
     let selection = content::select_packagepack(state.installation(), LOO_CAST_PACKAGEPACK_ID)?;
     println!(
@@ -810,7 +783,7 @@ fn ensure_loo_cast_installed_and_selected(
 }
 
 fn selected_packagepack_engine_id(packagepack_root: &Path) -> Result<String, String> {
-    let manifest = packagepack_root.join("Vapor.toml");
+    let manifest = packagepack_root.join(manifest::PACKAGEPACK_FILE_NAME);
     let source = fs::read_to_string(&manifest)
         .map_err(|error| format!("failed to read '{}': {error}", manifest.display()))?;
     let parsed: LaunchManifest = toml::from_str(&source)
@@ -835,7 +808,7 @@ fn selected_packagepack_engine_id(packagepack_root: &Path) -> Result<String, Str
 }
 
 fn engine_launch_binary(engine_root: &Path, runtime_target: &str) -> Result<PathBuf, String> {
-    let manifest = engine_root.join("Vapor.toml");
+    let manifest = engine_root.join(manifest::ENGINE_FILE_NAME);
     let source = fs::read_to_string(&manifest)
         .map_err(|error| format!("failed to read '{}': {error}", manifest.display()))?;
     let parsed: LaunchManifest = toml::from_str(&source)
@@ -1197,7 +1170,7 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
             let status = ide::inspect(
                 state.active_paths()?,
                 metadata.workspace_manifest()?,
-                metadata.setup_self_status(),
+                metadata.app_local_tools_status(),
             )?;
             print_ide_status(&status);
             if status.complete() {
@@ -1209,21 +1182,20 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
         IdeCommand::Repair { dry_run } => {
             metadata.validate(
                 &ValidationPlan::new("repair IDE setup")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
             let report = if dry_run {
                 ide::preview(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
-                    metadata.setup_self_status(),
+                    metadata.app_local_tools_status(),
                 )?
             } else {
                 ide::repair(
                     state.active_paths()?,
                     metadata.workspace_manifest()?,
-                    metadata.setup_self_status(),
+                    metadata.app_local_tools_status(),
                 )?
             };
             print_ide_status(report.status());
@@ -1280,8 +1252,7 @@ fn execute_workflow(
     let metadata = ResolvedMetadata::resolve(state);
     metadata.validate(
         &ValidationPlan::new(command.label())
-            .registered_location()
-            .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+            .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
             .workspace(),
     )?;
     let paths = state.active_paths()?;
@@ -1359,7 +1330,7 @@ fn resolve_runtime_targets(
     }
     if release_targets && manifest.runtime_targets().is_empty() {
         return Err(
-            "source Vapor.toml declares no runtime targets; add [root.runtime]/[workspace.runtime] targets or pass --target"
+            "source manifest declares no runtime targets; add [root.runtime]/[workspace.runtime] targets or pass --target"
                 .to_owned(),
         );
     }
@@ -1367,6 +1338,48 @@ fn resolve_runtime_targets(
         return Ok(manifest.runtime_targets().to_vec());
     }
     Ok(Vec::new())
+}
+
+fn resolve_publish_runtime_targets(
+    manifest: &WorkspaceManifest,
+    explicit_targets: &[String],
+    release_targets: bool,
+    host_only: bool,
+    dry_run: bool,
+    command: &str,
+) -> Result<Vec<String>, String> {
+    if dry_run {
+        return resolve_runtime_targets(manifest, explicit_targets, release_targets, host_only);
+    }
+    if !explicit_targets.is_empty() {
+        return Err(format!(
+            "real {command} requires the complete declared runtime target matrix; remove --target or use --dry-run for custom target previews"
+        ));
+    }
+    if host_only {
+        return Err(format!(
+            "real {command} requires the complete declared runtime target matrix; --host-only is only for dry-run/local smoke paths"
+        ));
+    }
+    let targets = resolve_runtime_targets(manifest, &[], release_targets, false)?;
+    require_release_runtime_matrix(command, &targets)?;
+    Ok(targets)
+}
+
+fn require_release_runtime_matrix(command: &str, targets: &[String]) -> Result<(), String> {
+    let has_linux = targets.iter().any(|target| target.contains("linux"));
+    let has_windows = targets.iter().any(|target| target.contains("windows"));
+    if has_linux && has_windows {
+        return Ok(());
+    }
+    let declared = if targets.is_empty() {
+        "<none>".to_owned()
+    } else {
+        targets.join(", ")
+    };
+    Err(format!(
+        "real {command} requires a declared release runtime matrix containing both Linux and Windows targets; current targets: {declared}"
+    ))
 }
 
 fn validate_command_runtime_targets(targets: &[String]) -> Result<(), String> {
@@ -1388,337 +1401,13 @@ fn validate_command_runtime_targets(targets: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn execute_setup(command: SetupCommand, state: &mut ShellState) -> Result<(), String> {
-    match command {
-        SetupCommand::Self_ { command } => execute_setup_self(command, state),
-    }
-}
-
-fn execute_setup_self(command: SetupSelfCommand, state: &mut ShellState) -> Result<(), String> {
-    let installation = state.installation();
-    match command {
-        SetupSelfCommand::Status => {
-            let location = setup_self::location_status(installation)?;
-            let status = setup_self::inspect(installation);
-            println!("Setup Status");
-            println!();
-            println!("Status");
-            match &location {
-                setup_self::LocationStatus::Registered { path } => {
-                    println!("  Install location: confirmed");
-                    println!("    root: {}", path.display());
-                }
-                setup_self::LocationStatus::Unregistered { current } => {
-                    println!("  Install location: not confirmed yet");
-                    println!("    root: {}", current.display());
-                }
-                setup_self::LocationStatus::Moved { locked, current } => {
-                    println!("  Install location: changed");
-                    println!("    previous: {}", locked.display());
-                    println!("    current:  {}", current.display());
-                }
-            }
-            println!(
-                "  Local tools: {}",
-                if status.complete() {
-                    "ready"
-                } else {
-                    "not installed"
-                }
-            );
-            print_tool_summary(status.rust());
-            print_tool_summary(status.git());
-            print_tool_summary(status.cross_toolchains());
-            print_tool_summary(status.steamcmd());
-            println!(
-                "  Bootstrap payload: {}",
-                if status.package_complete() {
-                    "packaged"
-                } else {
-                    "not packaged"
-                }
-            );
-            println!("    only needed when publishing a stacked setup depot");
-            println!();
-            println!("Next");
-            if matches!(location, setup_self::LocationStatus::Moved { .. }) {
-                println!("  setup self repair");
-            } else if !location.registered() {
-                println!("  setup self install");
-            } else if status.complete() {
-                println!("  source open /path/to/source");
-            } else {
-                println!("  setup self install");
-            }
-        }
-        SetupSelfCommand::Install { dry_run } => {
-            if dry_run {
-                preview_setup_self_install(installation, false)?;
-                return Ok(());
-            }
-            let change = setup_self::register_location(installation)?;
-            print_location_status(change.status());
-            let report = setup_self::install(installation)?;
-            state.refresh_cargo_index();
-            if report.installed_groups().is_empty() {
-                println!("self-setup is already installed; no files changed");
-            } else {
-                println!("installed: {}", report.installed_groups().join(", "));
-            }
-            print_path_hint(change.path_setup());
-            println!(
-                "hint: confirm with `vapor setup self status`; then enter the shell and run `validate`"
-            );
-        }
-        SetupSelfCommand::Repair { dry_run } => {
-            if dry_run {
-                preview_setup_self_install(installation, true)?;
-                return Ok(());
-            }
-            let change = setup_self::register_location(installation)?;
-            print_location_status(change.status());
-            let report = setup_self::repair(installation)?;
-            state.refresh_cargo_index();
-            if report.installed_groups().is_empty() {
-                println!("self-setup repair found all components already installed");
-            } else {
-                println!("repaired: {}", report.installed_groups().join(", "));
-            }
-            print_path_hint(change.path_setup());
-            println!(
-                "hint: confirm with `vapor setup self status`; then enter the shell and run `validate`"
-            );
-        }
-        SetupSelfCommand::Uninstall { dry_run } => {
-            if dry_run {
-                preview_setup_self_uninstall(installation)?;
-                return Ok(());
-            }
-            let report = setup_self::uninstall(installation)?;
-            state.refresh_cargo_index();
-            print_location_status(report.location().status());
-            println!(
-                "removed {} app-local tool directories",
-                report.removed_paths()
-            );
-            print_path_hint(report.location().path_setup());
-            println!("hint: reinstall later with `vapor setup self install`");
-        }
-        SetupSelfCommand::Package { command } => match command {
-            SetupSelfPackageCommand::Status => {
-                let status = setup_self::inspect(installation);
-                print_package_status(&status);
-                if status.package_complete() {
-                    println!("hint: enter the shell and run `root package`");
-                } else {
-                    println!(
-                        "hint: populate self-setup payloads with `vapor setup self package install`"
-                    );
-                }
-            }
-            SetupSelfPackageCommand::Install { dry_run } => {
-                execute_setup_self_package(false, dry_run, state)?;
-            }
-            SetupSelfPackageCommand::Repair { dry_run } => {
-                execute_setup_self_package(true, dry_run, state)?;
-            }
-        },
-    }
-    Ok(())
-}
-
-fn preview_setup_self_install(
-    installation: &crate::discovery::InstallationPaths,
-    repair: bool,
-) -> Result<(), String> {
-    let location = setup_self::location_status(installation)?;
-    let status = setup_self::inspect(installation);
-    println!(
-        "dry-run: would {} Vapor self-setup",
-        if repair { "repair" } else { "install" }
-    );
-    print_location_status(&location);
-    println!("would accept app root: {}", installation.root().display());
-    println!(
-        "would ensure PATH directory: {}",
-        installation.binaries().display()
-    );
-    print_tool_action(status.rust(), repair);
-    print_tool_action(status.git(), repair);
-    print_tool_action(status.cross_toolchains(), repair);
-    print_tool_action(status.steamcmd(), repair);
-    print_package_status(&status);
-    println!(
-        "would download Rust through rustup-init into {} and {} when Rust is missing or repair is requested",
-        installation.root().join("rustup-home").display(),
-        installation.root().join("cargo-home").display()
-    );
-    println!(
-        "would apply app-owned Git from {} when complete self-setup payloads exist",
-        status.package_root().display()
-    );
-    if cfg!(target_os = "windows") {
-        println!(
-            "would otherwise download portable MinGit into {}",
-            installation.root().join("tools/git").display()
-        );
-    } else {
-        println!(
-            "would otherwise import a real host Git binary into {} and replace delegating scripts",
-            installation.root().join("tools/git").display()
-        );
-    }
-    println!(
-        "would download and extract SteamCMD into {} when SteamCMD is missing or repair is requested",
-        installation.root().join("tools/steamcmd").display()
-    );
-    println!(
-        "would download and extract portable Zig 0.16.0 into {} when cross toolchains are missing or repair is requested",
-        installation.root().join("tools/zig").display()
-    );
-    println!(
-        "would download and extract portable llvm-mingw 20260616 into {} when Windows cross toolchains are missing or repair is requested",
-        installation.root().join("tools/llvm-mingw").display()
-    );
-    println!("dry-run: no files, PATH registration, or app-root lock were changed");
-    Ok(())
-}
-
-fn preview_setup_self_uninstall(
-    installation: &crate::discovery::InstallationPaths,
-) -> Result<(), String> {
-    let location = setup_self::location_status(installation)?;
-    let status = setup_self::inspect(installation);
-    println!("dry-run: would uninstall Vapor self-setup");
-    print_location_status(&location);
-    for path in [
-        installation.root().join("rustup"),
-        installation.root().join("rustup-home"),
-        installation.root().join("cargo-home"),
-        installation.root().join("tools/git"),
-        installation.root().join("tools/zig"),
-        installation.root().join("tools/llvm-mingw"),
-        installation.root().join("tools/cross"),
-        installation.root().join("tools/steamcmd"),
-    ] {
-        println!(
-            "would remove {}: {}",
-            if path.exists() {
-                "present path"
-            } else {
-                "absent path"
-            },
-            path.display()
-        );
-    }
-    println!("would clear app-root location lock and PATH registration");
-    print_tool_status(status.rust());
-    print_tool_status(status.git());
-    print_tool_status(status.cross_toolchains());
-    print_tool_status(status.steamcmd());
-    print_package_status(&status);
-    println!("dry-run: no files, PATH registration, or app-root lock were changed");
-    Ok(())
-}
-
-fn print_tool_action(status: &setup_self::SetupSelfComponentStatus, repair: bool) {
-    let action = if repair {
-        "reapply"
-    } else if status.installed() {
-        "keep"
-    } else {
-        "install"
-    };
-    println!("would {action}: {}", status.label());
-    println!("  path: {}", status.path().display());
-    for missing in status.missing() {
-        println!("  missing: {missing}");
-    }
-}
-
-fn print_location_status(status: &setup_self::LocationStatus) {
-    match status {
-        setup_self::LocationStatus::Unregistered { current } => {
-            println!("app root: unregistered");
-            println!("  current:   {}", current.display());
-        }
-        setup_self::LocationStatus::Registered { path } => {
-            println!("app root: registered");
-            println!("  path:      {}", path.display());
-        }
-        setup_self::LocationStatus::Moved { locked, current } => {
-            println!("app root: moved (confirmation required)");
-            println!("  previous:  {}", locked.display());
-            println!("  current:   {}", current.display());
-        }
-    }
-}
-
-fn print_path_hint(report: &crate::path_setup::PathSetupReport) {
-    println!("PATH command: {}", report.command().display());
-    println!("PATH directory: {}", report.binaries().display());
-    for profile in report.profiles() {
-        println!("PATH profile: {}", profile.display());
-    }
-    if report.changed() || !report.path_active() {
-        println!("hint: open a new terminal to apply PATH changes");
-    }
-}
-
-fn print_tool_status(status: &setup_self::SetupSelfComponentStatus) {
-    println!(
-        "{}: {}",
-        status.label(),
-        if status.installed() {
-            "installed"
-        } else {
-            "missing"
-        }
-    );
-    println!("  path: {}", status.path().display());
-    for missing in status.missing() {
-        println!("  missing: {missing}");
-    }
-}
-
-fn print_tool_summary(status: &setup_self::SetupSelfComponentStatus) {
-    println!(
-        "    {}: {}",
-        status.label(),
-        if status.installed() {
-            "ready"
-        } else {
-            "missing"
-        }
-    );
-    if !status.installed() {
-        println!("      missing: {}", status.missing().join(", "));
-    }
-}
-
-fn print_package_status(status: &setup_self::SetupSelfStatus) {
-    println!(
-        "self-setup payload: {}",
-        if status.package_complete() {
-            "ready"
-        } else {
-            "missing"
-        }
-    );
-    println!("  path: {}", status.package_root().display());
-    for missing in status.missing_package_entries() {
-        println!("  missing: {missing}");
-    }
-}
-
 fn execute_docs(command: DocsCommand, state: &ShellState) -> Result<(), String> {
     match command {
         DocsCommand::Build => {
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
                 &ValidationPlan::new("build documentation")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
             println!(
@@ -1750,8 +1439,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         } => {
             metadata.validate(
                 &ValidationPlan::new("rebuild the Vapor application")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -1782,8 +1470,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         } => {
             metadata.validate(
                 &ValidationPlan::new("locally deploy the Vapor application")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -1811,7 +1498,8 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                     documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
                 println!("docs: {}", docs.display());
             }
-            let scripts = sync_root_asset_dir(state.active_paths()?, ".vapor/scripts")?;
+            let scripts =
+                sync_root_asset_dir(state.active_paths()?, "resources/vapor/vapor-scripts")?;
             let launchers = sync_root_launchers(state.active_paths()?, &targets)?;
             println!("scripts: {scripts} file(s)");
             println!("launchers: {launchers} file(s)");
@@ -1820,15 +1508,13 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             );
         }
         RootCommand::Package {
-            include_setup_payload,
             target,
             release_targets,
             host_only,
         } => {
             metadata.validate(
                 &ValidationPlan::new("package the Vapor application")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
                     .workspace()
                     .distribution(),
             )?;
@@ -1838,41 +1524,29 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 release_targets,
                 host_only,
             )?;
-            let stage_options = if include_setup_payload {
-                setup_self_packages::validate_setup_self_package(state.installation().root())?;
-                StageOptions::with_setup_payload()
-            } else {
-                StageOptions::runtime()
-            }
-            .with_runtime_targets(targets);
+            let stage_options = StageOptions::runtime().with_runtime_targets(targets);
             documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
+            let distribution_manifest = metadata.distribution_manifest()?;
             let report = crate::distribution::stage_with_options(
                 state.active_paths()?,
-                metadata.distribution_manifest()?,
+                distribution_manifest,
                 stage_options.clone(),
             )?;
-            steam::smoke(report.root(), &stage_options)?;
+            steam::smoke(&report, &stage_options)?;
             println!(
                 "packaged {} files at {}",
                 report.files(),
                 report.root().display()
             );
-            println!(
-                "payload: {}",
-                if stage_options.includes_setup_payload() {
-                    "runtime plus setup/toolchain"
-                } else {
-                    "runtime only"
-                }
-            );
+            println!("payload: split runtime depots");
             println!(
                 "runtime targets: {}",
                 stage_options.runtime_targets().join(", ")
             );
+            print_staged_depots(distribution_manifest, &report);
             println!("hint: preview Steam upload with `root publish --dry-run`");
         }
         RootCommand::Publish {
-            include_setup_payload,
             account,
             branch,
             target,
@@ -1889,35 +1563,37 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                         .to_owned(),
                 );
             }
-            let setup_requirements = if dry_run {
-                vec![SetupSelfRequirement::Rust, SetupSelfRequirement::Git]
+            if !dry_run && skip_build {
+                return Err(
+                    "real app publication must validate, build, and promote the complete runtime matrix; --skip-build is only for dry-run previews"
+                        .to_owned(),
+                );
+            }
+            let tool_requirements = if dry_run {
+                vec![AppToolRequirement::Rust, AppToolRequirement::Git]
             } else {
                 vec![
-                    SetupSelfRequirement::Rust,
-                    SetupSelfRequirement::Git,
-                    SetupSelfRequirement::SteamCmd,
+                    AppToolRequirement::Rust,
+                    AppToolRequirement::Git,
+                    AppToolRequirement::CrossToolchains,
+                    AppToolRequirement::SteamCmd,
                 ]
             };
             metadata.validate(
                 &ValidationPlan::new("publish the Vapor application")
-                    .registered_location()
-                    .setup_self(&setup_requirements)
+                    .app_local_tools(&tool_requirements)
                     .workspace()
                     .distribution(),
             )?;
-            let targets = resolve_runtime_targets(
+            let targets = resolve_publish_runtime_targets(
                 metadata.workspace_manifest()?,
                 &target,
                 release_targets,
                 host_only,
+                dry_run,
+                "app publication",
             )?;
-            let stage_options = if include_setup_payload {
-                setup_self_packages::validate_setup_self_package(state.installation().root())?;
-                StageOptions::with_setup_payload()
-            } else {
-                StageOptions::runtime()
-            }
-            .with_runtime_targets(targets.clone());
+            let stage_options = StageOptions::runtime().with_runtime_targets(targets.clone());
             if skip_build {
                 println!("build: skipped; using already-promoted app binaries");
             } else {
@@ -1941,9 +1617,10 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 println!("promoted {promoted} installation binaries");
             }
             documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
-            let script = steam::publish(
+            let distribution_manifest = metadata.distribution_manifest()?;
+            let publish = steam::publish(
                 state.active_paths()?,
-                metadata.distribution_manifest()?,
+                distribution_manifest,
                 steam::PublishOptions {
                     account: account.as_deref().unwrap_or("dry-run"),
                     branch: branch.as_deref(),
@@ -1953,19 +1630,13 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                     confirmed: yes,
                 },
             )?;
-            println!(
-                "payload: {}",
-                if stage_options.includes_setup_payload() {
-                    "runtime plus setup/toolchain"
-                } else {
-                    "runtime only"
-                }
-            );
+            println!("payload: split runtime depots");
             println!(
                 "runtime targets: {}",
                 stage_options.runtime_targets().join(", ")
             );
-            println!("SteamPipe build script: {}", script.display());
+            print_staged_depots(distribution_manifest, publish.stage());
+            println!("SteamPipe build script: {}", publish.script().display());
             if dry_run {
                 println!(
                     "hint: review the staged app, then run `root publish --account ACCOUNT --yes`"
@@ -1976,6 +1647,22 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+fn print_staged_depots(
+    manifest: &crate::distribution::DistributionManifest,
+    report: &crate::distribution::StageReport,
+) {
+    println!("depots:");
+    for depot in report.depots() {
+        println!(
+            "  {} ({}, {}): {}",
+            manifest.application().depot_id(depot.kind()),
+            depot.kind().label(),
+            depot.kind().steam_os_rule(),
+            depot.root().display()
+        );
+    }
 }
 
 fn run_workflow_targets(
@@ -2041,13 +1728,10 @@ fn sync_root_asset_dir(paths: &EnvironmentPaths, relative: &str) -> Result<usize
 }
 
 fn sync_root_launchers(paths: &EnvironmentPaths, targets: &[String]) -> Result<usize, String> {
-    let source = paths.source().root().join(".vapor/launch");
-    let target = paths.installation().root().join(".vapor/launch");
+    let source = paths.source().root().join("resources/vapor/shell-scripts");
+    let target = paths.installation().root().join("bin");
     ensure_contained(paths.installation().root(), &target)?;
 
-    if target.exists() {
-        fs::remove_dir_all(&target).map_err(io("reset installed launchers", &target))?;
-    }
     if !source.exists() {
         return Ok(0);
     }
@@ -2056,12 +1740,40 @@ fn sync_root_launchers(paths: &EnvironmentPaths, targets: &[String]) -> Result<u
     ensure_contained(paths.source().root(), &canonical)?;
     let mut files = 0;
     for platform in target_platforms(targets) {
-        let platform_source = canonical.join(&platform);
-        if platform_source.exists() {
-            files += copy_script_tree(&platform_source, &target.join(platform))?;
+        let (relative_source, target_name) = launcher_mapping(&platform)?;
+        let launcher_source = canonical.join(relative_source);
+        if launcher_source.is_file() {
+            let launcher_target = target.join(target_name);
+            fs::copy(&launcher_source, &launcher_target)
+                .map_err(io("copy launcher", &launcher_source))?;
+            make_launcher_executable(&launcher_target)?;
+            files += 1;
         }
     }
     Ok(files)
+}
+
+fn launcher_mapping(platform: &str) -> Result<(&'static str, &'static str), String> {
+    match platform {
+        "linux" => Ok(("linux/vapor-launch.sh", "vapor-launch.sh")),
+        "windows" => Ok(("windows/vapor-launch.cmd", "vapor-launch.cmd")),
+        other => Err(format!("no launcher mapping exists for platform '{other}'")),
+    }
+}
+
+fn make_launcher_executable(path: &Path) -> Result<(), String> {
+    let _ = path;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)
+            .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?
+            .permissions();
+        permissions.set_mode(permissions.mode() | 0o755);
+        fs::set_permissions(path, permissions)
+            .map_err(|error| format!("failed to make '{}' executable: {error}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn target_platforms(targets: &[String]) -> BTreeSet<String> {
@@ -2193,8 +1905,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
                 &ValidationPlan::new("build content")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -2221,8 +1932,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
                 &ValidationPlan::new("locally deploy content")
-                    .registered_location()
-                    .setup_self(&[SetupSelfRequirement::Rust, SetupSelfRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -2458,12 +2168,40 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             yes,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
-            let targets = resolve_runtime_targets(
+            if !dry_run {
+                metadata.validate(
+                    &ValidationPlan::new("create Workshop item")
+                        .app_local_tools(&[
+                            AppToolRequirement::Rust,
+                            AppToolRequirement::Git,
+                            AppToolRequirement::CrossToolchains,
+                            AppToolRequirement::SteamCmd,
+                        ])
+                        .workspace(),
+                )?;
+            }
+            let targets = resolve_publish_runtime_targets(
                 metadata.workspace_manifest()?,
                 &target,
                 release_targets,
                 host_only,
+                dry_run,
+                "Workshop item creation",
             )?;
+            if !dry_run {
+                run_workflow_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    CargoWorkflow::Validate,
+                    &targets,
+                )?;
+                run_workflow_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    CargoWorkflow::Build,
+                    &targets,
+                )?;
+            }
             let report = content::create_workshop_item_for_targets(
                 state.active_paths()?,
                 &artifact,
@@ -2488,7 +2226,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
                 );
             } else if report.uploaded() {
                 println!(
-                    "hint: PublishedFileId was recorded in the source Vapor.toml; verify the Workshop item in Steam"
+                    "hint: PublishedFileId was recorded in the source content manifest; verify the Workshop item in Steam"
                 );
             }
         }
@@ -2503,12 +2241,40 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             yes,
         } => {
             let metadata = ResolvedMetadata::resolve(state);
-            let targets = resolve_runtime_targets(
+            if !dry_run {
+                metadata.validate(
+                    &ValidationPlan::new("publish Workshop items")
+                        .app_local_tools(&[
+                            AppToolRequirement::Rust,
+                            AppToolRequirement::Git,
+                            AppToolRequirement::CrossToolchains,
+                            AppToolRequirement::SteamCmd,
+                        ])
+                        .workspace(),
+                )?;
+            }
+            let targets = resolve_publish_runtime_targets(
                 metadata.workspace_manifest()?,
                 &target,
                 release_targets,
                 host_only,
+                dry_run,
+                "Workshop publication",
             )?;
+            if !dry_run {
+                run_workflow_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    CargoWorkflow::Validate,
+                    &targets,
+                )?;
+                run_workflow_targets(
+                    state.active_paths()?,
+                    metadata.workspace_manifest()?,
+                    CargoWorkflow::Build,
+                    &targets,
+                )?;
+            }
             let reports = content::publish_workshop_items_for_targets(
                 state.active_paths()?,
                 &artifacts,
@@ -2636,54 +2402,120 @@ fn print_fingerprint(fingerprint: &content::Fingerprint) {
     );
 }
 
-fn execute_setup_self_package(
-    repair: bool,
-    dry_run: bool,
-    state: &ShellState,
-) -> Result<(), String> {
-    let action = if repair {
-        "repair self-setup payloads"
-    } else {
-        "install self-setup payloads"
-    };
-    let location = setup_self::location_status(state.installation())?;
-    setup_self::require_registered_status(&location, action)?;
-    let setup_status = setup_self::inspect(state.installation());
-    setup_self_packages::validate_active_setup_for_packaging(state.installation().root())?;
-    if dry_run {
-        println!(
-            "dry-run: would {} distributable self-setup payloads",
-            if repair { "repair" } else { "install" }
-        );
-        print_package_status(&setup_status);
-        println!(
-            "would copy active tools into {}",
-            setup_status.package_root().display()
-        );
-        println!("dry-run: no package files were changed");
-    } else {
-        let report =
-            setup_self_packages::install_setup_self_package(state.installation().root(), repair)?;
-        if report.changed() {
-            println!(
-                "{} self-setup payload at {}",
-                if repair { "repaired" } else { "installed" },
-                report.status().root().display()
-            );
-        } else {
-            println!(
-                "self-setup payload is already installed at {}",
-                report.status().root().display()
-            );
-        }
-        println!("hint: enter the shell and run `root package`");
-    }
-    Ok(())
-}
-
 fn execute_script_command(command: ScriptCommand, state: &mut ShellState) -> Result<(), String> {
     let ScriptCommand::Run { name, dry_run } = command;
     run_script(&name, dry_run, state)
+}
+
+fn execute_diagnostics(command: DiagnosticsCommand, state: &ShellState) -> Result<(), String> {
+    match command {
+        DiagnosticsCommand::Status => {
+            println!("Diagnostics");
+            println!();
+            println!("Status");
+            println!(
+                "  Local logs: {}",
+                diagnostics::local_directory(state.installation()).display()
+            );
+            match diagnostics::current_run_path()
+                .or_else(|| diagnostics::latest_run_path(state.installation()))
+            {
+                Some(path) => println!("  Latest run: {}", path.display()),
+                None => println!("  Latest run: none"),
+            }
+            println!(
+                "  Automatic capture: {}",
+                if diagnostics::auto_capture_enabled() {
+                    "active"
+                } else {
+                    "off for this process"
+                }
+            );
+            match diagnostics::auto_submit_setting() {
+                Some(mode) => println!("  Automatic submit: {mode}"),
+                None => println!("  Automatic submit: off"),
+            }
+            let app_local_registry = state.installation().root().join(".vapor/registry");
+            match diagnostics::registry_setting() {
+                Some(path) => println!("  Registry target: {}", path.display()),
+                None if app_local_registry.join(".git").is_dir() => {
+                    println!(
+                        "  Registry target: {} (app-local default)",
+                        app_local_registry.display()
+                    );
+                }
+                None => println!("  Registry target: not set"),
+            }
+            println!();
+            println!("Next");
+            if app_local_registry.join(".git").is_dir() {
+                println!("  diagnostics submit");
+                println!("  diagnostics submit --push");
+            } else {
+                println!("  diagnostics submit --registry /path/to/Vapor-Registry");
+                println!("  diagnostics submit --registry /path/to/Vapor-Registry --push");
+            }
+        }
+        DiagnosticsCommand::Submit {
+            registry,
+            all,
+            push,
+            dry_run,
+        } => {
+            let report = diagnostics::submit(
+                state.installation(),
+                &SubmitOptions {
+                    registry,
+                    push,
+                    all,
+                    dry_run,
+                },
+            )?;
+            println!("Diagnostics Submit");
+            println!();
+            println!("Status");
+            println!("  Registry: {}", report.registry().display());
+            println!("  Target: {}", report.target_dir().display());
+            println!(
+                "  Logs: {}{}",
+                report.logs().len(),
+                if report.dry_run() { " (dry-run)" } else { "" }
+            );
+            for log in report.logs() {
+                println!("    - {}", log.display());
+            }
+            if push {
+                println!(
+                    "  Commit: {}",
+                    if report.committed() {
+                        "created"
+                    } else {
+                        "not needed"
+                    }
+                );
+                println!(
+                    "  Push: {}",
+                    if report.pushed() {
+                        "complete"
+                    } else {
+                        "skipped"
+                    }
+                );
+            } else {
+                println!("  Push: skipped");
+            }
+            if report.dry_run() {
+                println!();
+                println!("Next");
+                println!(
+                    "  diagnostics submit --registry {}{}",
+                    report.registry().display(),
+                    if push { " --push" } else { "" }
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn run_script(name: &str, dry_run: bool, state: &mut ShellState) -> Result<(), String> {
@@ -2699,6 +2531,7 @@ pub(crate) fn run_script(name: &str, dry_run: bool, state: &mut ShellState) -> R
             continue;
         }
         println!("{}:{}: {line}", path.display(), index + 1);
+        diagnostics::event(format!("script {name}:{}: {line}", index + 1));
         if dry_run {
             continue;
         }
@@ -2715,6 +2548,7 @@ pub(crate) fn run_script(name: &str, dry_run: bool, state: &mut ShellState) -> R
             );
         }
         execute(parsed, state)?;
+        diagnostics::event(format!("script {name}:{} complete", index + 1));
     }
     Ok(())
 }
@@ -2723,13 +2557,19 @@ fn find_script(state: &ShellState, name: &str) -> Result<PathBuf, String> {
     let filename = format!("{name}.vapor");
     let mut candidates = Vec::new();
     if let Ok(paths) = state.active_paths() {
-        candidates.push(paths.source().root().join(".vapor/scripts").join(&filename));
+        candidates.push(
+            paths
+                .source()
+                .root()
+                .join("resources/vapor/vapor-scripts")
+                .join(&filename),
+        );
     }
     candidates.push(
         state
             .installation()
             .root()
-            .join(".vapor/scripts")
+            .join("resources/vapor/vapor-scripts")
             .join(filename),
     );
 
@@ -2766,6 +2606,13 @@ fn script_command_allowed(command: &ShellCommand) -> bool {
             }
             | ShellCommand::Ide {
                 command: IdeCommand::Repair { dry_run: false },
+            }
+            | ShellCommand::Diagnostics {
+                command: DiagnosticsCommand::Submit {
+                    push: true,
+                    dry_run: false,
+                    ..
+                },
             }
     )
 }

@@ -5,7 +5,7 @@
 Vapor canonicalizes `current_exe()`, requires the executable to be laid out as
 `<app-root>/bin/vapor[.exe]` for bootstrap compatibility or
 `<app-root>/bin/<target>/vapor[.exe]` for release-mode launch wrappers, and
-then validates exactly `<app-root>/Vapor.toml`. That manifest must declare
+then validates exactly `<app-root>/App.vapor.toml`. That manifest must declare
 `[root]`.
 
 ```text
@@ -18,8 +18,10 @@ The app root may contain app-owned resources including:
 
 ```text
 <app-root>/
-├── Vapor.toml
+├── App.vapor.toml
 ├── bin/
+│   ├── vapor-launch.sh
+│   ├── vapor-launch.cmd
 │   ├── vapor[.exe]                         bootstrap compatibility
 │   ├── x86_64-unknown-linux-gnu/vapor
 │   └── x86_64-pc-windows-gnullvm/vapor.exe
@@ -33,7 +35,7 @@ The app root may contain app-owned resources including:
 └── output/
 ```
 
-Only the `[root]` manifest and running executable are required for installation
+Only `App.vapor.toml` and the running executable are required for installation
 discovery. The installed app is not a Cargo workspace.
 
 ## Source root selection
@@ -47,8 +49,9 @@ active source or in a closed, app-only shell state. Source selection is explicit
 3. no source, leaving the shell closed until `source open SOURCE` succeeds.
 
 `source open PATH` and `source add PATH` canonicalize the selected directory
-independently. Vapor walks its ancestors, chooses the highest `Vapor.toml`, and
-accepts `[root]` or `[workspace]`.
+independently. Vapor walks its ancestors, chooses the highest source marker, and
+accepts `[root]` or `[workspace]`. Vapor-Root uses
+`App-Source.vapor.toml`; ordinary workspaces use `Workspace.vapor.toml`.
 
 - `[root]` is the Vapor application source/depot root. It may contain direct
   Vapor workspace submodules such as Vapor-Shell.
@@ -57,7 +60,7 @@ accepts `[root]` or `[workspace]`.
 
 Starting inside a nested game, engine, mod, pack, or the Vapor-Shell checkout
 and then opening that path still selects the highest containing source root. A
-standalone `[project]` or content manifest is rejected as a source root.
+standalone content manifest is rejected as a source root.
 
 Invoking the app-owned `vapor` command from any terminal directory is valid as
 long as the executable itself is still under the app root's `bin/` layout. The

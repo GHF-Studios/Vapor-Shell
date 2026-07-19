@@ -1,21 +1,19 @@
+#![cfg(unix)]
+
 mod common;
 
 use common::TestTree;
 use std::fs;
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use vapor_shell::{
     command::{self, IdeCommand, ShellCommand},
     discovery::EnvironmentPaths,
-    path_setup::PathSetup,
-    setup_self,
     state::ShellState,
 };
 
-#[cfg(unix)]
 #[test]
 fn ide_repair_dry_run_does_not_write_project_settings() {
-    let (_installation, source, mut state) = fixture();
+    let (_installation, source, mut state) = sample_ide_state();
 
     command::execute(
         ShellCommand::Ide {
@@ -30,10 +28,9 @@ fn ide_repair_dry_run_does_not_write_project_settings() {
     assert!(!source.root().join(".idea/vapor.xml").exists());
 }
 
-#[cfg(unix)]
 #[test]
 fn ide_repair_writes_project_local_rustrover_settings() {
-    let (installation, source, mut state) = fixture();
+    let (installation, source, mut state) = sample_ide_state();
 
     command::execute(
         ShellCommand::Ide {
@@ -81,11 +78,13 @@ fn ide_repair_writes_project_local_rustrover_settings() {
     assert!(vapor.contains("rustupHome"), "{vapor}");
 }
 
-#[cfg(unix)]
 #[test]
 fn scripts_cannot_apply_ide_repair() {
-    let (_installation, source, mut state) = fixture();
-    source.write(".vapor/scripts/ide-repair.vapor", "ide repair\n");
+    let (_installation, source, mut state) = sample_ide_state();
+    source.write(
+        "resources/vapor/vapor-scripts/ide-repair.vapor",
+        "ide repair\n",
+    );
 
     let error = command::execute(
         ShellCommand::Script {
@@ -102,11 +101,10 @@ fn scripts_cannot_apply_ide_repair() {
     assert!(!source.root().join(".idea/vapor.xml").exists());
 }
 
-#[cfg(unix)]
-fn fixture() -> (TestTree, TestTree, ShellState) {
+fn sample_ide_state() -> (TestTree, TestTree, ShellState) {
     let installation = TestTree::new("ide-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let vapor_executable = write_executable(&installation, "bin/vapor");
@@ -128,24 +126,16 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
 
     let source = TestTree::new("ide-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     let paths = EnvironmentPaths::from_paths(&vapor_executable, source.root()).unwrap();
-    let home = TestTree::new("ide-home");
-    let setup = PathSetup::new(
-        home.root().to_path_buf(),
-        installation.root().join("bin"),
-        Some("/bin/bash".to_owned()),
-    );
-    setup_self::register_location_with_setup(paths.installation(), &setup).unwrap();
 
     let state = ShellState::new(paths).unwrap();
     (installation, source, state)
 }
 
-#[cfg(unix)]
 fn write_executable(tree: &TestTree, relative: &str) -> std::path::PathBuf {
     let path = tree.write(relative, "#!/bin/sh\nexit 0\n");
     let mut permissions = fs::metadata(&path).unwrap().permissions();

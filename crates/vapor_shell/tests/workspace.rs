@@ -1,23 +1,20 @@
 mod common;
 
 use common::TestTree;
-use vapor_shell::{
-    discovery::EnvironmentPaths,
-    workspace::{WorkspaceManifest, WorkspaceProjectKind},
-};
+use vapor_shell::{discovery::EnvironmentPaths, workspace::WorkspaceManifest};
 
 #[test]
 fn loads_normal_source_workspace_from_root_cargo_manifest() {
     let installation = TestTree::new("workspace-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("workspace-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -44,14 +41,14 @@ fn loads_normal_source_workspace_from_root_cargo_manifest() {
 fn loads_workspace_runtime_targets_from_manifest() {
     let installation = TestTree::new("workspace-runtime-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("workspace-runtime-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         r#"
 [workspace]
 name = "source"
@@ -79,24 +76,27 @@ targets = [
 fn loads_registered_workspace_projects_from_workspace_manifest() {
     let installation = TestTree::new("workspace-projects-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("workspace-projects-source");
     source.write(
-        "Vapor.toml",
-        "[workspace]\nname = \"source\"\norganization = \"example\"\n\n[[workspace.projects]]\npath = \"engine\"\n\n[[workspace.projects]]\npath = \"tools\"\n",
+        "Workspace.vapor.toml",
+        "[workspace]\nname = \"source\"\norganization = \"example\"\n\n[[workspace.projects]]\npath = \"engine\"\n\n[[workspace.projects]]\npath = \"game\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "engine/Vapor.toml",
+        "engine/Engine.vapor.toml",
         "[engine]\nname = \"engine\"\nversion = \"1.0.0\"\n",
     );
     source.write("engine/src/lib.rs", "");
-    source.write("tools/Vapor.toml", "[project]\nname = \"tools\"\n");
-    source.write("tools/src/lib.rs", "");
+    source.write(
+        "game/Game.vapor.toml",
+        "[game]\nname = \"game\"\nversion = \"1.0.0\"\n",
+    );
+    source.write("game/src/lib.rs", "");
 
     let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
     let manifest = WorkspaceManifest::load(&paths).unwrap();
@@ -105,29 +105,25 @@ fn loads_registered_workspace_projects_from_workspace_manifest() {
     assert_eq!(manifest.projects()[0].id(), "example/source/engine");
     assert_eq!(manifest.projects()[0].kind().to_string(), "engine");
     assert_eq!(
-        manifest.projects()[0]
-            .kind()
-            .content_kind()
-            .unwrap()
-            .to_string(),
+        manifest.projects()[0].kind().content_kind().to_string(),
         "engine"
     );
-    assert_eq!(manifest.projects()[1].id(), "example/source/tools");
-    assert_eq!(manifest.projects()[1].kind(), WorkspaceProjectKind::Project);
+    assert_eq!(manifest.projects()[1].id(), "example/source/game");
+    assert_eq!(manifest.projects()[1].kind().to_string(), "game");
 }
 
 #[test]
 fn missing_registered_workspace_project_is_invalid() {
     let installation = TestTree::new("workspace-missing-project-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("workspace-missing-project-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"source\"\norganization = \"example\"\n\n[[workspace.projects]]\npath = \"missing\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -145,14 +141,14 @@ fn missing_registered_workspace_project_is_invalid() {
 fn loads_root_source_cargo_workspaces_from_direct_submodules() {
     let installation = TestTree::new("root-workspace-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("root-workspace-source");
     source.write(
-        "Vapor.toml",
+        "App-Source.vapor.toml",
         "[root]\nname = \"vapor-root\"\norganization = \"example\"\n",
     );
     source.write(
@@ -160,7 +156,7 @@ fn loads_root_source_cargo_workspaces_from_direct_submodules() {
         "[submodule \"Vapor-Shell\"]\n\tpath = Vapor-Shell\n\turl = https://example.invalid/Vapor-Shell\n",
     );
     source.write(
-        "Vapor-Shell/Vapor.toml",
+        "Vapor-Shell/Workspace.vapor.toml",
         "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\nbinaries = [\"vapor\"]\n",
     );
     source.write("Vapor-Shell/Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -180,17 +176,62 @@ fn loads_root_source_cargo_workspaces_from_direct_submodules() {
 }
 
 #[test]
+fn loads_root_local_vapor_projects_with_cargo_manifests() {
+    let installation = TestTree::new("root-local-project-installation");
+    installation.write(
+        "App.vapor.toml",
+        "[root]\nname = \"installation\"\norganization = \"example\"\n",
+    );
+    let executable = installation.write("bin/vapor", "binary");
+
+    let source = TestTree::new("root-local-project-source");
+    source.write(
+        "App-Source.vapor.toml",
+        "[root]\nname = \"vapor-root\"\norganization = \"example\"\n",
+    );
+    source.write(
+        ".gitmodules",
+        "[submodule \"Vapor-Shell\"]\n\tpath = Vapor-Shell\n\turl = https://example.invalid/Vapor-Shell\n",
+    );
+    source.write(
+        "Vapor-Shell/Workspace.vapor.toml",
+        "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\nbinaries = [\"vapor\"]\n",
+    );
+    source.write("Vapor-Shell/Cargo.toml", "[workspace]\nresolver = \"3\"\n");
+    source.write(
+        "Vapor-Installer/Workspace.vapor.toml",
+        "[workspace]\nname = \"vapor-installer\"\norganization = \"example\"\nbinaries = [\"vapor-installer\"]\n",
+    );
+    source.write(
+        "Vapor-Installer/Cargo.toml",
+        "[workspace]\nresolver = \"3\"\n",
+    );
+
+    let paths = EnvironmentPaths::from_paths(&executable, source.root()).unwrap();
+    let manifest = WorkspaceManifest::load(&paths).unwrap();
+
+    assert_eq!(manifest.cargo_projects().len(), 2);
+    assert_eq!(manifest.cargo_projects()[0].name(), "vapor-shell");
+    assert_eq!(manifest.cargo_projects()[1].name(), "vapor-installer");
+    assert_eq!(
+        manifest.cargo_projects()[1].manifest(),
+        std::path::Path::new("Vapor-Installer/Cargo.toml")
+    );
+    assert_eq!(manifest.cargo_projects()[1].binaries(), ["vapor-installer"]);
+}
+
+#[test]
 fn loads_root_runtime_targets_from_manifest() {
     let installation = TestTree::new("root-runtime-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("root-runtime-source");
     source.write(
-        "Vapor.toml",
+        "App-Source.vapor.toml",
         r#"
 [root]
 name = "vapor-root"
@@ -205,7 +246,7 @@ targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-gnullvm"]
         "[submodule \"Vapor-Shell\"]\n\tpath = Vapor-Shell\n\turl = https://example.invalid/Vapor-Shell\n",
     );
     source.write(
-        "Vapor-Shell/Vapor.toml",
+        "Vapor-Shell/Workspace.vapor.toml",
         "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\nbinaries = [\"vapor\"]\n",
     );
     source.write("Vapor-Shell/Cargo.toml", "[workspace]\nresolver = \"3\"\n");

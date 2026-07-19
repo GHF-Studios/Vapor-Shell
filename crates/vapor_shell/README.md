@@ -7,12 +7,12 @@ At runtime, the shell works with two active filesystem roots:
 
 ```text
 Steam installation / app root         Active source root (critical)
-├── bin/<target>/vapor[.exe]          ├── Vapor.toml
-├── .vapor/launch/                    ├── Cargo.toml      (workspace roots)
-├── .vapor/state/                     ├── project/content directories
-├── rustup-home / cargo-home
+├── App.vapor.toml                    ├── Workspace.vapor.toml or App-Source.vapor.toml
+├── bin/vapor-launch.*                ├── Cargo.toml      (workspace roots)
+├── bin/<target>/vapor[.exe]          ├── content directories with role manifests
+├── resources/vapor/vapor-scripts/    └── authored source
+├── .vapor/logs, state, cache, ...
 ├── tools/git / tools/steamcmd
-├── lib / state / output
 └── content / installed Workshop artifacts
 ```
 
@@ -40,9 +40,9 @@ not the installed Steam directory itself.
 - [Cargo integration](docs/cargo-metadata.md): required Rust workspaces,
   authority boundaries, nested-workspace consequences, and derived metadata.
 - [Setup](docs/setup.md): explicit app-local installation of Rust, Git,
-  and SteamCMD with prerequisite diagnostics.
+  Git, SteamCMD, and developer-mode tooling through Vapor Installer.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
-  self-setup payloads, and smoke validation.
+  launch wrappers, SteamPipe templates, and smoke validation.
 - [Steam development](docs/steam-development.md): root publish previews, manual
   upload confirmation, beta publishing, and persistent cache state.
 - [Command scripts](docs/scripts.md): reusable REPL command sequences exposed
@@ -73,8 +73,9 @@ not the installed Steam directory itself.
 
 ## Bootstrap and validate
 
-The only host-built artifact allowed in the initial local bootstrap is the
-Vapor shell executable. Deploy it into the Steam app directory first:
+The local bootstrap bridge expects a Vapor shell executable that was built with
+the app-local Rust/Cargo toolchain. Deploy it into the Steam app directory
+first:
 
 ```text
 crates/vapor_shell/scripts/bootstrap-local-app-deploy.sh \
@@ -87,8 +88,7 @@ Then run the installed app-local command:
 
 ```text
 /home/.../steamapps/common/Loo Cast/bin/vapor source open /path/to/source
-/home/.../steamapps/common/Loo Cast/bin/vapor setup self status
-/home/.../steamapps/common/Loo Cast/bin/vapor setup self install
+/home/.../steamapps/common/Loo Cast/bin/vapor-installer install
 fmt
 test
 validate
@@ -99,7 +99,5 @@ content verify
 
 After that shell is installed, all normal builds and checks are routed through
 the Steam app's own Vapor shell. The bootstrap path may use `bin/vapor`; release
-launches use `.vapor/launch/...` wrappers and `bin/<target>/vapor[.exe]`.
-`setup self install` explicitly installs active tools into the app root. Final
-app packaging stages `packages/setup`; there is no second source tree for
-self-setup payloads.
+launches use `bin/vapor-launch.*` wrappers and `bin/<target>/vapor[.exe]`.
+Vapor Installer owns app-local player and developer tooling installation.

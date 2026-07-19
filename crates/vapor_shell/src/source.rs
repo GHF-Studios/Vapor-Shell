@@ -3,7 +3,7 @@
 use crate::{
     content::{self, ContentReference},
     discovery::{EnvironmentPaths, InstallationPaths},
-    manifest::ContentKind,
+    manifest::{self, ContentKind},
 };
 use serde::Deserialize;
 use std::{
@@ -84,9 +84,9 @@ impl SourceRepairReport {
 
 /// Read the current app's Steam AppID for content templates.
 pub(crate) fn installation_app_id(installation: &InstallationPaths) -> Result<u32, String> {
-    let manifest = installation.root().join("Vapor.toml");
-    let source = fs::read_to_string(&manifest)
-        .map_err(|error| format!("failed to read '{}': {error}", manifest.display()))?;
+    let marker = installation.root().join(manifest::APP_FILE_NAME);
+    let source = fs::read_to_string(&marker)
+        .map_err(|error| format!("failed to read '{}': {error}", marker.display()))?;
     #[derive(Deserialize)]
     struct RootManifest {
         root: Option<RootSection>,
@@ -101,7 +101,7 @@ pub(crate) fn installation_app_id(installation: &InstallationPaths) -> Result<u3
         app_id: u32,
     }
     let parsed: RootManifest = toml::from_str(&source)
-        .map_err(|error| format!("failed to parse '{}': {error}", manifest.display()))?;
+        .map_err(|error| format!("failed to parse '{}': {error}", marker.display()))?;
     parsed
         .root
         .and_then(|root| root.steam)
@@ -109,7 +109,7 @@ pub(crate) fn installation_app_id(installation: &InstallationPaths) -> Result<u3
         .ok_or_else(|| {
             format!(
                 "installation manifest has no [root.steam].app-id: {}",
-                manifest.display()
+                marker.display()
             )
         })
 }
@@ -147,7 +147,7 @@ pub(crate) fn init_basic_content(options: BasicContentInit) -> Result<InitReport
     let game_crate = crate_name(&game);
 
     write(
-        &options.path.join("Vapor.toml"),
+        &options.path.join(manifest::WORKSPACE_FILE_NAME),
         &format!(
             r#"schema = 1
 
@@ -248,7 +248,7 @@ vapor content publish {engine_id} {game_id} {packagepack_id} --account ACCOUNT -
 
     let engine_root = options.path.join("crates").join(&engine);
     write(
-        &engine_root.join("Vapor.toml"),
+        &engine_root.join(manifest::ENGINE_FILE_NAME),
         &format!(
             r#"schema = 1
 
@@ -291,7 +291,7 @@ pub const CONTENT_ID: &str = "{engine_id}";
 
     let game_root = options.path.join("crates").join(&game);
     write(
-        &game_root.join("Vapor.toml"),
+        &game_root.join(manifest::GAME_FILE_NAME),
         &format!(
             r#"schema = 1
 
@@ -337,7 +337,7 @@ pub fn engine_content_id() -> &'static str {{
 
     let packagepack_root = options.path.join("crates").join(&packagepack);
     write(
-        &packagepack_root.join("Vapor.toml"),
+        &packagepack_root.join(manifest::PACKAGEPACK_FILE_NAME),
         &format!(
             r#"schema = 1
 

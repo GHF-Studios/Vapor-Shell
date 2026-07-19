@@ -29,8 +29,9 @@ The model must support:
 
 Use these terms consistently:
 
-- **App root**: the root identity of a complete Vapor application. It uses
-  `[root]` in `Vapor.toml`.
+- **App root**: the root identity of a complete Vapor application. The
+  application source stage uses `[root]` in `App-Source.vapor.toml`; the
+  installed runtime stage uses `[root]` in `App.vapor.toml`.
 - **Steam installation**: the installed-stage materialization of the app root,
   managed by Steam and discovered from the running Vapor executable.
 - **Application source root**: the source-stage materialization of the same app
@@ -47,7 +48,8 @@ Use these terms consistently:
 
 Avoid unqualified “root” and “manifest” where they could mean several things.
 Use “app root,” “Steam installation,” “application source root,” “workspace,”
-`Vapor.toml`, and `Cargo.toml` explicitly.
+`App-Source.vapor.toml`, `App.vapor.toml`, `Workspace.vapor.toml`,
+role-specific content manifests, and `Cargo.toml` explicitly.
 
 ## The three roots that must not be confused
 
@@ -164,7 +166,7 @@ paths or names.
 ## Workspace
 
 A Vapor workspace is one source checkout, one Git repository, and one Cargo
-workspace. Its root contains both `Vapor.toml` with `[workspace]` and
+workspace. Its root contains both `Workspace.vapor.toml` with `[workspace]` and
 `Cargo.toml` with Cargo workspace metadata.
 
 A workspace:
@@ -214,8 +216,8 @@ Some Vapor projects are content artifacts. The canonical content roles are:
 - packagepack.
 
 Content artifacts are machine-governed entities, not documentation sections.
-Their `Vapor.toml` files should contain technical metadata: identity, content
-role, ownership, composition, dependencies, conflicts, compatibility,
+Their role-specific manifests should contain technical metadata: identity,
+content role, ownership, composition, dependencies, conflicts, compatibility,
 publication policy, and capability metadata. Explanations and design rationale
 belong in docs.
 
@@ -259,7 +261,7 @@ For example, Loo-Cast as a first-party Workshop/content workspace may contain:
 
 ```text
 Loo-Cast/
-├── Vapor.toml                 [workspace]
+├── Workspace.vapor.toml       [workspace]
 ├── Cargo.toml                 Cargo workspace
 ├── spacetime-engine/          [engine]
 ├── loo-cast-game/             [game]
@@ -333,7 +335,7 @@ artifacts share source.
 
 A workspace may produce multiple publishable Vapor artifacts. In the bootstrap
 model, publishable artifacts are content projects backed by Cargo packages.
-Generic `[project]` packages are not independently publishable content merely
+Ordinary Cargo packages are not independently publishable Vapor content merely
 because they are Cargo packages.
 
 Normal workspace publishing:
@@ -352,14 +354,14 @@ downloaded, installed, and selected by default for the shipped application.
 Application publishing is separate: the application source root assembles and
 publishes the Steam app depot rather than pretending to be one Workshop item.
 The implemented first pass exposes this as `root build`, `root package`, and
-`root publish [--dry-run]`. Default staging is runtime-only; the large
-self-setup/toolchain payload is explicit. Dry-run publication validates, builds,
-stages, smoke-checks, and writes a preview VDF without requiring active
-SteamCMD. When `[root.runtime].targets` is declared, target-aware root commands
-use that matrix by default and stage only the matching `bin/<target>/` app
-binaries and launch wrappers. Host-only local staging is an explicit
-`--host-only` opt-out. Real publication is manual and requires an account plus
-explicit confirmation.
+`root publish [--dry-run]`. Staging is runtime-only. Dry-run publication
+validates, builds, stages, smoke-checks, and writes a preview VDF without
+requiring active SteamCMD. When `[root.runtime].targets` is declared,
+target-aware root commands use that matrix by default and stage only the
+matching `bin/<target>/` app binaries and launch wrappers. Host-only local
+staging is an explicit `--host-only` opt-out for package/dry-run work. Real
+publication is manual, requires an account plus explicit confirmation, and
+always stages the complete declared Linux+Windows runtime matrix.
 
 ## First-party authority
 
@@ -392,43 +394,27 @@ The exact trust proof may evolve without changing these semantics.
 
 ## Setup experience
 
-Setup is explicit only when the user intentionally manages the installed Vapor
-environment. It is not a persona switch and does not ask the user to choose a
-player, developer, or publisher mode. Its active lifecycle is:
+Installation is owned by `Vapor-Installer`, not by Vapor Shell commands. Normal
+closed-alpha testers launch the Steam app; the platform launch wrapper invokes
+`vapor-installer install` before opening Vapor Shell or Play.
 
-- status;
-- install;
-- uninstall;
-- repair.
+Player-mode install prepares only basic runtime capability: app-local Git,
+SteamCMD, the public Vapor-Registry checkout, and generated disposable app-root
+directories. Development tooling is explicit and separate:
 
-Setup operations are consequential because they can change app-local
-Rust/Cargo, Git, SteamCMD, PATH registration, and accepted
-installation-location state. They therefore follow Vapor's status, preview, and
-explicit repair model:
+```text
+vapor-installer dev-env install --app-root /path/to/steam/app
+vapor-installer dev-env uninstall --app-root /path/to/steam/app
+```
 
-- `setup self status` explains current state and next actions;
-- mutating commands support `--dry-run` preview before changing files;
-- normal workflows never silently install or repair prerequisites;
-- scripts may call setup operations and bubble flags upward, but the
-  consequential action remains explicit and visible.
+The Steam app root is disposable by design. Authoritative user progress, account
+state, and authored source work must live in OS-appropriate user data or source
+directories outside the app root. If the app-root tooling is badly damaged, the
+preferred recovery is reinstalling the app or rerunning the installer-owned
+bootstrap/dev-env command, not maintaining a growing set of Shell repair shims.
 
-Git setup has two sources. A complete `packages/setup/git` payload is copied as
-the app-owned source of truth when present. On Windows, missing active Git is
-repaired by downloading and extracting the portable MinGit archive under
-`tools/git`. On Linux, missing active Git can be repaired by importing a real
-host Git binary plus its exec-path support files into `tools/git`; scripts that
-merely delegate to system Git are rejected.
-
-Self-setup payloads are a separate explicit installed-app/depot staging concern:
-`setup self package status`, `setup self package install`, and
-`setup self package repair` populate `packages/setup` from already healthy
-active tools. They are not Workshop/content commands and are never run
-implicitly after bootstrap.
-
-Repair means reaccepting the app root and restoring active setup components to a
-known-good state while preserving only state that is explicitly supposed to
-survive. Package payload repair is separate so explicit stacked packaging can
-prove exactly what will be copied into a depot.
+Root depot staging is runtime-only. Installer-managed tools and generated
+app-local state stay outside SteamPipe staging.
 
 ## IDE integration
 
@@ -549,7 +535,7 @@ Schema design happens in passes.
 The implemented baseline defines only invariants required by the current
 product model:
 
-- application, workspace, project, registry, content, and fragment roles;
+- application, workspace, registry, content, and fragment roles;
 - Cargo and Git correspondence;
 - containment and nesting rules;
 - local names versus inferred IDs;

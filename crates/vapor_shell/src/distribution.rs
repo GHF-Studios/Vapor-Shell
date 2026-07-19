@@ -1,7 +1,6 @@
 //! Declarative assembly of the self-hosting Steam application payload.
 
 use crate::{
-    cross_toolchain,
     discovery::{EnvironmentPaths, ensure_contained},
     workflow,
 };
@@ -12,8 +11,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-/// Distribution manifest filename at the source root.
-pub const FILE_NAME: &str = "Vapor.toml";
+/// Distribution manifest filename at the app source root.
+pub const FILE_NAME: &str = crate::manifest::APP_SOURCE_FILE_NAME;
 
 /// Parsed application and payload policy.
 #[derive(Debug, Clone, Deserialize)]
@@ -21,8 +20,6 @@ pub struct DistributionManifest {
     #[serde(skip)]
     _private: (),
     application: Application,
-    #[serde(default = "default_payload")]
-    payload: Vec<Payload>,
 }
 
 /// Steam application identifiers and development branch.
@@ -30,16 +27,48 @@ pub struct DistributionManifest {
 #[serde(rename_all = "kebab-case")]
 pub struct Application {
     app_id: u32,
-    depot_id: u32,
     development_branch: String,
+    depots: Option<SteamDepots>,
 }
 
-/// One allowlisted staging input.
+/// Steam depot definitions for the platform-split app payload.
 #[derive(Debug, Clone, Deserialize)]
-pub struct Payload {
+#[serde(rename_all = "kebab-case")]
+pub struct SteamDepots {
+    common: SteamDepot,
+    linux: SteamDepot,
+    windows: SteamDepot,
+}
+
+/// One logical Steam depot and its explicit source include list.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct SteamDepot {
+    id: u32,
+    #[serde(default)]
+    include: Vec<DepotInclude>,
+}
+
+/// Logical Steam depot produced by Vapor root staging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SteamDepotKind {
+    /// OS-neutral shared files.
+    Common,
+    /// Linux runtime files and launcher.
+    Linux,
+    /// Windows runtime files and launcher.
+    Windows,
+}
+
+/// One manifest-declared allowlisted staging input.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct DepotInclude {
     root: PayloadRoot,
     from: PathBuf,
     to: PathBuf,
+    #[serde(default)]
+    target: Option<String>,
     #[serde(default)]
     required: bool,
     #[serde(default)]
@@ -57,13 +86,20 @@ enum PayloadRoot {
 #[derive(Debug, Clone)]
 pub struct StageReport {
     root: PathBuf,
+    depots: Vec<DepotStage>,
     files: usize,
+}
+
+/// One staged depot content root.
+#[derive(Debug, Clone)]
+pub struct DepotStage {
+    kind: SteamDepotKind,
+    root: PathBuf,
 }
 
 /// Options for assembling the app/depot staging tree.
 #[derive(Debug, Clone)]
 pub struct StageOptions {
-    include_setup_payload: bool,
     runtime_targets: Vec<String>,
 }
 
@@ -84,6 +120,9 @@ impl DistributionManifest {
     /// so absence is distinct from malformed distribution policy.
     pub fn load_optional(paths: &EnvironmentPaths) -> Result<Option<Self>, String> {
         let path = paths.source().root().join(FILE_NAME);
+        if !path.is_file() {
+            return Ok(None);
+        }
         let text = fs::read_to_string(&path)
             .map_err(|error| format!("failed to read '{}': {error}", path.display()))?;
         #[derive(Deserialize)]
@@ -105,23 +144,26 @@ impl DistributionManifest {
         let manifest = DistributionManifest {
             _private: (),
             application,
-            payload: default_payload(),
         };
-        if manifest.application.app_id == 0 || manifest.application.depot_id == 0 {
-            return Err("Steam AppID and DepotID must be non-zero".to_owned());
+        if manifest.application.app_id == 0 {
+            return Err("Steam AppID must be non-zero".to_owned());
+        }
+        let Some(depots) = manifest.application.depots.as_ref() else {
+            return Err(
+                "root.steam.depots is required; configure common, linux, and windows depot IDs"
+                    .to_owned(),
+            );
+        };
+        depots.validate()?;
+        if depots.ids().len() != 3 {
+            return Err("root.steam.depots IDs must be unique".to_owned());
         }
         if manifest.application.development_branch.trim().is_empty()
             || manifest.application.development_branch == "default"
         {
             return Err("development branch must be non-empty and non-default".to_owned());
         }
-        for item in &manifest.payload {
-            validate_relative(&item.from)?;
-            validate_relative(&item.to)?;
-            for exclusion in &item.exclude {
-                validate_relative(exclusion)?;
-            }
-        }
+        depots.validate_includes()?;
         Ok(Some(manifest))
     }
 
@@ -131,79 +173,180 @@ impl DistributionManifest {
     }
 }
 
-fn default_payload() -> Vec<Payload> {
-    vec![
-        Payload::required(PayloadRoot::Installation, "Vapor.toml", "Vapor.toml"),
-        Payload::required(PayloadRoot::Installation, "docs", "docs"),
-        Payload::optional(PayloadRoot::Source, ".vapor/scripts", ".vapor/scripts"),
-        Payload::optional_excluding(
-            PayloadRoot::Source,
-            "Vapor-Examples",
-            "examples/vapor-examples",
-            &[".git", "target"],
-        ),
-    ]
-}
-
-fn setup_payload() -> Payload {
-    Payload::required(
-        PayloadRoot::Installation,
-        "packages/setup",
-        "packages/setup",
-    )
-}
-
-impl Payload {
-    fn required(root: PayloadRoot, from: &str, to: &str) -> Self {
-        Self {
-            root,
-            from: PathBuf::from(from),
-            to: PathBuf::from(to),
-            required: true,
-            exclude: Vec::new(),
-        }
-    }
-
-    fn optional(root: PayloadRoot, from: &str, to: &str) -> Self {
-        Self {
-            root,
-            from: PathBuf::from(from),
-            to: PathBuf::from(to),
-            required: false,
-            exclude: Vec::new(),
-        }
-    }
-
-    fn optional_excluding(root: PayloadRoot, from: &str, to: &str, exclude: &[&str]) -> Self {
-        Self {
-            root,
-            from: PathBuf::from(from),
-            to: PathBuf::from(to),
-            required: false,
-            exclude: exclude.iter().map(PathBuf::from).collect(),
-        }
-    }
-}
-
 impl Application {
     /// Steam AppID.
     pub fn app_id(&self) -> u32 {
         self.app_id
     }
-    /// Steam DepotID.
-    pub fn depot_id(&self) -> u32 {
-        self.depot_id
-    }
     /// Automatically activated development beta branch.
     pub fn development_branch(&self) -> &str {
         &self.development_branch
     }
+    /// Platform-split Steam depots.
+    pub fn depots(&self) -> &SteamDepots {
+        self.depots
+            .as_ref()
+            .expect("distribution manifest validation requires Steam depots")
+    }
+    /// Steam DepotID for one logical depot kind.
+    pub fn depot_id(&self, kind: SteamDepotKind) -> u32 {
+        self.depots().id(kind)
+    }
+    /// Steam depot definition for one logical depot kind.
+    pub fn depot(&self, kind: SteamDepotKind) -> &SteamDepot {
+        self.depots().depot(kind)
+    }
+}
+
+impl SteamDepots {
+    /// Shared content depot ID.
+    pub fn common(&self) -> u32 {
+        self.common.id
+    }
+    /// Linux runtime depot ID.
+    pub fn linux(&self) -> u32 {
+        self.linux.id
+    }
+    /// Windows runtime depot ID.
+    pub fn windows(&self) -> u32 {
+        self.windows.id
+    }
+    /// Depot ID for one logical depot kind.
+    pub fn id(&self, kind: SteamDepotKind) -> u32 {
+        self.depot(kind).id
+    }
+
+    /// Depot definition for one logical depot kind.
+    pub fn depot(&self, kind: SteamDepotKind) -> &SteamDepot {
+        match kind {
+            SteamDepotKind::Common => &self.common,
+            SteamDepotKind::Linux => &self.linux,
+            SteamDepotKind::Windows => &self.windows,
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        for (name, id) in [
+            ("common", self.common.id),
+            ("linux", self.linux.id),
+            ("windows", self.windows.id),
+        ] {
+            if id == 0 {
+                return Err(format!("root.steam.depots.{name} must be non-zero"));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_includes(&self) -> Result<(), String> {
+        for kind in [
+            SteamDepotKind::Common,
+            SteamDepotKind::Linux,
+            SteamDepotKind::Windows,
+        ] {
+            let depot = self.depot(kind);
+            if depot.include.is_empty() {
+                return Err(format!(
+                    "root.steam.depots.{}.include must not be empty",
+                    kind.label()
+                ));
+            }
+            depot.validate_includes(kind)?;
+        }
+        Ok(())
+    }
+
+    fn ids(&self) -> BTreeSet<u32> {
+        [self.common.id, self.linux.id, self.windows.id]
+            .into_iter()
+            .collect()
+    }
+}
+
+impl SteamDepot {
+    /// Steam DepotID.
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    /// Manifest-declared include list for this depot.
+    pub fn include(&self) -> &[DepotInclude] {
+        &self.include
+    }
+
+    fn validate_includes(&self, kind: SteamDepotKind) -> Result<(), String> {
+        for item in &self.include {
+            validate_relative(&item.from)?;
+            validate_relative(&item.to)?;
+            for exclusion in &item.exclude {
+                validate_relative(exclusion)?;
+            }
+            if let Some(target) = &item.target {
+                validate_runtime_target(target)?;
+                let target_depot = SteamDepotKind::for_runtime_target(target)?;
+                if kind == SteamDepotKind::Common {
+                    return Err(format!(
+                        "root.steam.depots.common.include cannot be target-scoped: {target}"
+                    ));
+                }
+                if target_depot != kind {
+                    return Err(format!(
+                        "root.steam.depots.{}.include target {target} belongs to the {} depot",
+                        kind.label(),
+                        target_depot.label()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SteamDepotKind {
+    /// Stable depot label used in staged content paths.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Common => "common",
+            Self::Linux => "linux",
+            Self::Windows => "windows",
+        }
+    }
+
+    /// Steamworks OS rule that should be configured for this depot.
+    pub fn steam_os_rule(self) -> &'static str {
+        match self {
+            Self::Common => "All OS",
+            Self::Linux => "Linux",
+            Self::Windows => "Windows",
+        }
+    }
+
+    /// Depot kind for a supported Rust runtime target triple.
+    pub fn for_runtime_target(target: &str) -> Result<Self, String> {
+        if target.contains("linux") {
+            Ok(Self::Linux)
+        } else if target.contains("windows") {
+            Ok(Self::Windows)
+        } else {
+            Err(format!(
+                "runtime target has no configured Steam depot: {target}\nhelp: add a target-to-depot rule before staging this platform"
+            ))
+        }
+    }
 }
 
 impl StageReport {
-    /// Staged depot content root.
+    /// Staged app content root containing one directory per depot.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+    /// Staged depot content roots.
+    pub fn depots(&self) -> &[DepotStage] {
+        &self.depots
+    }
+    /// Find a staged depot by kind.
+    pub fn depot(&self, kind: SteamDepotKind) -> Option<&DepotStage> {
+        self.depots.iter().find(|depot| depot.kind == kind)
     }
     /// Number of copied files.
     pub fn files(&self) -> usize {
@@ -211,19 +354,21 @@ impl StageReport {
     }
 }
 
+impl DepotStage {
+    /// Logical depot kind.
+    pub fn kind(&self) -> SteamDepotKind {
+        self.kind
+    }
+    /// Staged content root for this depot.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+}
+
 impl StageOptions {
     /// Stage only the runtime application payload.
     pub fn runtime() -> Self {
         Self {
-            include_setup_payload: false,
-            runtime_targets: vec![workflow::host_runtime_target()],
-        }
-    }
-
-    /// Stage the runtime application plus the large distributable setup payload.
-    pub fn with_setup_payload() -> Self {
-        Self {
-            include_setup_payload: true,
             runtime_targets: vec![workflow::host_runtime_target()],
         }
     }
@@ -236,11 +381,6 @@ impl StageOptions {
             targets
         };
         self
-    }
-
-    /// Whether the staged depot should include `packages/setup`.
-    pub fn includes_setup_payload(&self) -> bool {
-        self.include_setup_payload
     }
 
     /// Runtime target triples represented by this staged payload.
@@ -270,89 +410,70 @@ pub fn stage_with_options(
     }
     fs::create_dir_all(&root).map_err(io("create staging", &root))?;
 
-    let mut payload = manifest.payload.clone();
-    if options.includes_setup_payload() {
-        payload.push(setup_payload());
+    let mut files = 0;
+    let mut depots = vec![DepotStage {
+        kind: SteamDepotKind::Common,
+        root: depot_root(&root, SteamDepotKind::Common),
+    }];
+    for kind in depot_kinds_for_targets(options.runtime_targets())? {
+        depots.push(DepotStage {
+            kind,
+            root: depot_root(&root, kind),
+        });
     }
 
-    let mut files = 0;
-    for item in &payload {
-        let base = match item.root {
-            PayloadRoot::Installation => paths.installation().root(),
-            PayloadRoot::Source => paths.source().root(),
-        };
-        let source = base.join(&item.from);
-        if !source.exists() {
-            if item.required {
-                return Err(format!("required payload is missing: {}", source.display()));
-            }
-            continue;
+    for depot in &depots {
+        for item in manifest.application().depot(depot.kind).include() {
+            files += copy_include(paths, depot.root(), item, options.runtime_targets())?;
         }
-        let canonical = fs::canonicalize(&source).map_err(io("resolve payload", &source))?;
-        ensure_contained(base, &canonical)?;
-        files += copy_tree(&canonical, &root.join(&item.to), &canonical, &item.exclude)?;
     }
-    files += copy_runtime_binaries(paths, &root, options.runtime_targets())?;
-    files += copy_launch_payload(paths, &root, options.runtime_targets())?;
-    Ok(StageReport { root, files })
+
+    Ok(StageReport {
+        root,
+        depots,
+        files,
+    })
 }
 
-fn copy_runtime_binaries(
+fn copy_include(
     paths: &EnvironmentPaths,
-    stage_root: &Path,
-    targets: &[String],
+    depot_root: &Path,
+    item: &DepotInclude,
+    selected_targets: &[String],
 ) -> Result<usize, String> {
-    let source_root = paths.installation().root().join("bin");
-    let target_root = stage_root.join("bin");
-    let mut files = 0;
-    for target in targets {
+    if let Some(target) = &item.target {
         validate_runtime_target(target)?;
-        let source = source_root.join(target);
-        if !source.exists() {
+        if !selected_targets.iter().any(|selected| selected == target) {
+            return Ok(0);
+        }
+    }
+
+    let base = match item.root {
+        PayloadRoot::Installation => paths.installation().root(),
+        PayloadRoot::Source => paths.source().root(),
+    };
+    let source = base.join(&item.from);
+    if !source.exists() {
+        if item.required {
             return Err(format!(
-                "runtime binary directory is missing for target {target}: {}",
+                "required depot include is missing: {}",
                 source.display()
             ));
         }
-        let canonical =
-            fs::canonicalize(&source).map_err(io("resolve runtime binaries", &source))?;
-        ensure_contained(paths.installation().root(), &canonical)?;
-        let target_directory = target_root.join(target);
-        files += copy_tree(&canonical, &target_directory, &canonical, &[])?;
-        files += cross_toolchain::copy_windows_runtime_dlls(
-            paths.installation().root(),
-            target,
-            &target_directory,
-        )?;
-    }
-    Ok(files)
-}
-
-fn copy_launch_payload(
-    paths: &EnvironmentPaths,
-    stage_root: &Path,
-    targets: &[String],
-) -> Result<usize, String> {
-    let source = paths.source().root().join(".vapor/launch");
-    if !source.exists() {
         return Ok(0);
     }
-    let canonical = fs::canonicalize(&source).map_err(io("resolve launch payload", &source))?;
-    ensure_contained(paths.source().root(), &canonical)?;
+    let canonical = fs::canonicalize(&source).map_err(io("resolve depot include", &source))?;
+    ensure_contained(base, &canonical)?;
+    copy_tree(
+        &canonical,
+        &depot_root.join(&item.to),
+        &canonical,
+        &item.exclude,
+    )
+}
 
-    let mut files = 0;
-    for platform in target_platforms(targets) {
-        let platform_source = canonical.join(&platform);
-        if platform_source.exists() {
-            files += copy_tree(
-                &platform_source,
-                &stage_root.join(".vapor/launch").join(platform),
-                &platform_source,
-                &[],
-            )?;
-        }
-    }
-    Ok(files)
+fn depot_root(stage_root: &Path, kind: SteamDepotKind) -> PathBuf {
+    stage_root.join(kind.label())
 }
 
 fn validate_runtime_target(target: &str) -> Result<(), String> {
@@ -369,16 +490,16 @@ fn validate_runtime_target(target: &str) -> Result<(), String> {
     }
 }
 
-fn target_platforms(targets: &[String]) -> BTreeSet<String> {
-    let mut platforms = BTreeSet::new();
+fn depot_kinds_for_targets(targets: &[String]) -> Result<BTreeSet<SteamDepotKind>, String> {
+    let mut depots = BTreeSet::new();
     for target in targets {
-        if target.contains("linux") {
-            platforms.insert("linux".to_owned());
-        } else if target.contains("windows") {
-            platforms.insert("windows".to_owned());
-        }
+        depots.insert(target_depot_kind(target)?);
     }
-    platforms
+    Ok(depots)
+}
+
+fn target_depot_kind(target: &str) -> Result<SteamDepotKind, String> {
+    SteamDepotKind::for_runtime_target(target)
 }
 
 fn copy_tree(

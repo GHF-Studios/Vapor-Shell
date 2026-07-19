@@ -1,6 +1,11 @@
 # Setup and backend superpass
 
-Status: **implementation checkpoint**
+Status: **superseded checkpoint**
+
+This checkpoint is historical. The current product direction moves
+installation, uninstallation, runtime bootstrap, and development-environment
+tooling into the `Vapor-Installer` project. Vapor Shell no longer exposes the
+`setup` command group or retired setup staging flags.
 
 This checkpoint records the owner decisions behind the setup/tooling rework. It
 extends `product-topology.md`; it does not replace the root/source/content
@@ -11,9 +16,9 @@ model defined there.
 This document is the durable handoff point for the current superpass. If an
 agent session fails, continue from this file before using older chat context.
 
-Current implementation intent:
+Original implementation intent, now superseded:
 
-1. keep installed-environment setup under `setup self`;
+1. keep installed-environment setup under a Shell-owned setup command group;
 2. keep backend tools hidden behind Vapor source, content, root, Steam, and setup
    goals;
 3. always attempt to provide Rust/Cargo, Git, and SteamCMD availability rather
@@ -25,10 +30,11 @@ Current implementation intent:
 
 Current implementation progress:
 
-- installed app setup lives under `setup self`;
-- distributable self-setup payloads live under `setup self package`;
-- Workshop/content commands no longer populate setup payloads;
-- implementation modules and metadata reports use `setup_self` naming.
+- installed app setup is owned by `Vapor-Installer`;
+- Vapor Shell no longer exposes retired setup staging commands;
+- Workshop/content commands do not prepare installer-managed tools;
+- Shell preflight still uses setup status terminology internally until that
+  reporting layer is renamed.
 
 ## Non-goals
 
@@ -43,17 +49,9 @@ Current implementation progress:
 
 ## Product shape
 
-Vapor should expose user goals and Vapor domains:
+The retired design wanted Shell to expose setup goals directly:
 
 ```text
-setup self
-  inspect, install, repair, extend, downgrade, and uninstall the app-local
-  command environment and backend availability
-
-setup package
-  initialize, adopt, and repair Vapor package/project/workspace metadata when
-  that package-onboarding workflow exists
-
 source
   open, index, sync, repair, and validate authored source roots
 
@@ -65,6 +63,15 @@ root
 
 steam
   inspect Steam availability and session-scoped publication state when needed
+```
+
+Current lifecycle commands live in Vapor-Installer instead:
+
+```text
+vapor-installer install
+vapor-installer uninstall
+vapor-installer dev-env install
+vapor-installer dev-env uninstall
 ```
 
 Backend tools remain implementation details unless a diagnostic needs to explain
@@ -134,37 +141,13 @@ Representative providers:
 Providers are internal resolution details. Diagnostics may name them, but command
 grammar should remain Vapor-domain grammar.
 
-## Setup Command Direction
+## Retired setup command direction
 
-Installed-environment setup is self-setup because it prepares Vapor itself:
-
-- app-root acceptance;
-- PATH registration;
-- Rust/Cargo/rustup installation;
-- Git availability;
-- SteamCMD availability;
-- distributable self-setup payloads.
-
-The current self-setup lifecycle is:
-
-```text
-setup self status
-setup self install [--dry-run]
-setup self repair [--dry-run]
-setup self package status
-setup self package install [--dry-run]
-setup self package repair [--dry-run]
-setup self uninstall [--dry-run]
-```
-
-The default self-setup target is "make the installed Vapor environment as
-complete as it reasonably can be on this machine." It should try to resolve
-Rust/Cargo, Git, and SteamCMD readiness. It should not require a user to opt
-into a developer or publisher role.
-
-`setup package` remains reserved for real package onboarding: creating,
-adopting, or repairing Vapor metadata around a package/workspace/project. The
-current self-setup payload commands intentionally do not occupy that grammar.
+This document previously proposed Shell-owned setup command grammar. That
+direction is retired. Vapor-Installer owns install, uninstall, and
+development-environment upgrade/downgrade. Vapor Shell keeps source, content,
+root, diagnostics, docs, and IDE operations, and reports missing
+installer-managed capabilities only as command preflight blockers.
 
 ## Source command direction
 
@@ -191,8 +174,7 @@ or opening a Vapor source, not as a general Git shell.
 Content means Workshop-installable Vapor artifacts. It includes first-party
 default engine/game/packagepack content. It excludes Vapor-Root app/depot source.
 
-Self-setup payload commands populate `packages/setup`. They are not Workshop
-content operations and do not define the future package-onboarding grammar.
+Retired setup commands do not define the future package-onboarding grammar.
 
 ## Package metadata and dependency catalogs
 
@@ -269,14 +251,15 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 
 ### Phase 2: command grammar migration
 
-- Add `setup self status/install/repair/uninstall` as the primary lifecycle.
-- Keep self-setup payload preparation separate from Workshop content commands.
+- Move install/uninstall/developer-environment lifecycle into Vapor-Installer.
+- Keep installer-owned tooling preparation separate from Workshop content
+  commands.
 
 ### Phase 3: status model split
 
 - Replace hard-coded tool requirements with named capabilities.
 - Report app-root registration, PATH registration, Rust/Cargo, Git, SteamCMD,
-  self-setup payloads, source state, and Steam session as separate rows.
+  source state, and Steam session as separate rows.
 - Preserve machine-readable metadata output for scripts and agents.
 
 ### Phase 4: provider resolution
@@ -307,12 +290,12 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 ### Phase 7: diagnostics, docs, and tests
 
 - Update command docs and topology references.
-- Add regression tests for command help, self-setup status, diagnostics, and
+- Add regression tests for command help, app-local tooling status, diagnostics, and
   preflight capability failures.
 - Verify deployed Steam install behavior from a fresh shell.
 
 ## Open decisions
 
-- Final exact `setup extend` and `setup downgrade` semantics.
+- Final installer UX around optional tooling beyond player and developer mode.
 - Exact location and schema for shipped provider/dependency metadata.
 - First distro/package-manager actions to support beyond detection.

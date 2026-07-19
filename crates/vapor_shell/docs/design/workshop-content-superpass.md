@@ -49,25 +49,25 @@ publish/update/delete stack.
 ## Steam identity and manifest ownership
 
 When it is sensible and stable, authored Steam and Workshop intent belongs in
-`Vapor.toml`. This includes source-owned publication identity and policy such
-as AppID, PublishedFileId, visibility, title, tags, dependency IDs,
-compatibility policy, update intent, and declared runtime outputs such as
-content-owned binaries or libraries.
+the artifact's role-specific manifest. This includes source-owned publication
+identity and policy such as AppID, PublishedFileId, visibility, title, tags,
+dependency IDs, compatibility policy, update intent, and declared runtime
+outputs such as content-owned binaries or libraries.
 
-`Vapor.toml` is also the deployed artifact metadata carrier. Source content
-remains workspace-bound for authoring, but packaged, installed, and
-Workshop-downloaded content roots carry a resolved deployed `Vapor.toml` so the
-artifact can be understood without a separate proprietary package manifest.
+The role-specific manifest is also the deployed artifact metadata carrier.
+Source content remains workspace-bound for authoring, but packaged, installed,
+and Workshop-downloaded content roots carry a resolved deployed role manifest so
+the artifact can be understood without a separate proprietary package manifest.
 Declared runtime outputs are copied into the deployed artifact root under
 target-specific `bin/<target>/` and `lib/<target>/` directories. The deployed
-artifact `Vapor.toml` records the actual staged filenames in target-specific
+artifact role manifest records the actual staged filenames in target-specific
 runtime entries.
 
 Workspace source manifests own Vapor project membership through
 `[[workspace.projects]]`. Cargo membership remains in `Cargo.toml`, but Vapor
 content commands only operate on registered workspace projects whose child
-`Vapor.toml` declares a content identity. This prevents arbitrary nested
-manifest scans from deciding what counts as publishable source content.
+role-specific manifest declares a content identity. This prevents arbitrary
+nested manifest scans from deciding what counts as publishable source content.
 
 Generated or observed runtime state belongs in generated app-owned files, not
 in source manifests. Examples include local download state, installed receipts,
@@ -75,9 +75,9 @@ fingerprint observations, cache records, last-seen Steam metadata, and
 operation logs.
 
 The schema pass must draw this line explicitly before implementing broad
-SteamUGC writes. `Vapor.toml` should describe what the source intends to be;
-locks, receipts, and indexes should describe what was resolved, downloaded,
-installed, verified, or changed.
+SteamUGC writes. Role-specific source manifests should describe what the source
+intends to be; locks, receipts, and indexes should describe what was resolved,
+downloaded, installed, verified, or changed.
 
 ## Installed content layout
 
@@ -108,7 +108,7 @@ cache entries. `content/installed/` contains enabled artifact roots,
 `content/disabled/` contains retained disabled artifact roots, and
 `content/quarantine/` contains corrupt or incomplete artifact roots moved aside
 during repair. `output/content/packages/` holds staged deployable artifact roots
-with resolved `Vapor.toml` files, and `output/content/scripts/` holds Workshop
+with resolved role manifests, and `output/content/scripts/` holds Workshop
 provider VDF previews.
 `.vapor/state/content/index.toml`, `locks/`, and `receipts/` hold generated
 dependency/conflict indexes, fingerprints, install locks, packagepack
@@ -166,14 +166,16 @@ content disable ARTIFACT_OR_WORKSHOP_ID
 content enable ARTIFACT_OR_WORKSHOP_ID
 content uninstall ARTIFACT_OR_WORKSHOP_ID
 content repair [ARTIFACT_OR_WORKSHOP_ID]
-content create ARTIFACT [--target TARGET]... [--release-targets] [--host-only] --dry-run
+content create ARTIFACT [--target TARGET]... [--release-targets] [--host-only] [--dry-run]
 content publish ARTIFACT... [--target TARGET]... [--release-targets] [--host-only] [--dry-run]
 content delete ARTIFACT_OR_WORKSHOP_ID --dry-run
 ```
 
 SteamUGC, SteamCMD, filesystem staging, Git, and Cargo remain backend
 providers. Real Workshop create/publish/delete stays manual and authority-bound;
-scripts may run the local lifecycle and dry-runs only.
+scripts may run the local lifecycle and dry-runs only. Real Workshop
+create/publish uses the declared Linux+Windows runtime matrix; custom target
+subsets and `--host-only` are dry-run/local preview tools only.
 
 ## Scripting and authority
 

@@ -1,24 +1,32 @@
 //! Application startup and the interactive read/evaluate loop.
 
 use crate::{
+    app_local_tools,
     command::{
-        self, ContentCommand, Control, LaunchCommand, RootCommand, ScriptCommand, SetupCommand,
-        ShellCommand, SourceCommand,
+        self, ContentCommand, Control, DiagnosticsCommand, LaunchCommand, RootCommand,
+        ScriptCommand, ShellCommand, SourceCommand,
     },
+    diagnostics::{self, CaptureOptions},
     discovery::EnvironmentPaths,
     metadata::MetadataFormat,
     prompt::VaporPrompt,
-    setup_self, source_registry,
+    source_registry,
     state::ShellState,
     terminal,
 };
 use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
+use std::path::PathBuf;
 
 enum StartupMode {
     Repl { startup_script: Option<String> },
     Direct(ShellCommand),
     Exit,
+}
+
+struct Startup {
+    mode: StartupMode,
+    diagnostics: CaptureOptions,
 }
 
 /// Discover the containing Vapor workspace and run the interactive shell.
@@ -29,23 +37,41 @@ enum StartupMode {
 /// manifest validation, or initial state construction fails.
 pub fn run() -> Result<(), String> {
     let startup = parse_startup()?;
-    if matches!(startup, StartupMode::Exit) {
+    if matches!(startup.mode, StartupMode::Exit) {
         return Ok(());
     }
 
     // Steam and desktop launchers do not normally provide an interactive
-    // console. Relaunch before discovery so the child can report configuration
-    // errors in the terminal it owns.
-    if startup.needs_terminal() && terminal::needs_relaunch() {
+    // console. Relaunch before diagnostics capture so `--send-diagnostics`
+    // describes the child session the user actually sees.
+    if startup.mode.needs_terminal() && terminal::needs_relaunch() {
         terminal::relaunch()?;
         return Ok(());
     }
 
+    diagnostics::init_from_current_exe(startup.diagnostics);
+    let result = run_inner(startup.mode);
+    if let Err(error) = &result {
+        diagnostics::event(format!("run error: {error}"));
+    }
+    diagnostics::finish(result.is_ok());
+    result
+}
+
+fn run_inner(startup: StartupMode) -> Result<(), String> {
+    diagnostics::event(format!("startup mode: {}", startup.diagnostic_label()));
+
     let installation = EnvironmentPaths::discover_installation()?;
+    diagnostics::event(format!(
+        "installation: {} ({})",
+        installation.root().display(),
+        installation.identity_id()
+    ));
     let mut state = ShellState::closed(installation);
     open_saved_source(&mut state)?;
 
     if let StartupMode::Direct(command) = startup {
+        diagnostics::event(format!("direct command: {command:?}"));
         command::execute(command, &mut state)?;
         return Ok(());
     }
@@ -55,7 +81,9 @@ pub fn run() -> Result<(), String> {
     };
     if let Some(script) = startup_script {
         print_startup_script_header(&script);
+        diagnostics::event(format!("startup script: {script}"));
         if let Err(error) = command::run_script(&script, false, &mut state) {
+            diagnostics::event(format!("startup script error: {error}"));
             eprintln!("error: {error}");
         }
         println!();
@@ -79,32 +107,41 @@ fn print_startup_script_header(script: &str) {
 
 fn print_startup_overview(state: &ShellState) {
     let installation = state.installation();
-    let location = setup_self::location_status(installation);
-    let setup_status = setup_self::inspect(installation);
+    let tool_status = app_local_tools::inspect(installation);
 
     println!("Vapor Shell");
     println!();
     println!("Status");
-    match &location {
-        Ok(setup_self::LocationStatus::Registered { .. }) => {
-            println!("  Install location: confirmed");
+    println!("  App root: {}", installation.root().display());
+    let registry_ready = installation.root().join(".vapor/registry/.git").is_dir();
+    let runtime_tools_ready =
+        tool_status.git().installed() && tool_status.steamcmd().installed() && registry_ready;
+    println!(
+        "  Runtime tools: {}",
+        if runtime_tools_ready {
+            "ready"
+        } else {
+            "not installed"
         }
-        Ok(setup_self::LocationStatus::Unregistered { .. }) => {
-            println!("  Install location: not confirmed yet");
+    );
+    println!(
+        "  Development tools: {}",
+        if tool_status.complete() {
+            "ready"
+        } else {
+            "not installed"
         }
-        Ok(setup_self::LocationStatus::Moved { locked, current }) => {
-            println!("  Install location: changed");
-            println!("    previous: {}", locked.display());
-            println!("    current:  {}", current.display());
+    );
+    if let Some(failure) = std::env::var_os("VAPOR_INSTALLER_INSTALL_FAILED") {
+        println!("  Installer: failed");
+        println!("    error: {}", failure.to_string_lossy());
+        if let Some(log) = std::env::var_os("VAPOR_INSTALLER_LOG") {
+            println!("    log: {}", log.to_string_lossy());
         }
-        Err(error) => {
-            println!("  Install location: needs attention ({error})");
-        }
-    }
-    if setup_status.complete() {
-        println!("  Local tools: ready");
-    } else {
-        println!("  Local tools: not installed");
+        println!(
+            "    command: vapor-installer install --app-root {}",
+            installation.root().display()
+        );
     }
     match state.source() {
         Some(source) => {
@@ -116,23 +153,20 @@ fn print_startup_overview(state: &ShellState) {
 
     println!();
     println!("Next");
-    if matches!(&location, Ok(setup_self::LocationStatus::Moved { .. })) {
-        println!("  setup self repair");
-    } else if location.is_err() {
-        println!("  setup self status");
-    } else if !matches!(&location, Ok(setup_self::LocationStatus::Registered { .. }))
-        || !setup_status.complete()
-    {
-        println!("  setup self install");
-        println!();
-        println!("Then");
-        if state.source().is_none() {
-            println!("  source open /path/to/source");
-        } else {
-            println!("  validate");
-        }
+    if std::env::var_os("VAPOR_INSTALLER_INSTALL_FAILED").is_some() {
+        println!("  reinstall the Steam app, or run the installer command shown above");
+    } else if !runtime_tools_ready {
+        println!(
+            "  vapor-installer install --app-root {}",
+            installation.root().display()
+        );
+    } else if !tool_status.complete() && state.source().is_some() {
+        println!(
+            "  vapor-installer dev-env install --app-root {}",
+            installation.root().display()
+        );
     } else if state.source().is_none() {
-        println!("  source open /path/to/source");
+        println!("  launch loo-cast");
     } else {
         println!("  validate");
     }
@@ -142,10 +176,13 @@ fn print_startup_overview(state: &ShellState) {
     println!();
 }
 
-fn parse_startup() -> Result<StartupMode, String> {
+fn parse_startup() -> Result<Startup, String> {
     if std::env::args_os().len() <= 1 {
-        return Ok(StartupMode::Repl {
-            startup_script: None,
+        return Ok(Startup {
+            mode: StartupMode::Repl {
+                startup_script: None,
+            },
+            diagnostics: CaptureOptions::disabled(),
         });
     }
 
@@ -160,7 +197,10 @@ fn parse_startup() -> Result<StartupMode, String> {
             error
                 .print()
                 .map_err(|print_error| print_error.to_string())?;
-            Ok(StartupMode::Exit)
+            Ok(Startup {
+                mode: StartupMode::Exit,
+                diagnostics: CaptureOptions::disabled(),
+            })
         }
         Err(host_error) => match ShellCommand::try_parse() {
             Ok(_) => Err(shell_only_error()),
@@ -176,7 +216,10 @@ fn parse_startup() -> Result<StartupMode, String> {
                 eprintln!(
                     "note: this is shell command help; run `vapor` to enter the shell or use `vapor script run NAME`"
                 );
-                Ok(StartupMode::Exit)
+                Ok(Startup {
+                    mode: StartupMode::Exit,
+                    diagnostics: CaptureOptions::disabled(),
+                })
             }
             Err(_) => Err(host_error.to_string()),
         },
@@ -184,7 +227,7 @@ fn parse_startup() -> Result<StartupMode, String> {
 }
 
 fn shell_only_error() -> String {
-    "this command must run inside the interactive Vapor shell\nhelp: run `vapor` to enter the shell, or put repeatable commands in `.vapor/scripts/NAME.vapor` and run `vapor script run NAME`"
+    "this command must run inside the interactive Vapor shell\nhelp: run `vapor` to enter the shell, or put repeatable commands in `resources/vapor/vapor-scripts/NAME.vapor` and run `vapor script run NAME`"
         .to_owned()
 }
 
@@ -192,11 +235,20 @@ fn shell_only_error() -> String {
 #[command(
     name = "vapor",
     bin_name = "vapor",
-    about = "Open Vapor Shell or run a setup/source command",
-    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse setup commands to prepare this Steam install.\nUse source commands to choose the project you want Vapor to work with."
+    about = "Open Vapor Shell or run a launch/source command",
+    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse Vapor Installer for player-mode install/uninstall and development tooling.\nUse source commands to choose the project you want Vapor to work with."
 )]
 struct HostCommand {
-    /// Run `.vapor/scripts/<NAME>.vapor` before entering the interactive shell.
+    /// Capture this run and send it through the private diagnostics path on exit.
+    #[arg(long, global = true)]
+    send_diagnostics: bool,
+    /// Registry checkout used by `--send-diagnostics`.
+    #[arg(long, global = true, value_name = "PATH")]
+    diagnostics_registry: Option<PathBuf>,
+    /// Copy diagnostics into the registry without committing or pushing.
+    #[arg(long, global = true)]
+    diagnostics_copy_only: bool,
+    /// Run `resources/vapor/vapor-scripts/<NAME>.vapor` before entering the interactive shell.
     #[arg(long, value_name = "NAME")]
     startup_script: Option<String>,
     #[command(subcommand)]
@@ -209,11 +261,6 @@ enum HostSubcommand {
     Launch {
         #[command(subcommand)]
         command: LaunchCommand,
-    },
-    /// Inspect or repair app-local setup.
-    Setup {
-        #[command(subcommand)]
-        command: SetupCommand,
     },
     /// Manage authored source roots.
     Source {
@@ -246,17 +293,37 @@ enum HostSubcommand {
         #[command(subcommand)]
         command: ScriptCommand,
     },
+    /// Inspect or ship private-test launch diagnostics.
+    Diagnostics {
+        #[command(subcommand)]
+        command: DiagnosticsCommand,
+    },
 }
 
 impl HostCommand {
-    fn into_startup_mode(self) -> Result<StartupMode, String> {
+    fn into_startup_mode(self) -> Result<Startup, String> {
+        let diagnostics = CaptureOptions {
+            enabled: self.send_diagnostics,
+            submit: self.send_diagnostics,
+            push: self.send_diagnostics && !self.diagnostics_copy_only,
+            registry: self.diagnostics_registry,
+        };
         match (self.startup_script, self.command) {
-            (Some(script), None) => Ok(StartupMode::Repl {
-                startup_script: Some(script),
+            (Some(script), None) => Ok(Startup {
+                mode: StartupMode::Repl {
+                    startup_script: Some(script),
+                },
+                diagnostics,
             }),
-            (None, Some(command)) => Ok(StartupMode::Direct(command.into_shell_command())),
-            (None, None) => Ok(StartupMode::Repl {
-                startup_script: None,
+            (None, Some(command)) => Ok(Startup {
+                mode: StartupMode::Direct(command.into_shell_command()),
+                diagnostics,
+            }),
+            (None, None) => Ok(Startup {
+                mode: StartupMode::Repl {
+                    startup_script: None,
+                },
+                diagnostics,
             }),
             (Some(_), Some(_)) => Err(
                 "--startup-script enters the interactive shell and cannot be combined with a one-shot command"
@@ -269,7 +336,6 @@ impl HostCommand {
 impl HostSubcommand {
     fn into_shell_command(self) -> ShellCommand {
         match self {
-            HostSubcommand::Setup { command } => ShellCommand::Setup { command },
             HostSubcommand::Launch { command } => ShellCommand::Launch { command },
             HostSubcommand::Source { command } => ShellCommand::Source { command },
             HostSubcommand::Installation => ShellCommand::Installation,
@@ -279,6 +345,7 @@ impl HostSubcommand {
             HostSubcommand::Content { command } => ShellCommand::Content { command },
             HostSubcommand::Root { command } => ShellCommand::Root { command },
             HostSubcommand::Script { command } => ShellCommand::Script { command },
+            HostSubcommand::Diagnostics { command } => ShellCommand::Diagnostics { command },
         }
     }
 }
@@ -292,6 +359,19 @@ impl StartupMode {
                     command: LaunchCommand::LooCast { .. }
                 })
         )
+    }
+
+    fn diagnostic_label(&self) -> &'static str {
+        match self {
+            Self::Repl {
+                startup_script: Some(_),
+            } => "repl-with-startup-script",
+            Self::Repl {
+                startup_script: None,
+            } => "repl",
+            Self::Direct(_) => "direct",
+            Self::Exit => "exit",
+        }
     }
 }
 
@@ -322,11 +402,22 @@ fn run_shell(mut state: ShellState) {
         editor.set_prompt(prompt_for(&state));
 
         match editor.read_command() {
-            ReadCommandOutput::Command(command) => match command::execute(command, &mut state) {
-                Ok(Control::Continue) => {}
-                Ok(Control::Exit) => break,
-                Err(error) => eprintln!("error: {error}"),
-            },
+            ReadCommandOutput::Command(command) => {
+                let summary = format!("{command:?}");
+                match command::execute(command, &mut state) {
+                    Ok(Control::Continue) => {
+                        diagnostics::event(format!("shell command ok: {summary}"));
+                    }
+                    Ok(Control::Exit) => {
+                        diagnostics::event("shell command requested exit");
+                        break;
+                    }
+                    Err(error) => {
+                        diagnostics::event(format!("shell command error: {summary}: {error}"));
+                        eprintln!("error: {error}");
+                    }
+                }
+            }
             ReadCommandOutput::EmptyLine | ReadCommandOutput::CtrlC => {}
             ReadCommandOutput::CtrlD => break,
             ReadCommandOutput::ClapError(error) => {

@@ -9,8 +9,11 @@ ownership or widen filesystem access.
 
 ## Authority hierarchy
 
-1. `Vapor.toml` is authoritative for Vapor identity, composition, Steam app
-   policy, and workflow intent.
+1. Vapor manifests are authoritative for Vapor identity, composition, Steam app
+   policy, and workflow intent. Application source roots use
+   `App-Source.vapor.toml`; installed app roots use `App.vapor.toml`; ordinary
+   workspaces use `Workspace.vapor.toml`; content artifacts use role-specific
+   filenames.
 2. `Cargo.toml` is authoritative for Rust workspaces, packages, targets,
    dependencies, features, and profiles.
 3. Canonical filesystem paths are authoritative for containment.
@@ -31,9 +34,9 @@ Vapor accepts two source-root kinds:
 - `[workspace]`: a normal Vapor/Cargo source workspace rooted in the same
   directory as its `Cargo.toml`.
 
-`[project]` and content manifests cannot be standalone source roots. Starting
-inside Vapor-Shell, a game, an engine, or another nested artifact escalates to
-the highest containing `[root]` or `[workspace]`.
+Content manifests cannot be standalone source roots. Starting inside
+Vapor-Shell, a game, an engine, or another nested artifact escalates to the
+highest containing `[root]` or `[workspace]`.
 
 The Steam installation is the app root, not a source root. It is discovered from
 the running executable.
@@ -74,9 +77,9 @@ Cargo integration has three materially different states:
   installed or healthy;
 - **loaded**: bundled Cargo returned compatible metadata.
 
-The shell retains enough diagnostic and setup functionality to recover from
-unmet prerequisites. Cargo-backed workflows do not proceed until required source
-structure and tools validate.
+The shell retains diagnostics for unmet prerequisites, but installer-owned
+tooling lifecycle is outside the normal command surface. Cargo-backed workflows
+do not proceed until required source structure and tools validate.
 
 ## Resolution and validation
 
@@ -85,7 +88,7 @@ action commands. It resolves source-root policy, optional `[root.steam]` policy,
 app-root registration state, tool health, and Cargo-derived state once.
 
 Before an action mutates state or launches a child process, its handler supplies
-a targeted `ValidationPlan`. A Cargo build requires an accepted app root, Rust,
+a targeted `ValidationPlan`. A Cargo build requires installer-prepared Rust,
 Git, and valid source-root policy. A real root publish additionally requires
 SteamCMD; `root publish --dry-run` does not. Commands never install or repair
 failed prerequisites implicitly.
@@ -94,9 +97,9 @@ failed prerequisites implicitly.
 
 The interactive shell is the primary command environment. Source-bound commands
 derive authority from the shell's active source, current source cursor,
-accepted app root, and setup status. Host-level direct facades are narrow:
-bootstrap, app inspection, source selection, metadata reporting, read-only
-content inspection, and script entry.
+discovered app root, and installer-prepared tool status. Host-level direct
+facades are narrow: app inspection, source selection, metadata reporting,
+read-only content inspection, launch, diagnostics, and script entry.
 
 Scripts may run local content lifecycle operations and dry-run publication
 staging or IDE repair, but they may not authenticate Steam, perform real
@@ -117,9 +120,7 @@ changes.
 - `source_registry`: app-local index and active selection for external sources.
 - `workspace`: source-root Cargo workspace discovery.
 - `workflow`: app-local Rust/Cargo formatting, checking, testing, and validation.
-- `path_setup`: marked registration of the app-owned active binary directory in PATH.
-- `setup`: explicit app-local Rust/Cargo, Git, and SteamCMD lifecycle.
-- `setup_self_packages`: distributable self-setup payload inspection and copying.
+- `app_local_tools`: internal app-local tool readiness model used by metadata and command preflight.
 - `state`: active source selection and current content context.
 - `prompt`: Reedline presentation adapter.
 

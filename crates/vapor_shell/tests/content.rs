@@ -40,7 +40,7 @@ fn runtime_library_file_name(stem: &str, target: &str) -> String {
 fn content_lifecycle_packages_caches_installs_verifies_repairs_and_uninstalls() {
     let installation = TestTree::new("content-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -69,10 +69,11 @@ fn content_lifecycle_packages_caches_installs_verifies_repairs_and_uninstalls() 
 
     let package = content::package(&paths, "loo-cast-packagepack", false).unwrap();
     assert_eq!(preview_package.fingerprint(), package.fingerprint());
-    assert!(package.root().join("Vapor.toml").is_file());
+    assert!(package.root().join("Packagepack.vapor.toml").is_file());
     assert!(package.root().join("src/lib.rs").is_file());
     assert!(!package.root().join("Vapor-package.toml").exists());
-    let deployed_manifest = fs::read_to_string(package.root().join("Vapor.toml")).unwrap();
+    let deployed_manifest =
+        fs::read_to_string(package.root().join("Packagepack.vapor.toml")).unwrap();
     assert!(
         deployed_manifest.contains("id = \"example/loo-cast/loo-cast-packagepack\""),
         "{deployed_manifest}"
@@ -90,7 +91,12 @@ fn content_lifecycle_packages_caches_installs_verifies_repairs_and_uninstalls() 
         None,
     )
     .unwrap();
-    assert!(acquired.cache_root().join("Vapor.toml").is_file());
+    assert!(
+        acquired
+            .cache_root()
+            .join("Packagepack.vapor.toml")
+            .is_file()
+    );
 
     let installed =
         content::install(paths.installation(), Some(&paths), "loo-cast-packagepack").unwrap();
@@ -202,7 +208,7 @@ fn content_lifecycle_packages_caches_installs_verifies_repairs_and_uninstalls() 
 fn workshop_publish_dry_run_writes_provider_script_without_uploading() {
     let installation = TestTree::new("content-publish-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -240,7 +246,7 @@ fn workshop_publish_dry_run_writes_provider_script_without_uploading() {
 fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
     let installation = TestTree::new("content-publish-windows-runtime-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -269,12 +275,12 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
 
     let source = TestTree::new("content-publish-windows-runtime-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "schema = 1\n\n[workspace]\nname = \"loo-cast\"\norganization = \"example\"\nversion = \"1.2.3\"\n\n[[workspace.projects]]\npath = \"spacetime-engine\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "spacetime-engine/Vapor.toml",
+        "spacetime-engine/Engine.vapor.toml",
         "schema = 1\n\n[engine]\nname = \"spacetime-engine\"\nversion.workspace = true\nbinaries = [\"spacetime-engine\"]\nlibraries = [\"spacetime_engine\"]\n\n[engine.steam]\napp-id = 2122620\npublished-file-id = \"1001\"\nvisibility = \"private\"\ntitle = \"Spacetime Engine\"\n",
     );
     source.write("spacetime-engine/src/main.rs", "fn main() {}\n");
@@ -326,7 +332,7 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
             .join("lib/x86_64-unknown-linux-gnu/libspacetime_engine.so")
             .is_file()
     );
-    let deployed = fs::read_to_string(package_root.join("Vapor.toml")).unwrap();
+    let deployed = fs::read_to_string(package_root.join("Engine.vapor.toml")).unwrap();
     assert!(
         deployed.contains("target = \"x86_64-pc-windows-gnullvm\""),
         "{deployed}"
@@ -346,7 +352,7 @@ fn workshop_publish_dry_run_can_stage_explicit_windows_runtime_payload() {
 fn content_package_copies_declared_runtime_outputs() {
     let installation = TestTree::new("content-runtime-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -364,12 +370,12 @@ fn content_package_copies_declared_runtime_outputs() {
 
     let source = TestTree::new("content-runtime-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "schema = 1\n\n[workspace]\nname = \"loo-cast\"\norganization = \"example\"\nversion = \"1.2.3\"\n\n[[workspace.projects]]\npath = \"spacetime-engine\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "spacetime-engine/Vapor.toml",
+        "spacetime-engine/Engine.vapor.toml",
         "schema = 1\n\n[engine]\nname = \"spacetime-engine\"\nversion.workspace = true\nbinaries = [\"spacetime-engine\"]\nlibraries = [\"spacetime_engine\"]\n\n[engine.steam]\napp-id = 2122620\npublished-file-id = \"1001\"\nvisibility = \"private\"\ntitle = \"Spacetime Engine\"\n",
     );
     source.write("spacetime-engine/src/main.rs", "fn main() {}\n");
@@ -393,7 +399,7 @@ fn content_package_copies_declared_runtime_outputs() {
             .join(&library_name)
             .is_file()
     );
-    let deployed = fs::read_to_string(package.root().join("Vapor.toml")).unwrap();
+    let deployed = fs::read_to_string(package.root().join("Engine.vapor.toml")).unwrap();
     assert!(
         deployed.contains("binaries = [\"spacetime-engine\"]"),
         "{deployed}"
@@ -421,7 +427,7 @@ fn content_package_copies_declared_runtime_outputs() {
 fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
     let installation = TestTree::new("content-windows-runtime-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -441,12 +447,12 @@ fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
 
     let source = TestTree::new("content-windows-runtime-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "schema = 1\n\n[workspace]\nname = \"loo-cast\"\norganization = \"example\"\nversion = \"1.2.3\"\n\n[[workspace.projects]]\npath = \"spacetime-engine\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "spacetime-engine/Vapor.toml",
+        "spacetime-engine/Engine.vapor.toml",
         "schema = 1\n\n[engine]\nname = \"spacetime-engine\"\nversion.workspace = true\nbinaries = [\"spacetime-engine\"]\nlibraries = [\"spacetime_engine\"]\n\n[engine.steam]\napp-id = 2122620\npublished-file-id = \"1001\"\nvisibility = \"private\"\ntitle = \"Spacetime Engine\"\n",
     );
     source.write("spacetime-engine/src/main.rs", "fn main() {}\n");
@@ -479,7 +485,7 @@ fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
             .join("lib/x86_64-pc-windows-gnullvm/libunwind.dll")
             .is_file()
     );
-    let deployed = fs::read_to_string(package.root().join("Vapor.toml")).unwrap();
+    let deployed = fs::read_to_string(package.root().join("Engine.vapor.toml")).unwrap();
     assert!(deployed.contains("[[engine.runtime]]"), "{deployed}");
     assert!(
         deployed.contains("target = \"x86_64-pc-windows-gnullvm\""),
@@ -499,24 +505,24 @@ fn content_package_can_stage_explicit_windows_gnu_runtime_outputs() {
 fn source_content_uses_workspace_project_registration() {
     let installation = TestTree::new("content-registration-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("content-registration-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "schema = 1\n\n[workspace]\nname = \"loo-cast\"\norganization = \"example\"\nversion = \"1.2.3\"\n\n[[workspace.projects]]\npath = \"registered-engine\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "registered-engine/Vapor.toml",
+        "registered-engine/Engine.vapor.toml",
         "schema = 1\n\n[engine]\nname = \"registered-engine\"\nversion.workspace = true\n",
     );
     source.write("registered-engine/src/lib.rs", "pub fn engine() {}\n");
     source.write(
-        "unregistered-game/Vapor.toml",
+        "unregistered-game/Game.vapor.toml",
         "schema = 1\n\n[game]\nname = \"unregistered-game\"\nversion.workspace = true\n",
     );
     source.write("unregistered-game/src/lib.rs", "pub fn game() {}\n");
@@ -533,7 +539,7 @@ fn source_content_uses_workspace_project_registration() {
 fn root_content_seed_resolves_public_workshop_selector() {
     let installation = TestTree::new("content-root-seed-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "schema = 1\n\n[root]\nname = \"installation\"\norganization = \"example\"\n\n[[root.content]]\nid = \"example/loo-cast/loo-cast-packagepack\"\nkind = \"packagepack\"\napp-id = 2122620\nworkshop-id = \"1003\"\ndefault-launch = \"loo-cast\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -550,7 +556,7 @@ fn root_content_seed_resolves_public_workshop_selector() {
 fn launch_loo_cast_uses_root_seed_not_active_source_package() {
     let installation = TestTree::new("launch-root-seed-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "schema = 1\n\n[root]\nname = \"installation\"\norganization = \"example\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/spacetime-engine\"\nkind = \"engine\"\napp-id = 2122620\nworkshop-id = \"1001\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/loo-cast-game\"\nkind = \"game\"\napp-id = 2122620\nworkshop-id = \"1002\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/loo-cast-packagepack\"\nkind = \"packagepack\"\napp-id = 2122620\nworkshop-id = \"1003\"\ndefault-launch = \"loo-cast\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -576,22 +582,22 @@ fn launch_loo_cast_uses_root_seed_not_active_source_package() {
 
 fn write_loo_cast_source(source: &TestTree) {
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "schema = 1\n\n[workspace]\nname = \"loo-cast\"\norganization = \"example\"\nversion = \"1.2.3\"\n\n[[workspace.projects]]\npath = \"spacetime-engine\"\n\n[[workspace.projects]]\npath = \"loo-cast-game\"\n\n[[workspace.projects]]\npath = \"loo-cast-packagepack\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "spacetime-engine/Vapor.toml",
+        "spacetime-engine/Engine.vapor.toml",
         "schema = 1\n\n[engine]\nname = \"spacetime-engine\"\nversion.workspace = true\n\n[engine.steam]\napp-id = 2122620\npublished-file-id = \"1001\"\nvisibility = \"private\"\ntitle = \"Spacetime Engine\"\ntags = [\"first-party\"]\n",
     );
     source.write("spacetime-engine/src/lib.rs", "pub fn engine() {}\n");
     source.write(
-        "loo-cast-game/Vapor.toml",
+        "loo-cast-game/Game.vapor.toml",
         "schema = 1\n\n[game]\nname = \"loo-cast-game\"\nversion.workspace = true\n\n[game.engine]\nid = \"example/loo-cast/spacetime-engine\"\n\n[game.steam]\napp-id = 2122620\npublished-file-id = \"1002\"\nvisibility = \"private\"\ntitle = \"Loo-Cast Game\"\n",
     );
     source.write("loo-cast-game/src/lib.rs", "pub fn game() {}\n");
     source.write(
-        "loo-cast-packagepack/Vapor.toml",
+        "loo-cast-packagepack/Packagepack.vapor.toml",
         "schema = 1\n\n[packagepack]\nname = \"loo-cast-packagepack\"\nversion.workspace = true\n\n[packagepack.steam]\napp-id = 2122620\npublished-file-id = \"1003\"\nvisibility = \"private\"\ntitle = \"Loo-Cast Packagepack\"\n\n[packagepack.engine]\nid = \"example/loo-cast/spacetime-engine\"\n\n[packagepack.game]\nid = \"example/loo-cast/loo-cast-game\"\n",
     );
     source.write("loo-cast-packagepack/src/lib.rs", "pub fn pack() {}\n");
@@ -599,22 +605,22 @@ fn write_loo_cast_source(source: &TestTree) {
 
 fn write_ghf_loo_cast_source_with_unbuilt_binary(source: &TestTree) {
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "schema = 1\n\n[workspace]\nname = \"loo-cast\"\norganization = \"ghf-studios\"\nversion = \"1.2.3\"\n\n[[workspace.projects]]\npath = \"spacetime-engine\"\n\n[[workspace.projects]]\npath = \"loo-cast-game\"\n\n[[workspace.projects]]\npath = \"loo-cast-packagepack\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
     source.write(
-        "spacetime-engine/Vapor.toml",
+        "spacetime-engine/Engine.vapor.toml",
         "schema = 1\n\n[engine]\nname = \"spacetime-engine\"\nversion.workspace = true\nbinaries = [\"spacetime-engine\"]\n\n[engine.steam]\napp-id = 2122620\npublished-file-id = \"1001\"\nvisibility = \"private\"\ntitle = \"Spacetime Engine\"\n",
     );
     source.write("spacetime-engine/src/main.rs", "fn main() {}\n");
     source.write(
-        "loo-cast-game/Vapor.toml",
+        "loo-cast-game/Game.vapor.toml",
         "schema = 1\n\n[game]\nname = \"loo-cast-game\"\nversion.workspace = true\n\n[game.engine]\nid = \"ghf-studios/loo-cast/spacetime-engine\"\n\n[game.steam]\napp-id = 2122620\npublished-file-id = \"1002\"\nvisibility = \"private\"\ntitle = \"Loo-Cast Game\"\n",
     );
     source.write("loo-cast-game/src/lib.rs", "pub fn game() {}\n");
     source.write(
-        "loo-cast-packagepack/Vapor.toml",
+        "loo-cast-packagepack/Packagepack.vapor.toml",
         "schema = 1\n\n[packagepack]\nname = \"loo-cast-packagepack\"\nversion.workspace = true\n\n[packagepack.steam]\napp-id = 2122620\npublished-file-id = \"1003\"\nvisibility = \"private\"\ntitle = \"Loo-Cast Packagepack\"\n\n[packagepack.engine]\nid = \"ghf-studios/loo-cast/spacetime-engine\"\nworkshop-id = \"1001\"\n\n[packagepack.game]\nid = \"ghf-studios/loo-cast/loo-cast-game\"\nworkshop-id = \"1002\"\n",
     );
     source.write("loo-cast-packagepack/src/lib.rs", "pub fn pack() {}\n");

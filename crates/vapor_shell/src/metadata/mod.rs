@@ -1,14 +1,14 @@
 //! Shared runtime metadata and command preflight validation.
 //!
-//! Metadata is resolved once from authoritative `Vapor.toml` policy and
-//! app-owned runtime indexes. Commands validate only the capabilities they
+//! Metadata is resolved once from authoritative role-specific manifest policy
+//! and app-owned runtime indexes. Commands validate only the capabilities they
 //! need, then consume the same resolved manifests and tool state. Reporting a
 //! broken capability therefore remains possible without blocking an unrelated
 //! workflow.
 
 use crate::{
+    app_local_tools::{self, AppToolStatus},
     distribution::DistributionManifest,
-    setup_self::{self, LocationStatus, SetupSelfStatus},
     state::ShellState,
     workspace::WorkspaceManifest,
 };
@@ -38,12 +38,11 @@ pub struct ResolvedMetadata {
     source_root: Option<PathBuf>,
     workspace: Result<WorkspaceManifest, String>,
     distribution: Result<Option<DistributionManifest>, String>,
-    location: Result<LocationStatus, String>,
-    setup_self: SetupSelfStatus,
+    app_local_tools: AppToolStatus,
 }
 
 impl ResolvedMetadata {
-    /// Resolve source, installation, manifest, Cargo, and setup state.
+    /// Resolve source, installation, manifest, Cargo, and app-local tool state.
     pub fn resolve(state: &ShellState) -> Self {
         let active_paths = state.active_paths();
         let workspace = active_paths.as_ref().map_or_else(
@@ -54,10 +53,8 @@ impl ResolvedMetadata {
             |error| Err(error.clone()),
             |paths| DistributionManifest::load_optional(paths),
         );
-        let location = setup_self::location_status(state.installation());
-        let setup_status = setup_self::inspect(state.installation());
-        let report =
-            MetadataReport::new(state, &workspace, &distribution, &location, &setup_status);
+        let tool_status = app_local_tools::inspect(state.installation());
+        let report = MetadataReport::new(state, &workspace, &distribution, &tool_status);
         Self {
             report,
             source_root: state
@@ -66,8 +63,7 @@ impl ResolvedMetadata {
                 .map(|paths| paths.source().root().to_path_buf()),
             workspace,
             distribution,
-            location,
-            setup_self: setup_status,
+            app_local_tools: tool_status,
         }
     }
 
@@ -99,12 +95,12 @@ impl ResolvedMetadata {
     /// Returns a diagnostic explaining the first unmet requirement and the
     /// explicit command that can address it.
     pub fn validate(&self, plan: &ValidationPlan<'_>) -> Result<(), String> {
-        if plan.registered_location {
-            let status = self.location.as_ref().map_err(Clone::clone)?;
-            setup_self::require_registered_status(status, plan.action)?;
-        }
-        if !plan.setup_self.is_empty() {
-            setup_self::require_status(&self.setup_self, &plan.setup_self, plan.action)?;
+        if !plan.app_local_tools.is_empty() {
+            app_local_tools::require_status(
+                &self.app_local_tools,
+                &plan.app_local_tools,
+                plan.action,
+            )?;
         }
         if plan.workspace {
             self.workspace.as_ref().map_err(Clone::clone)?;
@@ -125,8 +121,8 @@ impl ResolvedMetadata {
     }
 
     /// App-local Rust, Git, and SteamCMD status from this snapshot.
-    pub fn setup_self_status(&self) -> &SetupSelfStatus {
-        &self.setup_self
+    pub fn app_local_tools_status(&self) -> &AppToolStatus {
+        &self.app_local_tools
     }
 
     /// Validated Steam distribution policy from this snapshot.

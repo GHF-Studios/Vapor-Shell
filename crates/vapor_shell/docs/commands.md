@@ -2,16 +2,33 @@
 
 Run `help` for the command list or `help <COMMAND>` for argument details.
 `vapor` without arguments opens the interactive shell. The shell owns source
-context, setup state, and command authority. Host-level direct facades are
-limited to setup/bootstrap and explicit automation entrypoints: `source`,
-`setup`, `metadata`, `installation`, `binaries`, `libraries`, `launch`,
-`content`, `root`, and `script run`.
+context and command authority after the app root has been prepared by
+Vapor Installer. Host-level direct facades are limited to explicit automation
+entrypoints: `source`, `metadata`, `installation`, `binaries`, `libraries`,
+`launch`, `content`, `root`, `script run`, and `diagnostics`.
 
-Repeatable automation should live in `.vapor/scripts/NAME.vapor` and run through
-`vapor script run NAME`, which executes the same command grammar against a
-Vapor shell session state. Use `vapor --startup-script NAME` to enter the
-interactive shell, run a source or app-root script, and keep the shell open.
+Repeatable automation should live in
+`resources/vapor/vapor-scripts/NAME.vapor` and run through `vapor script run
+NAME`, which executes the same command grammar against a Vapor shell session
+state. Use `vapor --startup-script NAME` to enter the interactive shell, run a
+source or app-root script, and keep the shell open.
 Real Steam uploads and real IDE repair remain manual interactive-shell actions.
+
+Host-level launches may add `--send-diagnostics` to capture the run and send it
+after Vapor exits. This is private-test tooling, not public telemetry, and it is
+off unless the flag is present. `--send-diagnostics` copies the current run log
+into the configured Vapor-Registry checkout, commits it, and pushes it. When
+player-mode install has prepared `.vapor/registry`, that app-local checkout is
+the default. Use `--diagnostics-registry PATH` to override it or set
+`VAPOR_DIAGNOSTICS_REGISTRY`; add `--diagnostics-copy-only` when you only want
+the copy step.
+
+Steam wrapper examples:
+
+```text
+bin/vapor-launch.sh play --send-diagnostics --diagnostics-registry /path/to/Vapor-Registry
+bin\vapor-launch.cmd play --send-diagnostics --diagnostics-registry C:\path\to\Vapor-Registry
+```
 
 ## Launch
 
@@ -24,7 +41,7 @@ installed.
 
 The command verifies installed content, resolves the packagepack's Spacetime
 Engine dependency, and hands off to the installed engine binary declared by
-that engine artifact's deployed `Vapor.toml`. The current first-party
+that engine artifact's deployed `Engine.vapor.toml`. The current first-party
 Spacetime Engine is a product placeholder; the dynamic terminal/game-library
 proof lives in `Vapor-Examples`. On Linux/Steam desktop starts without a
 terminal, this command opens the same Konsole-owned terminal path used by the
@@ -33,10 +50,28 @@ Shell so terminal-based runtime output remains visible.
 If content is not installed yet, the command uses the app-root first-party
 content seed to download/cache/install/select the public Loo-Cast Packagepack
 and required first-party engine/game dependencies. It still does not silently
-install the toolchain; missing setup reports `setup self install`.
+install the development toolchain. Missing player-mode tooling reports
+`vapor-installer install`; missing development tooling reports
+`vapor-installer dev-env install`.
 
 Use `--account ACCOUNT` when the Workshop item is not downloadable by anonymous
 SteamCMD, such as unreleased/private app testing.
+
+## Diagnostics
+
+### `diagnostics status`
+
+Show the app-local diagnostics directory, latest run log, active capture state,
+automatic submit mode, and configured registry path.
+
+### `diagnostics submit [--registry PATH] [--all] [--push] [--dry-run]`
+
+Copy captured run logs into a Vapor-Registry checkout under
+`diagnostics/<app>/<machine>/<platform>/`. By default the command copies the
+current run when capture is active, otherwise the latest completed run. `--all`
+copies every local run log. `--push` commits and pushes the copied diagnostics
+with app-local Git. `--dry-run` reports the same target without changing the
+registry.
 
 ## Installation resources
 
@@ -70,68 +105,26 @@ resolved model and reject unmet prerequisites before acting.
 
 ## Setup
 
-### `setup self status`
+Normal closed-alpha installation is installer-owned, not a manual Shell setup
+flow. Run `vapor-installer` with no arguments for the visual installer, or use
+the narrow headless commands when automation needs them:
 
-Report the executable-derived app root, persisted app-root registration, active
-Rust/Cargo, Git, SteamCMD health, and distributable self-setup payload status.
+```text
+vapor-installer install --app-root /path/to/steam/app
+vapor-installer uninstall --app-root /path/to/steam/app
+vapor-installer dev-env install --app-root /path/to/steam/app
+vapor-installer dev-env uninstall --app-root /path/to/steam/app
+```
 
-### `setup self install [--dry-run]`
+`install` prepares player mode: app-local Git, SteamCMD, the app-local
+Vapor-Registry checkout, and generated disposable app-root state.
+`dev-env install` upgrades that app root with Rust/Cargo and cross-build
+tooling for developers.
 
-Accept the current app root, register the active app-owned Vapor binary
-directory for PATH setup, and install missing Rust/Cargo, Git, and SteamCMD into
-the app root. This command is explicit; other commands do not install or repair
-prerequisites automatically. It does not create `packages/setup`; use
-`setup self package install` for package payloads.
-
-`--dry-run` prints the app-root registration, PATH profiles, acquisition paths,
-package status, and tool group actions without changing files or shell profile
-state.
-
-When complete `packages/setup` payloads exist, Git is copied from the app-owned
-payload. Otherwise Windows setup downloads the portable MinGit zip into the app
-root and extracts it under `tools/git`. Linux setup imports a usable host Git
-binary into `tools/git`, copies its Git exec-path support files, and replaces
-any script that delegates to system Git.
-
-### `setup self repair [--dry-run]`
-
-Accept the current app root and reapply/reacquire Rust/Cargo, Git, and SteamCMD.
-Use this after an intentional Steam app move or suspected setup damage.
-Repairing active setup still does not refresh self-setup payloads.
-
-`--dry-run` previews the reinstall/repair actions without changing files or
-registration state.
-
-### `setup self uninstall [--dry-run]`
-
-Remove app-local Rust/Cargo, Git, SteamCMD, PATH registration, and app-root
-location state.
-
-`--dry-run` previews removals and registration cleanup without deleting active
-tools or changing PATH setup.
-
-### `setup self package status`
-
-Report distributable self-setup payload readiness. These payloads are available
-to explicit stacked app/depot staging and are separate from the active tools
-used in the current Steam installation.
-
-### `setup self package install [--dry-run]`
-
-Populate missing `packages/setup` payloads from active app-local tools. The
-active Rust/Cargo, Git, and SteamCMD tools must already pass `setup self status`.
-A script that delegates to system Git must be replaced with a real app-owned
-Git installation before payloads can be built.
-
-`--dry-run` previews package writes without changing files.
-
-### `setup self package repair [--dry-run]`
-
-Rebuild `packages/setup` from active app-local tools. Use this after
-repairing active setup or before an explicit
-`--include-setup-payload` app/depot build.
-
-`--dry-run` previews the package rebuild without changing files.
+`dev-env uninstall` downgrades developer mode back to player mode without
+removing player-mode tooling. `vapor-installer uninstall` removes all
+installer-managed mutable app-root state; Steam's uninstall feature removes
+depot-owned Shell/docs/installer files.
 
 ## Cargo workflows
 
@@ -143,8 +136,9 @@ root. `[workspace]` sources expose their root Cargo workspace. `[root]` sources
 expose direct submodules that declare `[workspace]` and contain `Cargo.toml`.
 
 Artifacts go to `output/dev/<project>` inside the app root instead of source
-trees. Rust and Git must already pass `setup self status`.
-Workspaces that declare `[workspace].binaries` in `Vapor.toml` can promote
+trees. Development tooling should be installed through
+`vapor-installer dev-env install`.
+Workspaces that declare `[workspace].binaries` in `Workspace.vapor.toml` can promote
 those outputs into `bin/<target>/` through `root build`.
 
 ### `validate [--project PROJECT]`
@@ -158,8 +152,8 @@ tests, strict Clippy, and strict Rustdoc.
 
 Create a new source workspace with a basic engine, game, and packagepack. The
 target path must be empty or absent. The generated workspace is ordinary source:
-`Vapor.toml` declares `[workspace]` and `[[workspace.projects]]`, child
-`Vapor.toml` files own content metadata, and Cargo owns Rust compilation.
+`Workspace.vapor.toml` declares `[workspace]` and `[[workspace.projects]]`,
+child role manifests own content metadata, and Cargo owns Rust compilation.
 
 If `--app-id` is omitted, Vapor uses the installed app's `[root.steam].app-id`.
 After creation, Vapor opens the new source root.
@@ -299,47 +293,41 @@ declared runtime target and copies only the matching platform launch wrappers.
 Use `--host-only` when the intent is a quick local deploy for the current
 machine.
 
-### `root package [--include-setup-payload] [--target TARGET]... [--release-targets] [--host-only]`
+### `root package [--target TARGET]... [--release-targets] [--host-only]`
 
-Build installed documentation, assemble the clean allowlisted app/depot payload,
-and smoke-check the staged package without invoking SteamCMD. The default root
-payload is runtime-only: `Vapor.toml`, selected `bin/<target>/` application
-binaries, `docs/`, app scripts, target-matching launch wrappers, and packaged
-examples.
+Build installed documentation, assemble the clean allowlisted split-depot app
+payload, and smoke-check the staged package without invoking SteamCMD. The
+default root payload is runtime-only: the common depot carries `App.vapor.toml`,
+`docs/`, app scripts, and packaged examples; platform depots carry selected
+`bin/<target>/` application binaries and target-matching `bin/vapor-launch.*`
+wrappers.
 
 When `[root.runtime].targets` is declared, omitting target flags stages that
 full matrix by default. Repeat `--target` to stage a deliberate custom subset
 of platform binaries that already exist in the app root. Use `--host-only` for
 a local host-only package.
 
-Use `--include-setup-payload` only for an intentional stacked bootstrap/depot
-package. That mode additionally validates and stages `packages/setup`; run
-`setup self package install` or `setup self package repair` first when metadata
-reports missing self-setup payloads.
+### `root publish [--account ACCOUNT] [--branch BRANCH] [--dry-run] [--yes]`
 
-### `root publish [--include-setup-payload] [--account ACCOUNT] [--branch BRANCH] [--target TARGET]... [--release-targets] [--host-only] [--skip-build] [--dry-run] [--yes]`
-
-Validate, build, promote binaries, build docs, stage the clean app/depot
-payload, smoke-check it, generate a SteamPipe VDF, and optionally upload it.
-The default upload payload is runtime-only; Loo-Cast and other content
+Validate, build, promote binaries, build docs, stage the clean split-depot app
+payload, smoke-check it, generate SteamPipe app/depot VDFs, and optionally
+upload it. The default upload payload is runtime-only; Loo-Cast and other content
 artifacts are published through `content publish`, not through the app depot.
 
-When `[root.runtime].targets` is declared, publication defaults to that runtime
-matrix. Repeat `--target` only for an intentional custom subset, and use
-`--host-only` only for local smoke or emergency narrow publication. The depot
-smoke check rejects platform launch wrappers when their matching
-`bin/<target>/vapor[.exe]` payload is missing.
-
-Use `--skip-build` only when the selected target binaries were already promoted
-into the app root, such as after importing Windows GNU/LLVM artifacts built on a
-Windows machine. Staging and smoke checks still run and will reject missing
-`bin/<target>/` payloads.
+Real publication always uses the complete `[root.runtime].targets` matrix and
+runs validation/build/promotion before staging. Narrow target selection,
+`--host-only`, and `--skip-build` are dry-run/local-package escape hatches only;
+they are rejected for real uploads. The depot smoke check rejects staged
+platform depots when their matching launch wrapper, `bin/<target>/vapor[.exe]`,
+`bin/<target>/vapor-installer[.exe]`, or required Windows runtime DLL payload is
+missing.
+Real publication preflight requires app-local Rust/Cargo, Git, cross-build
+tooling, and SteamCMD.
 
 `--dry-run` writes the staged payload and preview VDF without requiring
 SteamCMD or performing an upload. A real upload requires `--account ACCOUNT`
 and `--yes`, and must be typed manually in the interactive shell. The branch
 defaults to `[root.steam].development-branch` and must be non-default.
-`--include-setup-payload` is the explicit large setup/toolchain payload mode.
 
 ## Content workflows
 
@@ -355,7 +343,7 @@ artifacts, not application depot roots.
 List registered source content artifacts when a source is open and list
 installed content recorded in the app-owned content index. A child directory is
 source content only when the active workspace registers it under
-`[[workspace.projects]]` and the child `Vapor.toml` declares a content identity.
+`[[workspace.projects]]` and the child role manifest declares a content identity.
 
 ### `content validate [ARTIFACT]`
 
@@ -366,11 +354,11 @@ registered source artifact.
 ### `content build [--target TARGET]... [--release-targets] [--host-only]`
 
 Build the active content workspace through app-local Cargo. This uses the same
-setup preflight as other Cargo workflows and writes build output under the app
-root. When `[workspace.runtime].targets` is declared, omitting target flags
-builds that full matrix by default. Use `--target` to build an explicit custom
-subset such as only `x86_64-pc-windows-gnullvm`. Use `--host-only` for a local
-host build.
+development tooling preflight as other Cargo workflows and writes build output
+under the app root. When `[workspace.runtime].targets` is declared, omitting
+target flags builds that full matrix by default. Use `--target` to build an
+explicit custom subset such as only `x86_64-pc-windows-gnullvm`. Use
+`--host-only` for a local host build.
 
 ### `content deploy ARTIFACT [--select] [--target TARGET]... [--release-targets] [--host-only]`
 
@@ -389,7 +377,7 @@ iteration on the current machine.
 ### `content package ARTIFACT [--target TARGET]... [--release-targets] [--host-only] [--dry-run]`
 
 Stage one deployable artifact root under `output/content/packages/`, write a
-resolved deployed `Vapor.toml`, fingerprint the staged root, and record a
+resolved deployed role manifest, fingerprint the staged root, and record a
 receipt. Declared `binaries` and `libraries` are copied from app-local Cargo
 output into `bin/<target>/` and `lib/<target>/`, and the deployed manifest
 records the staged filenames in target-specific `runtime` entries. When
@@ -481,24 +469,31 @@ Remove installed or disabled artifact roots and delete the app-owned
 installed-state record. Dependency artifact roots are not removed implicitly;
 uninstall them explicitly when desired.
 
-### `content create ARTIFACT [--target TARGET]... [--release-targets] [--host-only] --dry-run`
+### `content create ARTIFACT [--target TARGET]... [--release-targets] [--host-only] [--dry-run] [--account ACCOUNT] [--yes]`
 
-Record a safe preview of creating a new Workshop item. Real item creation is a
-SteamUGC authority-changing action and must be performed manually through a
-SteamUGC-enabled provider. When `[workspace.runtime].targets` is declared,
-creation previews and real creation package that matrix by default. Repeat
-`--target` only for a custom subset, or use `--host-only` for a local host-only
-preview.
+Record a safe preview of creating a new Workshop item, or create it through the
+controlled SteamCMD provider when manually confirmed. Real item creation is a
+SteamUGC authority-changing action and must be typed manually in the
+interactive shell. When `[workspace.runtime].targets` is declared, creation uses
+that matrix by default. Real creation rejects `--target` and `--host-only` and
+requires the declared matrix to contain Linux and Windows targets. It validates
+and builds that matrix before packaging and upload. Real creation preflight
+requires app-local Rust/Cargo, Git, cross-build tooling, and SteamCMD. Repeat
+`--target` or use `--host-only` only for dry-run previews.
 
 ### `content publish ARTIFACT... [--target TARGET]... [--release-targets] [--host-only] [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
 
 Package one or more artifacts and write Workshop provider VDFs. `--dry-run`
 performs no upload. A real upload requires `--account ACCOUNT`, `--yes`,
-existing PublishedFileIds in the artifacts' `Vapor.toml` files, and must be
+existing PublishedFileIds in the artifacts' role manifests, and must be
 typed manually in the interactive shell. Multiple artifacts are sent through one
 SteamCMD provider session. When `[workspace.runtime].targets` is declared,
-publishing packages that matrix by default. Repeat `--target` only for an
-intentional custom subset, or use `--host-only` for local smoke previews.
+publishing packages that matrix by default. Real publication rejects `--target`
+and `--host-only` and requires the declared matrix to contain Linux and Windows
+targets. It validates and builds that matrix before packaging and upload.
+Real publication preflight requires app-local Rust/Cargo, Git, cross-build
+tooling, and SteamCMD. Repeat `--target` or use `--host-only` only for dry-run
+previews.
 
 The intended release path is plain `content publish ...`: one Workshop item
 update per artifact, with all supported platform binaries and libraries inside
@@ -515,14 +510,15 @@ SteamUGC provider implements it.
 
 ### `script run NAME [--dry-run]`
 
-Read `.vapor/scripts/NAME.vapor` and execute each non-comment line through this
-same command parser. Source scripts are preferred when a source is open; app-root
-scripts under the installed app's `.vapor/scripts/` are used as a fallback.
+Read `resources/vapor/vapor-scripts/NAME.vapor` and execute each non-comment
+line through this same command parser. Source scripts are preferred when a
+source is open; app-root scripts under the installed app's
+`resources/vapor/vapor-scripts/` are used as a fallback.
 `--dry-run` prints the commands without executing them.
 
 Scripts stop on error and cannot recursively invoke scripts, exit the host REPL,
 perform real publishes, delete Workshop items, or apply IDE repairs. Scripts may
-run setup inspection and Workshop download/install operations, including
+run status inspection and Workshop download/install operations, including
 account-backed SteamCMD acquisition when a private or unreleased item requires
 visible Steam authentication.
 

@@ -7,10 +7,10 @@ use vapor_shell::{
     manifest,
 };
 
-fn installation_fixture() -> (TestTree, std::path::PathBuf) {
+fn sample_installation() -> (TestTree, std::path::PathBuf) {
     let tree = TestTree::new("installation");
     tree.write(
-        manifest::FILE_NAME,
+        manifest::APP_FILE_NAME,
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     fs::create_dir_all(tree.root().join("lib")).expect("lib should be created");
@@ -21,13 +21,13 @@ fn installation_fixture() -> (TestTree, std::path::PathBuf) {
 
 #[test]
 fn discovers_disjoint_installation_and_source_roots() {
-    let (installation, executable) = installation_fixture();
+    let (installation, executable) = sample_installation();
     let source = TestTree::new("source");
     source.write(
-        manifest::FILE_NAME,
+        manifest::WORKSPACE_FILE_NAME,
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
-    source.write("games/example/Vapor.toml", "[game]\nname = \"game\"\n");
+    source.write("games/example/Game.vapor.toml", "[game]\nname = \"game\"\n");
     fs::create_dir_all(source.root().join("games/example/src")).unwrap();
 
     let paths = EnvironmentPaths::from_paths(&executable, &source.root().join("games/example/src"))
@@ -44,10 +44,10 @@ fn discovers_disjoint_installation_and_source_roots() {
 
 #[test]
 fn permits_same_identity_when_installation_and_source_are_disjoint() {
-    let (installation, executable) = installation_fixture();
+    let (installation, executable) = sample_installation();
     let source = TestTree::new("same-identity-source");
     source.write(
-        manifest::FILE_NAME,
+        manifest::WORKSPACE_FILE_NAME,
         "[workspace]\nname = \"installation\"\norganization = \"example\"\n",
     );
 
@@ -65,7 +65,7 @@ fn permits_same_identity_when_installation_and_source_are_disjoint() {
 fn discovers_cargo_inside_app_local_rustup() {
     let installation = TestTree::new("setup-installation");
     installation.write(
-        manifest::FILE_NAME,
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let cargo = installation.write(
@@ -83,10 +83,10 @@ fn discovers_cargo_inside_app_local_rustup() {
 fn installation_discovery_ignores_manifest_beside_bin_vapor() {
     let installation = TestTree::new("installation-bin-marker");
     installation.write(
-        manifest::FILE_NAME,
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
-    installation.write("bin/Vapor.toml", "");
+    installation.write("bin/Workspace.vapor.toml", "");
     let executable = installation.write("bin/vapor", "binary");
 
     let paths = InstallationPaths::from_executable(&executable).unwrap();
@@ -99,7 +99,7 @@ fn installation_discovery_ignores_manifest_beside_bin_vapor() {
 fn installation_discovery_accepts_target_specific_vapor_binary() {
     let installation = TestTree::new("installation-target-bin");
     installation.write(
-        manifest::FILE_NAME,
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/x86_64-unknown-linux-gnu/vapor", "binary");
@@ -117,7 +117,7 @@ fn installation_discovery_accepts_target_specific_vapor_binary() {
 fn installation_discovery_requires_manifest_at_app_root() {
     let installation = TestTree::new("installation-missing-root-marker");
     installation.write(
-        "bin/Vapor.toml",
+        "bin/Workspace.vapor.toml",
         "[root]\nname = \"wrong\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -126,14 +126,14 @@ fn installation_discovery_requires_manifest_at_app_root() {
 
     assert!(error.contains("missing its root manifest"), "{error}");
     assert!(error.contains("expected:"), "{error}");
-    assert!(error.contains("Vapor.toml"), "{error}");
+    assert!(error.contains("App.vapor.toml"), "{error}");
 }
 
 #[test]
 fn installation_discovery_rejects_vapor_at_app_root() {
     let installation = TestTree::new("installation-root-binary");
     installation.write(
-        manifest::FILE_NAME,
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("vapor", "binary");
@@ -153,14 +153,14 @@ fn installation_discovery_rejects_vapor_at_app_root() {
 
 #[test]
 fn rejects_source_inside_the_installation() {
-    let (installation, executable) = installation_fixture();
+    let (installation, executable) = sample_installation();
     fs::create_dir_all(installation.root().join("source")).unwrap();
 
     let error =
         EnvironmentPaths::from_paths(&executable, &installation.root().join("source")).unwrap_err();
 
     assert!(
-        error.contains("no external source root is selected"),
+        error.contains("not inside an external Vapor source root"),
         "{error}"
     );
 }
@@ -169,7 +169,7 @@ fn rejects_source_inside_the_installation() {
 fn rejects_source_build_as_a_candidate_app_root() {
     let tree = TestTree::new("source-build");
     tree.write(
-        manifest::FILE_NAME,
+        manifest::WORKSPACE_FILE_NAME,
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
     let executable = tree.write("target/debug/vapor", "binary");
@@ -184,14 +184,14 @@ fn rejects_source_build_as_a_candidate_app_root() {
 
 #[test]
 fn escalates_from_shell_repo_to_containing_vapor_root() {
-    let (_installation, executable) = installation_fixture();
+    let (_installation, executable) = sample_installation();
     let source = TestTree::new("superproject-source");
     source.write(
-        manifest::FILE_NAME,
+        manifest::APP_SOURCE_FILE_NAME,
         "[root]\nname = \"vapor-root\"\norganization = \"example\"\n",
     );
     source.write(
-        "Vapor-Shell/Vapor.toml",
+        "Vapor-Shell/Workspace.vapor.toml",
         "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\n",
     );
     fs::create_dir_all(source.root().join("Vapor-Shell/crates/vapor_shell")).unwrap();
@@ -207,15 +207,15 @@ fn escalates_from_shell_repo_to_containing_vapor_root() {
 
 #[test]
 fn explicit_source_path_can_select_nested_workspace_root() {
-    let (_installation, executable) = installation_fixture();
+    let (_installation, executable) = sample_installation();
     let installation = InstallationPaths::from_executable(&executable).unwrap();
     let source = TestTree::new("nested-workspace-source");
     source.write(
-        manifest::FILE_NAME,
+        manifest::APP_SOURCE_FILE_NAME,
         "[root]\nname = \"vapor-root\"\norganization = \"example\"\n",
     );
     source.write(
-        "Vapor-Examples/Vapor.toml",
+        "Vapor-Examples/Workspace.vapor.toml",
         "[workspace]\nname = \"vapor-examples\"\norganization = \"example\"\n",
     );
     source.write(
@@ -241,16 +241,19 @@ fn explicit_source_path_can_select_nested_workspace_root() {
 }
 
 #[test]
-fn rejects_standalone_project_repo() {
-    let (_installation, executable) = installation_fixture();
+fn rejects_workspace_filename_with_content_section() {
+    let (_installation, executable) = sample_installation();
     let installation = InstallationPaths::from_executable(&executable).unwrap();
     let source = TestTree::new("standalone-shell-source");
-    source.write(manifest::FILE_NAME, "[project]\nname = \"vapor-shell\"\n");
+    source.write(
+        manifest::WORKSPACE_FILE_NAME,
+        "[engine]\nname = \"vapor-shell\"\n",
+    );
 
     let error = SourceWorkspace::from_invocation(source.root(), &installation).unwrap_err();
 
     assert!(
-        error.contains("cannot be the source root identity"),
+        error.contains("Workspace.vapor.toml requires [workspace]"),
         "{error}"
     );
 }
@@ -258,19 +261,16 @@ fn rejects_standalone_project_repo() {
 #[test]
 fn rejects_installation_whose_highest_marker_is_content() {
     let tree = TestTree::new("content-installation");
-    tree.write(manifest::FILE_NAME, "[engine]\nname = \"engine\"\n");
+    tree.write(manifest::APP_FILE_NAME, "[engine]\nname = \"engine\"\n");
     let executable = tree.write("bin/vapor", "binary");
 
     let error = InstallationPaths::from_executable(&executable).unwrap_err();
-    assert!(
-        error.contains("cannot be the source root identity"),
-        "{error}"
-    );
+    assert!(error.contains("App.vapor.toml requires [root]"), "{error}");
 }
 
 #[test]
 fn rejects_invocation_outside_a_source_root() {
-    let (_installation, executable) = installation_fixture();
+    let (_installation, executable) = sample_installation();
     let installation = InstallationPaths::from_executable(&executable).unwrap();
     let source = TestTree::new("no-source-workspace");
 

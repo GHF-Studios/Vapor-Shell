@@ -27,10 +27,11 @@ output/content/
 └── receipts/                    package, acquire, install, publish, repair receipts
 ```
 
-`Vapor.toml` is also the content metadata carrier. In a source workspace it
-holds authoring intent: content role, version policy, dependencies, conflicts,
-composition, AppID, PublishedFileId when one exists, visibility, title, tags,
-update intent, and declared runtime outputs such as `binaries` and `libraries`.
+Role-specific content manifests are the content metadata carriers. In a source
+workspace they hold authoring intent: content role, version policy,
+dependencies, conflicts, composition, AppID, PublishedFileId when one exists,
+visibility, title, tags, update intent, and declared runtime outputs such as
+`binaries` and `libraries`.
 Source content is only content when its child path is registered by the
 workspace manifest:
 
@@ -39,23 +40,25 @@ workspace manifest:
 path = "spacetime-engine"
 ```
 
-The child `Vapor.toml` owns the content role and metadata; the workspace
+The child role manifest, for example `Engine.vapor.toml` or
+`Packagepack.vapor.toml`, owns the content role and metadata; the workspace
 registration owns membership in the workspace. Vapor does not recursively guess
 content membership from every nested manifest it finds.
 
 When `content package` stages an artifact, Vapor writes a resolved deployed
-`Vapor.toml` into the artifact root and copies declared runtime outputs into
-target-specific `bin/<target>/` and `lib/<target>/` directories so the installed
-or Workshop-downloaded artifact remains self-describing without becoming a
-standalone source workspace. The deployed manifest records the actual staged
-files under `[[engine.runtime]]`, `[[game.runtime]]`, or the matching content
-section. Fingerprints, installed paths, cache observations, locks, receipts, and
-repair diagnostics are generated state and stay under the app root.
+role-specific manifest into the artifact root and copies declared runtime
+outputs into target-specific `bin/<target>/` and `lib/<target>/` directories so
+the installed or Workshop-downloaded artifact remains self-describing without
+becoming a standalone source workspace. The deployed manifest records the
+actual staged files under `[[engine.runtime]]`, `[[game.runtime]]`, or the
+matching content section. Fingerprints, installed paths, cache observations,
+locks, receipts, and repair diagnostics are generated state and stay under the
+app root.
 
 `content build`, `content deploy`, and `content package` accept
 `--target TARGET` for explicit platform output such as
 `x86_64-pc-windows-gnullvm`. When `[workspace.runtime].targets` is declared in
-the source `Vapor.toml`, omitting target flags uses that full matrix by
+`Workspace.vapor.toml`, omitting target flags uses that full matrix by
 default. `--release-targets` is accepted as an explicit spelling of the same
 manifest-matrix behavior.
 `content package`, `content create`, and `content publish` may repeat
@@ -64,6 +67,10 @@ for quick local smoke passes that should read the normal app-local Cargo output
 directory. Manifest or explicit targets read from
 `output/dev/<workspace>/<target>/debug/` and stage files under the same target
 name inside the deployed content root.
+For real Workshop create/publish, the custom target flags are disabled: Vapor
+requires the declared workspace runtime matrix to include both Linux and
+Windows, then validates and builds that matrix before packaging and upload.
+Custom subsets and host-only staging are preview/local paths only.
 
 This is the release shape for Workshop content. A Workshop item represents one
 logical content artifact and may carry every shipped runtime target under the
@@ -120,7 +127,8 @@ ghf-studios/loo-cast/loo-cast-game
 ghf-studios/loo-cast/loo-cast-packagepack
 ```
 
-They are registered in `Loo-Cast/Vapor.toml` under `[[workspace.projects]]`.
+They are registered in `Loo-Cast/Workspace.vapor.toml` under
+`[[workspace.projects]]`.
 Prototype/demo content belongs in `Vapor-Examples`, not in this product
 workspace.
 

@@ -4,9 +4,10 @@ Command scripts expose repeatable REPL sequences through the script direct CLI
 facade: `vapor script run NAME`. Startup scripts use the same files and grammar
 through `vapor --startup-script NAME`, then keep the interactive shell open.
 
-Store source-controlled scripts at `.vapor/scripts/NAME.vapor`. Runtime app
-scripts can also be shipped in the installed app's `.vapor/scripts/` directory
-for Steam launch entries that must work before any source is open:
+Store source-controlled scripts at
+`resources/vapor/vapor-scripts/NAME.vapor`. Runtime app scripts can also be
+shipped in the installed app's `resources/vapor/vapor-scripts/` directory for
+Steam launch entries that must work before any source is open:
 
 ```text
 # One normal Vapor command per line.

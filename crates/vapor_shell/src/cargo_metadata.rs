@@ -4,8 +4,9 @@
 //!
 //! [`cargo metadata`](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html)
 //! reports Cargo packages, targets, the Cargo workspace root, and target
-//! directory. That data is useful but rebuildable. `Vapor.toml` remains the
-//! authority for Vapor workspace and content identity.
+//! directory. That data is useful but rebuildable. Role-specific
+//! `*.vapor.toml` files remain the authority for Vapor workspace and content
+//! identity.
 //!
 //! # Runtime behavior
 //!

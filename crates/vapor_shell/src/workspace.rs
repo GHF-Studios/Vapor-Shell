@@ -1,10 +1,10 @@
-//! Source-root policy loaded from `Vapor.toml` and adjacent source structure.
+//! Source-root policy loaded from Vapor manifests and adjacent source structure.
 //!
 //! `[root]` repositories are pure Vapor super-repositories; their direct Git
 //! submodules provide Cargo workspaces. `[workspace]` repositories are normal
-//! Vapor/Cargo workspaces rooted in the same directory. Vapor-managed projects
-//! inside a workspace are registered by the workspace manifest instead of being
-//! inferred from arbitrary nested `Vapor.toml` files.
+//! Vapor/Cargo workspaces rooted in the same directory. Vapor-managed content
+//! artifacts inside a workspace are registered by the workspace manifest instead
+//! of being inferred from arbitrary nested Vapor manifest files.
 
 use crate::{
     discovery::EnvironmentPaths,
@@ -48,7 +48,7 @@ pub struct CargoProject {
     binaries: Vec<String>,
 }
 
-/// One Vapor-managed child project registered by a workspace.
+/// One Vapor-managed child content artifact registered by a workspace.
 #[derive(Debug, Clone)]
 pub struct WorkspaceProject {
     path: PathBuf,
@@ -58,11 +58,9 @@ pub struct WorkspaceProject {
     kind: WorkspaceProjectKind,
 }
 
-/// Canonical role of a registered workspace project.
+/// Canonical role of a registered workspace child.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceProjectKind {
-    /// Non-content local project.
-    Project,
     /// Content artifact project.
     Content(ContentKind),
 }
@@ -77,7 +75,7 @@ impl WorkspaceManifest {
     /// mismatch with startup discovery.
     pub fn load(paths: &EnvironmentPaths) -> Result<Self, String> {
         let source_root = paths.source().root();
-        let marker = source_root.join(manifest::FILE_NAME);
+        let marker = manifest::source_root_marker(source_root)?;
         let entity = manifest::read(&marker, source_root)?;
         let (kind, id, name, organization) = match entity {
             VaporEntity::Root {
@@ -92,9 +90,6 @@ impl WorkspaceManifest {
             } => (SourceRootKind::Workspace, id, name, organization),
             VaporEntity::Registry { id, .. } => {
                 return Err(format!("registry '{id}' is not a buildable source root"));
-            }
-            VaporEntity::Project { id, .. } => {
-                return Err(format!("project '{id}' is not a source root"));
             }
             VaporEntity::Content { kind, id, .. } => {
                 return Err(format!("{kind} '{id}' is not a source root"));
@@ -219,10 +214,9 @@ impl WorkspaceProject {
 
 impl WorkspaceProjectKind {
     /// Return the content kind when this project is a content artifact.
-    pub fn content_kind(self) -> Option<ContentKind> {
+    pub fn content_kind(self) -> ContentKind {
         match self {
-            Self::Project => None,
-            Self::Content(kind) => Some(kind),
+            Self::Content(kind) => kind,
         }
     }
 }
@@ -230,7 +224,6 @@ impl WorkspaceProjectKind {
 impl std::fmt::Display for WorkspaceProjectKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Project => formatter.write_str("project"),
             Self::Content(kind) => write!(formatter, "{kind}"),
         }
     }
@@ -250,7 +243,7 @@ fn discover_workspace_cargo(root: &Path, name: &str) -> Result<Vec<CargoProject>
         name: name.to_owned(),
         manifest,
         documentation: true,
-        binaries: workspace_binaries(&root.join(manifest::FILE_NAME))?,
+        binaries: workspace_binaries(&manifest::source_root_marker(root)?)?,
     }])
 }
 
@@ -307,16 +300,18 @@ fn validate_runtime_targets(path: &Path, targets: Vec<String>) -> Result<Vec<Str
 }
 
 fn discover_root_cargo_workspaces(root: &Path) -> Result<Vec<CargoProject>, String> {
-    submodule_paths(root)?
+    root_cargo_workspace_paths(root)?
         .into_iter()
         .filter_map(|path| {
             let cargo_manifest = root.join(&path).join("Cargo.toml");
             cargo_manifest.is_file().then_some(path)
         })
         .map(|path| {
-            let marker = root.join(&path).join(manifest::FILE_NAME);
-            let name = if marker.is_file() {
-                match manifest::read(&marker, root)? {
+            let marker = manifest::source_root_marker_candidates(&root.join(&path))
+                .into_iter()
+                .find(|marker| marker.is_file());
+            let name = if let Some(marker) = &marker {
+                match manifest::read(marker, root)? {
                     VaporEntity::Workspace { name, .. } => name,
                     VaporEntity::Root { id, .. } => {
                         return Err(format!(
@@ -327,12 +322,6 @@ fn discover_root_cargo_workspaces(root: &Path) -> Result<Vec<CargoProject>, Stri
                     VaporEntity::Registry { id, .. } => {
                         return Err(format!(
                             "root submodule '{}' declares registry '{id}'; direct app children must be [workspace]",
-                            path.display()
-                        ));
-                    }
-                    VaporEntity::Project { id, .. } => {
-                        return Err(format!(
-                            "root submodule '{}' declares project '{id}'; direct app children must be [workspace]",
                             path.display()
                         ));
                     }
@@ -350,8 +339,8 @@ fn discover_root_cargo_workspaces(root: &Path) -> Result<Vec<CargoProject>, Stri
                     .to_ascii_lowercase()
             };
 
-            let binaries = if marker.is_file() {
-                workspace_binaries(&marker)?
+            let binaries = if let Some(marker) = &marker {
+                workspace_binaries(marker)?
             } else {
                 Vec::new()
             };
@@ -366,6 +355,34 @@ fn discover_root_cargo_workspaces(root: &Path) -> Result<Vec<CargoProject>, Stri
         .collect()
 }
 
+fn root_cargo_workspace_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut paths = submodule_paths(root)?;
+    let mut local = fs::read_dir(root)
+        .map_err(|error| format!("failed to read root source '{}': {error}", root.display()))?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            (name == "Vapor" || name.starts_with("Vapor-")).then(|| PathBuf::from(name.as_ref()))
+        })
+        .filter(|path| {
+            root.join(path)
+                .join(manifest::WORKSPACE_FILE_NAME)
+                .is_file()
+                && root.join(path).join("Cargo.toml").is_file()
+        })
+        .collect::<Vec<_>>();
+    local.sort();
+    for path in local {
+        validate_relative(&path)?;
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    Ok(paths)
+}
+
 fn workspace_binaries(marker: &Path) -> Result<Vec<String>, String> {
     let policy = read_workspace_policy(marker)?;
     validate_binary_names(&policy.binaries, marker)?;
@@ -373,7 +390,7 @@ fn workspace_binaries(marker: &Path) -> Result<Vec<String>, String> {
 }
 
 fn discover_workspace_projects(root: &Path) -> Result<Vec<WorkspaceProject>, String> {
-    let marker = root.join(manifest::FILE_NAME);
+    let marker = manifest::source_root_marker(root)?;
     read_workspace_policy(&marker)?
         .projects
         .into_iter()
@@ -393,22 +410,28 @@ fn load_workspace_project(
             project.path.display()
         ));
     }
-    let manifest = project.path.join(manifest::FILE_NAME);
-    let marker = root.join(&manifest);
-    if !marker.is_file() {
+    let Some(marker) = manifest::content_marker_at(&absolute) else {
         return Err(format!(
-            "registered workspace project '{}' is missing {}",
+            "registered workspace project '{}' is missing a role-specific content manifest",
             project.path.display(),
-            manifest::FILE_NAME
         ));
-    }
+    };
+    let manifest = marker
+        .strip_prefix(root)
+        .map_err(|error| {
+            format!(
+                "registered workspace project manifest '{}' is outside source root '{}': {error}",
+                marker.display(),
+                root.display()
+            )
+        })?
+        .to_path_buf();
     let entity = manifest::read(&marker, root)?;
     let (id, name, kind) = match entity {
-        VaporEntity::Project { id, name } => (id, name, WorkspaceProjectKind::Project),
         VaporEntity::Content { kind, id, name } => (id, name, WorkspaceProjectKind::Content(kind)),
         VaporEntity::Root { id, .. } => {
             return Err(format!(
-                "registered workspace project '{}' declares root '{id}'; workspace projects must use [project] or a content section",
+                "registered workspace project '{}' declares root '{id}'; workspace projects must use a content manifest",
                 project.path.display()
             ));
         }

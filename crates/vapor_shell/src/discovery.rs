@@ -160,7 +160,7 @@ impl InstallationPaths {
     ///
     /// The executable must be laid out as `<app-root>/bin/vapor[.exe]` or
     /// `<app-root>/bin/<target>/vapor[.exe]`.
-    /// `<app-root>/Vapor.toml` must declare `[root]`.
+    /// `<app-root>/App.vapor.toml` must declare `[root]`.
     ///
     /// # Errors
     ///
@@ -220,14 +220,14 @@ impl InstallationPaths {
             ));
         }
         let root = candidate_root;
-        let marker = root.join(manifest::FILE_NAME);
+        let marker = root.join(manifest::APP_FILE_NAME);
         if !marker.is_file() {
             return Err(format!(
                 "the installed Vapor application is missing its root manifest\n  executable: {}\n  app root:   {}\n  expected:   {}\nhelp: install or bootstrap the app root with a [root] {} beside bin/",
                 executable.display(),
                 root.display(),
                 marker.display(),
-                manifest::FILE_NAME
+                manifest::APP_FILE_NAME
             ));
         }
         let identity_id = require_installation_marker(&marker, &root)?;
@@ -282,7 +282,7 @@ impl InstallationPaths {
         self.cargo.as_deref()
     }
 
-    /// Rescan the installation for Cargo after an explicit self-setup install.
+    /// Rescan the installation for Cargo after installer-managed tools change.
     pub fn bundled_cargo(&self) -> Option<PathBuf> {
         bundled_cargo_candidates(&self.root)
             .into_iter()
@@ -320,7 +320,7 @@ impl SourceWorkspace {
             format!(
                     "'{}' is not inside an external Vapor source root: no {} exists in any ancestor\nhelp: invoke Vapor from a source repository, not from the Steam app directory",
                 invocation.display(),
-                manifest::FILE_NAME
+                manifest::WORKSPACE_FILE_NAME
             )
         })?;
         Self::from_marker(invocation, marker, installation)
@@ -329,9 +329,9 @@ impl SourceWorkspace {
     /// Discover a source root from an explicit source selection.
     ///
     /// If the selected directory itself contains a top-level `[workspace]` or
-    /// `[root]` `Vapor.toml`, that directory is the source root. Otherwise this
-    /// falls back to ambient invocation discovery so selecting a content/project
-    /// child still resolves to its owning source root.
+    /// `[root]` source marker, that directory is the source root. Otherwise this
+    /// falls back to ambient invocation discovery so selecting a content child
+    /// still resolves to its owning source root.
     ///
     /// # Errors
     ///
@@ -418,20 +418,13 @@ pub fn ensure_contained(root: &Path, candidate: &Path) -> Result<(), String> {
 }
 
 fn highest_marker(start: &Path) -> Option<PathBuf> {
-    start
-        .ancestors()
-        .filter_map(|directory| {
-            let marker = directory.join(manifest::FILE_NAME);
-            marker.is_file().then_some(marker)
-        })
-        .last()
+    start.ancestors().filter_map(source_marker_at).last()
 }
 
 fn exact_source_marker(start: &Path) -> Result<Option<PathBuf>, String> {
-    let marker = start.join(manifest::FILE_NAME);
-    if !marker.is_file() {
+    let Some(marker) = source_marker_at(start) else {
         return Ok(None);
-    }
+    };
     let source = fs::read_to_string(&marker)
         .map_err(|error| format!("failed to read '{}': {error}", marker.display()))?;
     if has_top_level_table(&source, "root") || has_top_level_table(&source, "workspace") {
@@ -439,6 +432,17 @@ fn exact_source_marker(start: &Path) -> Result<Option<PathBuf>, String> {
     } else {
         Ok(None)
     }
+}
+
+fn source_marker_at(directory: &Path) -> Option<PathBuf> {
+    [
+        manifest::APP_SOURCE_FILE_NAME,
+        manifest::WORKSPACE_FILE_NAME,
+        manifest::REGISTRY_FILE_NAME,
+    ]
+    .into_iter()
+    .map(|name| directory.join(name))
+    .find(|marker| marker.is_file())
 }
 
 fn has_top_level_table(source: &str, expected: &str) -> bool {
@@ -465,10 +469,6 @@ fn require_installation_marker(marker: &Path, root: &Path) -> Result<String, Str
             "highest Vapor manifest '{}' describes workspace '{id}', not the Steam installation/app root; the installation must contain [root]",
             marker.display()
         )),
-        VaporEntity::Project { id, .. } => Err(format!(
-            "highest Vapor manifest '{}' describes project '{id}', not the Steam installation/app root; the installation must contain [root]",
-            marker.display()
-        )),
         VaporEntity::Content { kind, id, .. } => Err(format!(
             "highest Vapor manifest '{}' describes {kind} '{id}', not the Steam installation/app root; the installation must contain [root]",
             marker.display()
@@ -481,10 +481,6 @@ fn require_source_marker(marker: &Path, root: &Path) -> Result<String, String> {
         VaporEntity::Root { id, .. } | VaporEntity::Workspace { id, .. } => Ok(id),
         VaporEntity::Registry { id, .. } => Err(format!(
             "highest Vapor manifest '{}' describes registry '{id}', not a source root; open a [root] or [workspace] repository",
-            marker.display()
-        )),
-        VaporEntity::Project { id, .. } => Err(format!(
-            "highest Vapor manifest '{}' describes project '{id}', not a source root; projects must live inside a [workspace] repository",
             marker.display()
         )),
         VaporEntity::Content { kind, id, .. } => Err(format!(

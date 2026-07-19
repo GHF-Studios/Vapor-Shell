@@ -1,17 +1,17 @@
+#![cfg(unix)]
+
 mod common;
 
 use common::TestTree;
 use std::fs;
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use vapor_shell::{discovery::EnvironmentPaths, documentation, workspace::WorkspaceManifest};
 
-#[cfg(unix)]
 #[test]
 fn docs_build_copies_linked_markdown_docs_next_to_crate_pages() {
     let installation = TestTree::new("docs-installation");
     installation.write(
-        "Vapor.toml",
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
@@ -19,7 +19,7 @@ fn docs_build_copies_linked_markdown_docs_next_to_crate_pages() {
 
     let source = TestTree::new("docs-source");
     source.write(
-        "Vapor.toml",
+        "Workspace.vapor.toml",
         "[workspace]\nname = \"vapor-shell\"\norganization = \"example\"\n",
     );
     source.write("Cargo.toml", "[workspace]\nresolver = \"3\"\n");
@@ -37,7 +37,6 @@ fn docs_build_copies_linked_markdown_docs_next_to_crate_pages() {
     );
 }
 
-#[cfg(unix)]
 fn write_fake_cargo(tree: &TestTree, relative: &str) {
     let path = tree.write(
         relative,

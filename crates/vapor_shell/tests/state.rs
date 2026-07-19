@@ -5,17 +5,17 @@ use vapor_shell::{
     cargo_metadata::CargoIndex, discovery::EnvironmentPaths, manifest, state::ShellState,
 };
 
-fn fixture() -> (TestTree, TestTree, ShellState) {
+fn sample_shell_state() -> (TestTree, TestTree, ShellState) {
     let installation = TestTree::new("state-installation");
     installation.write(
-        manifest::FILE_NAME,
+        "App.vapor.toml",
         "[root]\nname = \"installation\"\norganization = \"example\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
 
     let source = TestTree::new("state-source");
     source.write(
-        manifest::FILE_NAME,
+        manifest::WORKSPACE_FILE_NAME,
         "[workspace]\nname = \"source\"\norganization = \"example\"\n",
     );
 
@@ -26,7 +26,7 @@ fn fixture() -> (TestTree, TestTree, ShellState) {
 
 #[test]
 fn source_open_anchors_context_at_the_source_root() {
-    let (_installation, source, state) = fixture();
+    let (_installation, source, state) = sample_shell_state();
 
     assert_eq!(state.current_dir().unwrap(), source.root());
     assert_eq!(state.source().unwrap().id(), "example/source");
@@ -36,7 +36,7 @@ fn source_open_anchors_context_at_the_source_root() {
 
 #[test]
 fn source_close_removes_source_backed_context() {
-    let (_installation, _source, mut state) = fixture();
+    let (_installation, _source, mut state) = sample_shell_state();
 
     state.close_source();
 

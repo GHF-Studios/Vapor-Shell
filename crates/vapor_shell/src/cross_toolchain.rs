@@ -6,7 +6,6 @@ use std::{
 
 pub(crate) const LINUX_GNU_TARGET: &str = "x86_64-unknown-linux-gnu";
 pub(crate) const WINDOWS_GNU_TARGET: &str = "x86_64-pc-windows-gnullvm";
-pub(crate) const RELEASE_RUST_TARGETS: &[&str] = &[LINUX_GNU_TARGET, WINDOWS_GNU_TARGET];
 
 const ZIG_LINKER_TARGETS: &[(&str, &str)] = &[(LINUX_GNU_TARGET, "x86_64-linux-gnu")];
 const WINDOWS_RUNTIME_DLLS: &[&str] = &["libunwind.dll"];
@@ -73,13 +72,6 @@ pub(crate) fn configure_linker_env(
     Ok(())
 }
 
-pub(crate) fn write_wrappers(root: &Path) -> Result<(), String> {
-    for (rust_target, zig_target) in ZIG_LINKER_TARGETS {
-        write_wrapper(root, rust_target, zig_target)?;
-    }
-    Ok(())
-}
-
 pub(crate) fn copy_windows_runtime_dlls(
     root: &Path,
     target: &str,
@@ -102,7 +94,7 @@ pub(crate) fn copy_windows_runtime_dlls(
         let source = source_directory.join(dll);
         if !source.is_file() {
             return Err(format!(
-                "cannot stage Windows runtime DLL '{dll}': missing {}\nhelp: run `setup self install` or `setup self repair` to install app-local llvm-mingw",
+                "cannot stage Windows runtime DLL '{dll}': missing {}\nhelp: run `vapor-installer dev-env install --app-root <app-root>` to install app-local llvm-mingw",
                 source.display()
             ));
         }
@@ -155,7 +147,7 @@ fn require_ready(root: &Path, target: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "cannot build target {target}: app-local cross toolchains are missing\nmissing entries:\n  - {}\nhelp: run `setup self install` or `setup self repair` from Vapor Shell\nnote: cross-target builds use portable toolchains from the Steam app root",
+        "cannot build target {target}: app-local cross toolchains are missing\nmissing entries:\n  - {}\nhelp: run `vapor-installer dev-env install --app-root <app-root>`\nnote: cross-target builds use portable toolchains from the Steam app root",
         status.missing.join("\n  - ")
     ))
 }
@@ -173,27 +165,6 @@ fn cargo_linker_env(target: &str) -> String {
         "CARGO_TARGET_{}_LINKER",
         target.replace('-', "_").to_ascii_uppercase()
     )
-}
-
-fn write_wrapper(root: &Path, rust_target: &str, zig_target: &str) -> Result<(), String> {
-    let path = zig_linker_path(root, rust_target);
-    ensure_contained(root, &path)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create '{}': {error}", parent.display()))?;
-    }
-    let source = if cfg!(windows) {
-        format!(
-            "@echo off\r\nset \"SELF_DIR=%~dp0\"\r\nset \"ZIG=%SELF_DIR%..\\..\\zig\\zig.exe\"\r\n\"%ZIG%\" cc -target {zig_target} %*\r\n"
-        )
-    } else {
-        format!(
-            "#!/bin/sh\nset -eu\nself_dir=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nzig=\"$self_dir/../../zig/zig\"\nexec \"$zig\" cc -target {zig_target} \"$@\"\n"
-        )
-    };
-    fs::write(&path, source)
-        .map_err(|error| format!("failed to write '{}': {error}", path.display()))?;
-    make_executable(&path)
 }
 
 fn host_runtime_target() -> String {
@@ -230,19 +201,4 @@ fn is_executable(path: &Path) -> bool {
     {
         true
     }
-}
-
-fn make_executable(path: &Path) -> Result<(), String> {
-    let _ = path;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut permissions = fs::metadata(path)
-            .map_err(|error| format!("failed to inspect '{}': {error}", path.display()))?
-            .permissions();
-        permissions.set_mode(permissions.mode() | 0o755);
-        fs::set_permissions(path, permissions)
-            .map_err(|error| format!("failed to make '{}' executable: {error}", path.display()))?;
-    }
-    Ok(())
 }

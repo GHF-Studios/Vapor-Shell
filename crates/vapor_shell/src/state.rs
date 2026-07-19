@@ -73,7 +73,7 @@ impl ContentContext {
         self.kind
     }
 
-    /// Directory containing this content's `Vapor.toml`.
+    /// Directory containing this content's Vapor manifest.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -107,7 +107,7 @@ impl ShellState {
     ///
     /// # Errors
     ///
-    /// Fails only when the authoritative source `Vapor.toml` is invalid. Cargo
+    /// Fails only when the authoritative source Vapor manifest is invalid. Cargo
     /// metadata failure is retained as [`CargoIndex::Unavailable`].
     pub fn new(paths: EnvironmentPaths) -> Result<Self, String> {
         let mut state = Self::closed(paths.installation().clone());
@@ -119,10 +119,10 @@ impl ShellState {
     ///
     /// # Errors
     ///
-    /// Fails when the authoritative source `Vapor.toml` is invalid.
+    /// Fails when the authoritative source Vapor manifest is invalid.
     pub fn open_paths(&mut self, paths: EnvironmentPaths) -> Result<Vec<String>, String> {
         let source_root = paths.source().root();
-        let marker = source_root.join(manifest::FILE_NAME);
+        let marker = manifest::source_root_marker(source_root)?;
         let source = match manifest::read(&marker, source_root)? {
             VaporEntity::Root { id, .. } => SourceContext {
                 kind: SourceRootKind::Root,
@@ -138,9 +138,6 @@ impl ShellState {
                 return Err(format!(
                     "source root unexpectedly describes registry '{id}'"
                 ));
-            }
-            VaporEntity::Project { id, .. } => {
-                return Err(format!("source root unexpectedly describes project '{id}'"));
             }
             VaporEntity::Content { kind, id, .. } => {
                 return Err(format!(
@@ -207,7 +204,7 @@ impl ShellState {
         &self.cargo
     }
 
-    /// Rebuild Cargo-derived state after an explicit self-setup installation.
+    /// Rebuild Cargo-derived state after installer-managed tools change.
     pub fn refresh_cargo_index(&mut self) {
         self.cargo = self
             .paths
@@ -256,8 +253,16 @@ impl ShellState {
                 break;
             }
 
-            let marker = directory.join(manifest::FILE_NAME);
-            if marker.is_file() {
+            let mut markers = Vec::new();
+            if let Some(marker) = manifest::content_marker_at(directory) {
+                markers.push(marker);
+            }
+            markers.extend(
+                manifest::source_root_marker_candidates(directory)
+                    .into_iter()
+                    .filter(|marker| marker.is_file()),
+            );
+            for marker in markers {
                 match manifest::read(&marker, source.root()) {
                     Ok(VaporEntity::Content { kind, id, .. }) if self.content.is_none() => {
                         self.content = Some(ContentContext {
@@ -286,7 +291,6 @@ impl ShellState {
                         ));
                     }
                     Ok(VaporEntity::Registry { .. }) => {}
-                    Ok(VaporEntity::Project { .. }) => {}
                     Ok(_) => {}
                     Err(error) => warnings.push(error),
                 }

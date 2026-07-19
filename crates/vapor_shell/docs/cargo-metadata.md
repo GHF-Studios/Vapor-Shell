@@ -7,14 +7,14 @@ different shapes.
 
 ```text
 normal workspace/
-├── Vapor.toml    # [workspace]
+├── Workspace.vapor.toml    # [workspace]
 └── Cargo.toml    # Cargo workspace
 
 app root/
-├── Vapor.toml    # [root]
+├── App-Source.vapor.toml    # [root]
 ├── .gitmodules
 └── Vapor-Shell/
-    ├── Vapor.toml    # [workspace]
+    ├── Workspace.vapor.toml    # [workspace]
     └── Cargo.toml
 ```
 
@@ -22,15 +22,19 @@ app root/
 Cargo workspace; its direct submodules that declare `[workspace]` and contain
 `Cargo.toml` are routed as Cargo workspaces.
 
-Inside a Cargo workspace, `[project]` and content `Vapor.toml` files describe
-Cargo packages/content packages. They are not standalone source roots.
+Inside a Cargo workspace, role-specific content manifests describe Vapor
+content packages. Ordinary non-content crates are described by Cargo only. They
+are not standalone source roots.
 
 ## Separate authorities
 
 The word *manifest* must always be qualified in documentation and diagnostics:
 
-- `Vapor.toml` is the Vapor manifest. It owns Vapor identity, content
-  composition, Steam app policy, and workflow intent.
+- Vapor manifests own Vapor identity, content composition, Steam app policy,
+  and workflow intent. Application source roots use
+  `App-Source.vapor.toml`; installed app roots use `App.vapor.toml`; ordinary
+  workspaces use `Workspace.vapor.toml`; content artifacts use role-specific
+  filenames such as `Engine.vapor.toml` or `Packagepack.vapor.toml`.
 - `Cargo.toml` is the Cargo manifest. It owns Rust packages, crates, features,
   dependencies, targets, profiles, and Cargo workspace policy.
 

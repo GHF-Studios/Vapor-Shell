@@ -368,36 +368,46 @@ enum ValidationStep {
 }
 
 impl ValidationStep {
-    fn label(self) -> &'static str {
+    fn label(self, target_triple: Option<&str>) -> &'static str {
         match self {
             Self::Workflow(workflow) => workflow.label(),
             Self::FmtCheck => "fmt --check",
             Self::Check => "check",
-            Self::Test => "test",
+            Self::Test if runs_tests(target_triple) => "test",
+            Self::Test => "test --no-run",
             Self::Clippy => "clippy",
             Self::Doc => "doc",
         }
     }
 
-    fn args(self) -> (&'static [&'static str], &'static [&'static str]) {
+    fn args(self, target_triple: Option<&str>) -> (Vec<&'static str>, &'static [&'static str]) {
         match self {
-            Self::Workflow(CargoWorkflow::Fmt) => (&["fmt", "--all"], &[]),
-            Self::Workflow(CargoWorkflow::Check) | Self::Check => {
-                (&["check", "--workspace", "--all-targets", "--locked"], &[])
-            }
+            Self::Workflow(CargoWorkflow::Fmt) => (vec!["fmt", "--all"], &[]),
+            Self::Workflow(CargoWorkflow::Check) | Self::Check => (
+                vec!["check", "--workspace", "--all-targets", "--locked"],
+                &[],
+            ),
             Self::Workflow(CargoWorkflow::Test) | Self::Test => {
-                (&["test", "--workspace", "--all-targets", "--locked"], &[])
+                let mut args = vec!["test", "--workspace", "--all-targets", "--locked"];
+                if !runs_tests(target_triple) {
+                    args.push("--no-run");
+                }
+                (args, &[])
             }
-            Self::Workflow(CargoWorkflow::Build) => (&["build", "--workspace", "--locked"], &[]),
+            Self::Workflow(CargoWorkflow::Build) => (vec!["build", "--workspace", "--locked"], &[]),
             Self::Workflow(CargoWorkflow::Validate) => unreachable!("validate expands into steps"),
-            Self::FmtCheck => (&["fmt", "--all"], &["--check"]),
+            Self::FmtCheck => (vec!["fmt", "--all"], &["--check"]),
             Self::Clippy => (
-                &["clippy", "--workspace", "--all-targets", "--locked"],
+                vec!["clippy", "--workspace", "--all-targets", "--locked"],
                 &["-D", "warnings"],
             ),
-            Self::Doc => (&["doc", "--workspace", "--no-deps", "--locked"], &[]),
+            Self::Doc => (vec!["doc", "--workspace", "--no-deps", "--locked"], &[]),
         }
     }
+}
+
+fn runs_tests(target_triple: Option<&str>) -> bool {
+    target_triple.is_none_or(|target| target == host_runtime_target())
 }
 
 fn run_step(
@@ -417,9 +427,9 @@ fn run_step(
     let installation = paths.installation().root();
     let target = installation.join("output/dev").join(project.name());
 
-    println!("==> {}: {}", project.name(), step.label());
+    println!("==> {}: {}", project.name(), step.label(target_triple));
     let mut command = Command::new(&cargo);
-    let (cargo_args, tool_args) = step.args();
+    let (cargo_args, tool_args) = step.args(target_triple);
     command
         .args(cargo_args)
         .args(["--manifest-path"])
@@ -447,7 +457,7 @@ fn run_step(
     let status = command.status().map_err(|error| {
         format!(
             "failed to run {} for '{}': {error}",
-            step.label(),
+            step.label(target_triple),
             project.name()
         )
     })?;
@@ -456,7 +466,7 @@ fn run_step(
     } else {
         Err(format!(
             "{} failed for project '{}' with {status}",
-            step.label(),
+            step.label(target_triple),
             project.name()
         ))
     }

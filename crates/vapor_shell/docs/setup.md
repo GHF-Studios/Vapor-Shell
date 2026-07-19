@@ -1,102 +1,86 @@
-# Vapor setup
+# Vapor installation
 
-Vapor setup lives inside the Steam installation/app root. Vapor does not
-use system Rust, system SteamCMD, or user-data shim directories as authoritative
+Normal closed-alpha testers should not run manual installer commands before first
+launch. The Steam app starts through the platform launch wrapper, the wrapper
+runs `vapor-installer install`, and Vapor Shell or Play opens after basic
+app-local tooling is ready.
+
+Steam install scripts are not used for this path. Vapor requires one
+cross-platform first-run model; Valve's installscript support is not available
+on Linux/SteamOS, so tying first-run install to `installscript.vdf` would create a
+Windows-only product behavior.
+
+## Installer-owned paths
+
+`Vapor-Installer` owns installation and uninstallation mechanics for the Steam
+app root. Running `vapor-installer` with no arguments opens the visual installer
+for human-driven install, uninstall, and developer-mode upgrade/downgrade
+flows. Steam should expose Vapor Installer as its own launch option through the
+same platform wrapper with the `installer` argument. The headless subcommands
+exist for launch wrappers and automation:
+
+```text
+vapor-installer install
+vapor-installer uninstall
+vapor-installer dev-env install
+vapor-installer dev-env uninstall
+```
+
+The app root is disposable. Installer-managed state under the app root is
+recreateable tooling, caches, logs, receipts, and launch install state.
+Authoritative user progress or account data must live in OS-appropriate user
+data directories, not primarily in the Steam application directory.
+
+The default install prepares player-mode runtime functionality:
+
+- app-local Git under `tools/git`;
+- app-local SteamCMD under `tools/steamcmd`;
+- app-local Vapor-Registry checkout under `.vapor/registry`;
+- app-local generated directories for logs, diagnostics, content cache,
+  installed content state, and Workshop downloads.
+
+It does not install Rust/Cargo, Zig, llvm-mingw, or other general development
 tooling.
 
-There is one mandatory app-local setup:
-
-- Rust/Cargo through app-local `rustup`, `rustup-home`, and `cargo-home`;
-- Git through `tools/git`;
-- SteamCMD through `tools/steamcmd`.
-
-Git must be an app-owned distribution. A script that delegates to host `git`,
-for example `/usr/bin/git`, is rejected by setup health checks and cannot be
-used as a distributable self-setup payload.
-
-The self-setup lifecycle is intentionally small:
-
-- `setup self status` reports app-root registration and installed Rust/Cargo,
-  Git, and SteamCMD health.
-- `setup self install` accepts the current app root, registers its `bin`
-  directory for PATH setup, and installs missing Rust/Cargo, Git, and SteamCMD.
-- `setup self repair` accepts the current app root and reinstalls setup components.
-  Use it after an intentional Steam app move or suspected tool damage.
-- `setup self uninstall` removes app-local tools, PATH registration, and the
-  app-root location record.
-- `setup self package install` and `setup self package repair` populate
-  `packages/setup`, the distributable self-setup payload used by explicit
-  stacked app/depot staging. They are separate from active self-setup
-  installation and are never run implicitly after bootstrap.
-
-No workflow command installs or repairs prerequisites implicitly. Premature
-commands stop with an actionable diagnostic and point to `setup self status`,
-`setup self install`, or `setup self repair`.
-
-Mutating self-setup commands follow Vapor's status-preview-repair model. Use
-`--dry-run` with `setup self install`, `setup self repair`, or `setup
-self uninstall` to preview active tool directories, PATH registration, and
-app-root location changes before applying them.
-
-## App-root registration
-
-Vapor persists the accepted app-root path at:
+Developer-mode upgrade/downgrade is explicit and installer-owned:
 
 ```text
-.vapor/state/vapor-home.toml
+vapor-installer dev-env install --app-root /path/to/steam/app
+vapor-installer dev-env uninstall --app-root /path/to/steam/app
 ```
 
-The file lives inside the app root's `.vapor` metadata area. If Steam moves the
-app, the file moves with it while still recording the previous absolute path.
-`setup self status` reports that mismatch. `setup self repair` is the explicit
-“yes, this move is intended” operation.
+Uninstall is intentionally split between installer-owned state and Steam-owned
+files:
 
-Launching the Shell, SDK GUI, Launcher GUI, or a game never updates this state
-implicitly.
+1. Optional: `vapor-installer dev-env uninstall --app-root /path/to/steam/app`
+   downgrades developer mode back to player mode by removing Rust/Cargo and
+   cross-build tooling.
+2. `vapor-installer uninstall --app-root /path/to/steam/app` removes every
+   installer-owned mutable path: Rust/Cargo and cross-build tooling if present,
+   app-local Git, SteamCMD, `.vapor/registry`, downloads/extracts, generated
+   `.vapor` state, diagnostics/logs, generated `content/` state, and
+   `output/`. It does not remove depot-owned binaries, docs, examples, launch
+   wrappers, scripts, or `App.vapor.toml`.
+3. Steam's uninstall feature removes the depot-owned application files,
+   including Vapor Shell, docs, launch wrappers, and the installer itself.
 
-## Self-Setup Installation
+No uninstall command removes user-authored source checkouts outside the app
+root.
 
-Explicit `setup self install` performs app-local installation into the app root:
+General development commands such as build, validate, package, and publish
+remain Vapor Shell commands. If those commands need Rust/Cargo or cross-build
+tools, they should report the missing development environment and point to the
+installer command above.
 
-- Rust is installed through `rustup-init` with `RUSTUP_HOME` and `CARGO_HOME`
-  pointing inside the app root. Rustup itself is a platform bootstrap
-  executable, but the installed toolchain state is scoped to the Steam app.
-- Git is applied from a complete app-owned `packages/setup/git` payload when
-  one exists. Otherwise Windows setup downloads the portable MinGit zip and
-  extracts it under `tools/git`. Linux setup imports a usable host Git binary
-  into `tools/git`, copies its Git exec-path support files, and replaces
-  delegating scripts with an app-owned launcher.
-- SteamCMD is downloaded as the platform archive and extracted under
-  `tools/steamcmd`.
+## Logging
 
-This is still app-local operation: active tools and build outputs live under the
-Steam app root, no downloaded setup tool runs a system installer, and no
-workflow command performs this installation implicitly.
-
-## Installed layout
-
-The installed setup uses these app-owned paths:
+Installer operations write to:
 
 ```text
-rustup/
-rustup-home/
-cargo-home/
-tools/git/
-tools/steamcmd/
+<app-root>/.vapor/logs/installer.log
 ```
 
-Distributable self-setup payloads live separately:
-
-```text
-packages/setup/
-```
-
-Commands that need Cargo, Git, or SteamCMD validate these installed paths
-directly. If anything is missing, the command stops and tells the operator to run
-`setup self status`, `setup self install`, or `setup self repair`.
-
-Default app/depot staging does not copy `packages/setup`. The setup payload is
-included only for an explicit stacked bootstrap/depot operation such as
-`root package --include-setup-payload` or
-`root publish --include-setup-payload ...`. Populate or refresh those payloads
-explicitly with `setup self package install` or `setup self package repair`.
+If launch-time install fails, the first visible Vapor Shell reports what
+failed, the installer log path, and the exact installer command. For normal
+testers, the preferred recovery is reinstalling the Steam app because the app
+root should contain no authoritative user state.

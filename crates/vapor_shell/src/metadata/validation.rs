@@ -1,13 +1,12 @@
 //! Declarative, command-specific preflight requirements.
 
-use crate::setup_self::SetupSelfRequirement;
+use crate::app_local_tools::AppToolRequirement;
 
 /// Requirements checked before one command performs side effects.
 #[derive(Debug, Clone)]
 pub struct ValidationPlan<'a> {
     pub(super) action: &'a str,
-    pub(super) registered_location: bool,
-    pub(super) setup_self: Vec<SetupSelfRequirement>,
+    pub(super) app_local_tools: Vec<AppToolRequirement>,
     pub(super) workspace: bool,
     pub(super) distribution: bool,
 }
@@ -17,24 +16,16 @@ impl<'a> ValidationPlan<'a> {
     pub fn new(action: &'a str) -> Self {
         Self {
             action,
-            registered_location: false,
-            setup_self: Vec::new(),
+            app_local_tools: Vec::new(),
             workspace: false,
             distribution: false,
         }
     }
 
-    /// Require the executable-derived VAPOR_HOME to match its accepted path.
-    #[must_use]
-    pub fn registered_location(mut self) -> Self {
-        self.registered_location = true;
-        self
-    }
-
     /// Require the selected app-local tool groups.
     #[must_use]
-    pub fn setup_self(mut self, requirements: &[SetupSelfRequirement]) -> Self {
-        self.setup_self.extend_from_slice(requirements);
+    pub fn app_local_tools(mut self, requirements: &[AppToolRequirement]) -> Self {
+        self.app_local_tools.extend_from_slice(requirements);
         self
     }
 

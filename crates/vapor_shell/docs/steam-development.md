@@ -1,98 +1,180 @@
 # Steam development workflow
 
-## Linux installation and PATH
+## Launch and install
 
-Steam does not provide Linux/SteamOS install-script execution. Vapor therefore
-does not attach location mutation to any Steam launch option. The Shell, SDK,
-Launcher, and future game launch entries only launch their configured programs.
+Vapor does not use `installscript.vdf` for first-run app install. Steam install scripts
+are not available on Linux/SteamOS, and Vapor needs one cross-platform first-run
+model for Windows and Linux testers.
 
-After a depot build that includes `.vapor/launch/`, launch the small platform
-wrapper and let it hand off to the installed platform binary:
+## Steamworks app, packages, and depots
 
-- **Linux Play Loo-Cast**: executable `.vapor/launch/linux/vapor.sh`,
+Vapor should publish one app build made from three root depots:
+
+- **common depot**: OS-neutral `App.vapor.toml`, docs, app scripts, and
+  examples.
+  Steamworks OS rule: all operating systems.
+- **linux depot**: Linux launch wrapper and Linux `bin/<target>/` runtime
+  binaries. Steamworks OS rule: Linux.
+- **windows depot**: Windows launch wrapper, Windows `bin/<target>/` runtime
+  binaries, and required runtime DLLs. Steamworks OS rule: Windows.
+
+The root `App-Source.vapor.toml` records those IDs and each depot's include
+list under `[root.steam.depots.*]`. Do not publish a split build until the real
+Steamworks depot IDs and file mappings are configured there:
+
+```toml
+[root.steam]
+app-id = 2122620
+development-branch = "vapor-dev"
+
+[root.steam.depots.common]
+id = 2122621
+
+[[root.steam.depots.common.include]]
+root = "source"
+from = "App.vapor.toml"
+to = "App.vapor.toml"
+required = true
+
+[root.steam.depots.linux]
+id = 2122622
+
+[[root.steam.depots.linux.include]]
+root = "source"
+from = "resources/vapor/shell-scripts/linux/vapor-launch.sh"
+to = "bin/vapor-launch.sh"
+required = true
+
+[[root.steam.depots.linux.include]]
+root = "installation"
+from = "bin/x86_64-unknown-linux-gnu"
+to = "bin/x86_64-unknown-linux-gnu"
+target = "x86_64-unknown-linux-gnu"
+required = true
+
+[root.steam.depots.windows]
+id = 2122623
+
+[[root.steam.depots.windows.include]]
+root = "source"
+from = "resources/vapor/shell-scripts/windows/vapor-launch.cmd"
+to = "bin/vapor-launch.cmd"
+required = true
+
+[[root.steam.depots.windows.include]]
+root = "installation"
+from = "bin/x86_64-pc-windows-gnullvm"
+to = "bin/x86_64-pc-windows-gnullvm"
+target = "x86_64-pc-windows-gnullvm"
+required = true
+
+[[root.steam.depots.windows.include]]
+root = "installation"
+from = "bin/x86_64-pc-windows-gnullvm/libunwind.dll"
+to = "bin/x86_64-pc-windows-gnullvm/libunwind.dll"
+target = "x86_64-pc-windows-gnullvm"
+required = true
+```
+
+The project root has the full include list, including docs, launch wrappers,
+and examples. Windows runtime DLLs belong in the promoted/imported
+`bin/<windows-target>/` directory before depot staging.
+
+Use packages as access/license containers, not as source branches:
+
+- **developer package**: private/internal access to the app and every app depot;
+- **closed-alpha/key package**: tester access to the same runtime depots;
+- **future public/release package**: customer access once the app is ready.
+
+Branches remain build channels. Keep `vapor-dev` as the development beta branch
+for uploaded test builds. Add more branches only when there is a concrete build
+promotion need, such as a stable alpha branch distinct from internal dev.
+
+After a depot build that includes `bin/vapor-launch.*`, Steam launch options
+should target the small platform wrapper. The wrapper runs
+`vapor-installer install --app-root <app-root>` first, then hands off to the
+installed Vapor binary for Play/Shell modes:
+
+- **Linux Play Loo-Cast**: executable `bin/vapor-launch.sh`,
   arguments `play`.
-- **Linux Vapor Shell**: executable `.vapor/launch/linux/vapor.sh`,
+- **Linux Vapor Shell**: executable `bin/vapor-launch.sh`,
   arguments `shell`.
-- **Windows Play Loo-Cast**: executable `.vapor\launch\windows\vapor.cmd`,
+- **Linux Vapor Installer**: executable `bin/vapor-launch.sh`,
+  arguments `installer`.
+- **Windows Play Loo-Cast**: executable `bin\vapor-launch.cmd`,
   arguments `play`.
-- **Windows Vapor Shell**: executable `.vapor\launch\windows\vapor.cmd`,
+- **Windows Vapor Shell**: executable `bin\vapor-launch.cmd`,
   arguments `shell`.
-
-These paths are not valid for already-published depots that predate the
-`.vapor/launch/` payload. For those depots, use only files that actually exist
-in the installed app root. Windows launch options also require a shipped Windows
-`bin\x86_64-pc-windows-gnullvm\vapor.exe`; a Linux
-`bin/x86_64-unknown-linux-gnu/vapor` cannot satisfy a Windows Steam launch
-entry.
+- **Windows Vapor Installer**: executable `bin\vapor-launch.cmd`,
+  arguments `installer`.
 
 If Steam refuses to execute a `.cmd` entry directly on Windows, use `cmd.exe`
-as the executable and `/c ".vapor\launch\windows\vapor.cmd" play` or
-`/c ".vapor\launch\windows\vapor.cmd" shell` as the arguments.
+as the executable and `/c "bin\vapor-launch.cmd" play`,
+`/c "bin\vapor-launch.cmd" shell`, or
+`/c "bin\vapor-launch.cmd" installer` as the arguments.
 
-The Linux wrapper relies on Vapor's terminal detection to spawn Konsole when
-Steam starts it without a terminal. The Windows wrapper opens a persistent
-`cmd` window. Both wrappers are intentionally thin; Vapor Shell remains the
-central implementation surface.
+The Linux wrapper opens Konsole when Steam starts it without a terminal. The
+Windows wrapper opens a persistent `cmd` window. Both wrappers are intentionally
+thin; installation mechanics belong to Vapor Installer and product interaction
+belongs to Vapor Shell. Running `vapor-installer` without arguments opens the
+visual installer for human-driven lifecycle work; wrappers use only the
+headless install command for Play/Shell. The `installer` wrapper mode skips
+headless install and opens `vapor-installer` directly, so users can manage
+install/uninstall/developer-mode state even when player-mode install is broken
+or intentionally removed.
 
-On Windows, the Shell launch option is expected to be single-click-to-shell.
-First-run Vapor tool preparation happens inside that visible shell with
-`setup self install`; it downloads app-local portable Git, SteamCMD, Zig, and
-llvm-mingw payloads instead of requiring system Git to be installed before
-launch. The Windows GNU/LLVM and Linux GNU cross-linker path is app-local and
-portable; it must not depend on Visual Studio, system MinGW, or a machine-wide
-compiler install.
+Player-mode install prepares only app-local basic runtime tooling:
+
+- Git under `tools/git`;
+- SteamCMD under `tools/steamcmd`;
+- Vapor-Registry checkout under `.vapor/registry`;
+- disposable app-local state, log, diagnostics, and content-cache directories.
+
+It does not install Rust/Cargo or cross-build toolchains. Development tooling is
+explicit:
+
+```text
+vapor-installer dev-env install --app-root /path/to/steam/app
+vapor-installer dev-env uninstall --app-root /path/to/steam/app
+```
+
+If launch-time install fails, the first visible Vapor Shell reports the
+failure, the log at `<app-root>/.vapor/logs/installer.log`, and the exact
+installer command. For ordinary testers, reinstalling the Steam app is the
+preferred recovery because the app root is disposable and should not hold
+authoritative user data.
 
 The `play` wrapper mode opens the normal interactive Vapor Shell, runs the
-installed `.vapor/scripts/loo-cast.vapor` script, and leaves the shell open.
+installed `resources/vapor/vapor-scripts/loo-cast.vapor` script, and leaves the
+shell open.
 That script currently calls `launch loo-cast --account ghf_vapor_build` so
 SteamCMD authentication, Steam Guard prompts, Workshop download output, and
-runtime handoff output stay visible in the Konsole-owned session.
+runtime handoff output stay visible in the terminal-owned session.
 
 `launch loo-cast` verifies the selected installed Loo-Cast Packagepack,
 resolves that packagepack's Spacetime Engine dependency, and hands off to the
-installed engine binary for the host runtime target. The current first-party
-Loo-Cast engine is a product placeholder; the dynamic terminal game-library
-proof lives in `Vapor-Examples`. If the packagepack is missing, Vapor can
-download/cache/install/select the public first-party Workshop packagepack and
-dependencies from the app-root `[[root.content]]` seed. It does not silently
-install toolchains, mutate PATH state, or perform Steam authority-changing
-publish/delete operations.
+installed engine binary for the host runtime target. If the packagepack is
+missing, Vapor can download/cache/install/select the first-party Workshop
+packagepack and dependencies from the app-root `[[root.content]]` seed once
+SteamCMD is available.
 
 The `--account` argument is currently needed while the app and Workshop items
 are not publicly accessible to anonymous SteamCMD sessions. Once the app/content
 is public, the same command can be tested without `--account`.
 
-After installation or movement, run Vapor from the Steam app directory, review
-`setup self status`, and explicitly choose `setup self install` or
-`setup self repair`. No executable is copied into a user-data directory, and the
-source checkout must stay outside the Steam app directory.
+## Local development deploy bridge
 
-The bootstrap sequence is:
+The local bootstrap script is still only a developer bridge for placing the
+first runnable binaries into a Steam app directory. It is not a product
+installer and does not copy source repos, Cargo workspaces, staged package
+trees, generated outputs, or user state.
 
-1. build only the initial `vapor` shell binary with the host environment;
-2. copy the minimal shell bootstrap into Steam's app directory:
+A development loop now has two explicit phases:
 
-   ```text
-   crates/vapor_shell/scripts/bootstrap-local-app-deploy.sh \
-     --binary /path/to/built/vapor \
-     --target "$HOME/.local/share/Steam/steamapps/common/Loo Cast" \
-     --yes
-   ```
-
-   This writes only `Vapor.toml` and a bootstrap `bin/vapor`.
-3. run `/path/to/app/bin/vapor source open /path/to/Vapor-Root` to register
-   and open the external application source without moving that source into the
-   app dir;
-4. run `setup self status`;
-5. run `setup self install`;
-6. open a new terminal so PATH changes are visible;
-7. run `vapor`; it should discover the app from its own executable and reopen
-   the last active source;
-8. run `validate` using app-local Rust/Cargo;
-9. for a local Linux-only bootstrap proof, run `root build --host-only`,
-   `root package --host-only`, and `root publish --host-only --dry-run`;
-10. upload a real release only after the runtime matrix is present, with
-    `root publish --account NAME --yes` from the interactive shell.
+1. Use the source-controlled bootstrap/deploy path to place current Vapor
+   binaries and launch wrappers into the Steam app directory.
+2. Run `vapor-installer dev-env install --app-root <app-root>` only when that
+   app root needs to build, validate, package, or publish Vapor projects.
 
 Release-mode depot builds should target every shipped app platform:
 
@@ -106,34 +188,16 @@ and the Linux GNU target can be built from Windows with the app-local Zig
 wrapper model. If a target is built on another machine, preserve the same
 `bin/<target>/` and `output/dev/<workspace>/<target>/debug/` relative paths
 when copying artifacts back to the publishing app root.
+
 For quick local Linux smoke, pass `--host-only`; Vapor then stages only the
-host `bin/<target>/` directory plus the matching launch wrapper.
-When Windows artifacts were imported from another machine, use
-`root publish --skip-build --dry-run` so the publishing machine stages and
-smoke-checks the imported `bin/<target>/` payloads without trying to rebuild
-Windows GNU/LLVM locally.
+host `bin/<target>/` directory plus the matching launch wrapper. When Windows
+artifacts were imported from another machine, use
+`root publish --skip-build --dry-run` only to preview staging. A real
+`root publish` always validates, builds, promotes, stages, and uploads the full
+declared Linux+Windows matrix.
 
 The concrete Windows build and Linux handoff checklist is documented in
 [`windows-gnullvm-release-proof.md`](windows-gnullvm-release-proof.md).
-
-From step 5 onward, Cargo, Git, SteamCMD, and build outputs come from the Steam
-application. `setup self install` is the explicit bootstrap operation that installs
-active tools into the app root. Default depot staging is runtime-only. The
-separate `packages/setup` payload is used only with
-`--include-setup-payload`, with credential/cache exclusions. Publishing never
-installs missing tools; it reports the failed precondition and leaves that
-decision to the operator.
-
-The bootstrap script is intentionally not a full depot installer. It does not
-copy source repos, Cargo workspaces, staged package trees, or generated outputs.
-Its only job is to place the first runnable shell inside the Steam app root so
-that every serious operation happens through the installed Vapor shell. Release
-launches should go through `.vapor/launch/...` wrappers and
-`bin/<target>/vapor[.exe]`.
-
-For a later local self-deploy loop, after `root package` exists and is trusted,
-use a separate package/depot deployment path rather than this shell-bootstrap
-script.
 
 ## Authentication
 
@@ -152,9 +216,10 @@ items.
 ## Preview and publish
 
 Use `root publish --dry-run` first. It validates, builds, promotes app binaries,
-builds docs, stages and smoke-tests the runtime app, and writes an app-build
-VDF with `Preview = 1` and `SetLive = vapor-dev`; it performs no upload and
-does not require active SteamCMD.
+builds docs, stages and smoke-tests the split runtime depots, and writes an
+app-build VDF with `Preview = 1` and `SetLive = vapor-dev` plus one depot-build
+VDF per staged depot; it performs no upload and does not require active
+SteamCMD.
 
 A real upload requires both a non-default branch and explicit confirmation:
 
@@ -167,16 +232,10 @@ remain attached to the operation. `output/root/steam-build` is not cleared by
 staging; it contains SteamPipe manifests and chunk cache that improve subsequent
 uploads.
 
-The VDF maps only the already-clean staging root. Inclusion and credential
-exclusion are therefore decided before SteamPipe sees any files.
-
-Use `--include-setup-payload` only when deliberately shipping the large
-self-setup/toolchain payload in the app depot.
+The VDFs map only the already-clean split staging roots. Inclusion and
+credential exclusion are therefore decided before SteamPipe sees any files.
 
 Workshop content publication is separate from app/depot publication. Use
 `content publish ARTIFACT --dry-run` from a content workspace for package and
 Workshop VDF previews, then perform any real content upload manually with
-`content publish ARTIFACT --account ACCOUNT --yes`. When
-`[workspace.runtime].targets` is declared, that matrix is the default Workshop
-payload. Use `--host-only` for local smoke previews, and repeated `--target`
-only for an ad hoc subset.
+`content publish ARTIFACT --account ACCOUNT --yes`.
