@@ -497,6 +497,7 @@ fn roots_overlap(left: &Path, right: &Path) -> bool {
 fn canonical_file(path: &Path, label: &str) -> Result<PathBuf, String> {
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("failed to resolve {label} '{}': {error}", path.display()))?;
+    let canonical = shell_safe_path(canonical);
     if canonical.is_file() {
         Ok(canonical)
     } else {
@@ -507,6 +508,7 @@ fn canonical_file(path: &Path, label: &str) -> Result<PathBuf, String> {
 fn canonical_directory(path: &Path, label: &str) -> Result<PathBuf, String> {
     let canonical = fs::canonicalize(path)
         .map_err(|error| format!("failed to resolve {label} '{}': {error}", path.display()))?;
+    let canonical = shell_safe_path(canonical);
     if canonical.is_dir() {
         Ok(canonical)
     } else {
@@ -515,6 +517,23 @@ fn canonical_directory(path: &Path, label: &str) -> Result<PathBuf, String> {
             canonical.display()
         ))
     }
+}
+
+#[cfg(windows)]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(path) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{path}"));
+    }
+    if let Some(path) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(path);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn optional_directory(root: &Path, name: &str) -> Result<Option<PathBuf>, String> {

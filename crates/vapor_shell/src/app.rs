@@ -16,7 +16,7 @@ use crate::{
 };
 use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 enum StartupMode {
     Repl { startup_script: Option<String> },
@@ -138,7 +138,7 @@ fn print_startup_overview(state: &ShellState) {
         }
         println!(
             "    command: vapor-installer install --app-root {}",
-            installation.root().display()
+            display_command_argument(installation.root())
         );
     }
     match state.source() {
@@ -156,12 +156,12 @@ fn print_startup_overview(state: &ShellState) {
     } else if !runtime_tools_ready {
         println!(
             "  vapor-installer install --app-root {}",
-            installation.root().display()
+            display_command_argument(installation.root())
         );
     } else if !tool_status.complete() && state.source().is_some() {
         println!(
             "  vapor-installer dev-env install --app-root {}",
-            installation.root().display()
+            display_command_argument(installation.root())
         );
     } else if state.source().is_none() {
         println!("  launch loo-cast");
@@ -172,6 +172,39 @@ fn print_startup_overview(state: &ShellState) {
     println!();
     println!("Use `help` for commands. Use `exit` to close Vapor.");
     println!();
+}
+
+fn display_command_argument(path: &Path) -> String {
+    shell_quote(&path.display().to_string())
+}
+
+#[cfg(windows)]
+fn shell_quote(value: &str) -> String {
+    if value.is_empty()
+        || value.bytes().any(|byte| {
+            matches!(
+                byte,
+                b' ' | b'\t' | b'\r' | b'\n' | b'(' | b')' | b'&' | b'|' | b'<' | b'>' | b'^'
+            )
+        })
+    {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_owned()
+    }
+}
+
+#[cfg(not(windows))]
+fn shell_quote(value: &str) -> String {
+    let safe = !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'@' | b'%' | b'+' | b'=' | b':' | b',' | b'.' | b'/' | b'-'));
+    if safe {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
 }
 
 fn parse_startup() -> Result<Startup, String> {
