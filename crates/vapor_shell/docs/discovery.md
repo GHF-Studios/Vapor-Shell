@@ -72,20 +72,17 @@ context matters.
 
 ## Steam and desktop launches
 
-Starting the interactive shell without attached standard-input and
-standard-output terminals causes a guarded, one-time relaunch in a supported
-terminal emulator. On Linux this path is currently Konsole-only. The
-Steam-started parent waits for the terminal process; the REPL runs in the
-terminal child.
-
 Steam release launch options use `bin/<target>/vapor-entrypoint[.exe]` as the
 Steam-facing executable. That entrypoint opens the platform terminal and runs
 the matching `bin/vapor-launch.*` script inside it. The script then runs
-`vapor` or `vapor-installer`.
+`vapor` or `vapor-installer`, owns launch-target dispatch, owns the visible
+launch wrapper output, and keeps the terminal open when the launch option was
+started by Steam. Launch-time installer child-tool output is diagnostic output
+and goes to `<app-root>/.vapor/logs/installer.log`.
 
-The product launch command `launch loo-cast` uses the same no-terminal relaunch
-path so the current terminal-based runtime handoff is visible from Steam's Play
-button.
+Vapor Shell itself does not open terminal windows. Directly starting `vapor`
+without a terminal is an invalid host launch shape; Steam and desktop launchers
+should start `vapor-entrypoint` instead.
 
 Run `source open /path/to/source` or `source add /path/to/source` from the
 installed shell to register external source roots under the app root. A later
@@ -93,10 +90,10 @@ Steam launch can reopen the last active external source. If the saved path is
 absent or invalid, Vapor reports that problem and continues in the closed
 app-only shell.
 
-Most host-level direct facades do not trigger terminal relaunch. They are
-limited to bootstrap, source selection, app inspection, metadata, explicit
-launch, content, root, and `script run` entrypoints. Source-bound workflows such
-as `validate` and `build` run inside the interactive shell or a Vapor script.
+Host-level direct facades are limited to source selection, app inspection,
+metadata, explicit launch, content, root, diagnostics, provider, and
+`script run` entrypoints. Source-bound workflows such as `validate` and `build`
+run inside the interactive shell or a Vapor script.
 
 ## Disjoint-root invariant
 

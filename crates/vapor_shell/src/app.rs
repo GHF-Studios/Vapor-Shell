@@ -12,7 +12,6 @@ use crate::{
     prompt::VaporPrompt,
     source_registry,
     state::ShellState,
-    terminal,
 };
 use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
@@ -38,14 +37,6 @@ struct Startup {
 pub fn run() -> Result<(), String> {
     let startup = parse_startup()?;
     if matches!(startup.mode, StartupMode::Exit) {
-        return Ok(());
-    }
-
-    // Steam and desktop launchers do not normally provide an interactive
-    // console. Relaunch before diagnostics capture so `--send-diagnostics`
-    // describes the child session the user actually sees.
-    if startup.mode.needs_terminal() && terminal::needs_relaunch() {
-        terminal::relaunch()?;
         return Ok(());
     }
 
@@ -388,16 +379,6 @@ impl HostSubcommand {
 }
 
 impl StartupMode {
-    fn needs_terminal(&self) -> bool {
-        matches!(
-            self,
-            Self::Repl { .. }
-                | Self::Direct(ShellCommand::Launch {
-                    command: LaunchCommand::LooCast { .. }
-                })
-        )
-    }
-
     fn diagnostic_label(&self) -> &'static str {
         match self {
             Self::Repl {

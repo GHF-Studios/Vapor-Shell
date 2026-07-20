@@ -138,18 +138,23 @@ bin/x86_64-unknown-linux-gnu/vapor-entrypoint installer
   -> bin/x86_64-unknown-linux-gnu/vapor-installer
 
 bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play
-  -> cmd /K -> bin\vapor-launch.cmd play
+  -> cmd /C -> bin\vapor-launch.cmd play
   -> bin\x86_64-pc-windows-gnullvm\vapor.exe
+  -> cmd /K after Vapor exits
 
 bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe installer
-  -> cmd /K -> bin\vapor-launch.cmd installer
+  -> cmd /C -> bin\vapor-launch.cmd installer
   -> bin\x86_64-pc-windows-gnullvm\vapor-installer.exe
+  -> cmd /K after Vapor Installer exits
 ```
 
 The launch scripts run the shipped `vapor-installer install` first for
-Play/Shell modes, then select the installed platform binary and command mode.
-Installer mode opens `vapor-installer` directly and skips headless install. The
-real implementation remains Vapor Shell. Entry points and scripts are not a
+Play/Shell launch targets, then select the installed platform binary and
+command. The Installer launch target opens `vapor-installer` directly and skips
+headless install. Installer child-tool output is routed to
+`<app-root>/.vapor/logs/installer.log`; the launch wrapper prints only the
+session banner, failures, and terminal-hold message. The real implementation
+remains Vapor Shell. Entry points and scripts are not a
 substitute for target-specific app or content payloads; Vapor itself, engines,
 games, tools, and dynamic libraries all need runtime outputs staged per
 supported target.

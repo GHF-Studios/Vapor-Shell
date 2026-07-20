@@ -9,7 +9,6 @@ mod git_provider;
 mod ide;
 mod prompt;
 mod source;
-mod terminal;
 
 pub mod app_local_tools;
 pub mod cargo_metadata;

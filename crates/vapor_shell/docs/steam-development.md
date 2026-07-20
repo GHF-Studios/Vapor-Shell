@@ -97,8 +97,9 @@ After a depot build that includes `bin/<target>/vapor-entrypoint[.exe]` and the
 matching `bin/vapor-launch.*` script, Steam launch options should target the
 native entrypoint. The entrypoint opens the platform terminal, forwards the
 original arguments unchanged to the launch script, and waits until the terminal
-closes. The script runs `vapor-installer install --app-root <app-root>` first,
-then hands off to the installed Vapor binary for Play/Shell modes:
+closes. For Play/Shell launch targets, the script runs
+`vapor-installer install --app-root <app-root>` first, then hands off to the
+installed Vapor binary:
 
 - **Linux Play Loo-Cast**: executable
   `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
@@ -119,16 +120,19 @@ then hands off to the installed Vapor binary for Play/Shell modes:
   `bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe`,
   arguments `installer`.
 
-The Linux entrypoint opens Konsole. The Windows entrypoint opens a persistent
-`cmd` window. Both entrypoints are intentionally thin terminal adapters; they
-do not interpret `play`, `shell`, `installer`, or future launch arguments. The
-launch scripts own mode dispatch, Vapor Installer owns installation mechanics,
-and Vapor Shell owns product interaction. Running `vapor-installer` without
-arguments opens the visual installer for human-driven lifecycle work; scripts
-use only the headless install command for Play/Shell. The `installer` script
-mode skips headless install and opens `vapor-installer` directly, so users can
-manage install/uninstall/developer-mode state even when player-mode install is
-broken or intentionally removed.
+The Linux entrypoint opens Konsole. The Windows entrypoint opens `cmd` long
+enough to run the launch script, and the launch script owns the persistent
+interactive command prompt after Vapor exits. Both entrypoints are intentionally
+thin terminal adapters; they do not interpret `play`, `shell`, `installer`, or
+future launch arguments. The launch scripts own launch-target dispatch and the
+visible wrapper banner, Vapor Installer owns installation mechanics and writes
+child-tool output to `<app-root>/.vapor/logs/installer.log`, and Vapor Shell owns
+product interaction. Running `vapor-installer` without arguments opens the
+visual installer for human-driven lifecycle work; scripts use only the headless
+install command for Play/Shell. The `installer` launch target skips headless
+install and opens `vapor-installer` directly, so users can manage
+install/uninstall/developer-mode state even when player-mode install is broken
+or intentionally removed.
 
 Player-mode install prepares only app-local basic runtime tooling:
 
@@ -149,7 +153,7 @@ installer command. For ordinary testers, reinstalling the Steam app is the
 preferred recovery because the app root is disposable and should not hold
 authoritative user data.
 
-The `play` wrapper mode opens the normal interactive Vapor Shell, runs the
+The `play` launch target opens the normal interactive Vapor Shell, runs the
 installed `resources/vapor/vapor-scripts/loo-cast.vapor` script, and leaves the
 shell open.
 That script currently calls `launch loo-cast --account ghf_vapor_build` so

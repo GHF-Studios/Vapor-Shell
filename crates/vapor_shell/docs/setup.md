@@ -93,6 +93,12 @@ Installer operations write to:
 <app-root>/.vapor/logs/installer.log
 ```
 
+External helper tools launched by the installer, such as SteamCMD archive
+download/extraction tools or Rust toolchain installers, write stdout/stderr to
+that log instead of directly to the Steam-visible terminal. The user-facing
+terminal should show the launch wrapper, the installer report or Shell status,
+and explicit failures.
+
 If launch-time install fails, the first visible Vapor Shell reports what
 failed, the installer log path, and the exact installer command. For normal
 testers, the preferred recovery is reinstalling the Steam app because the app

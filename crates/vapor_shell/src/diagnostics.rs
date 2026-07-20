@@ -148,9 +148,9 @@ pub(crate) fn init_from_current_exe(options: CaptureOptions) {
     event(format!("args: {}", joined_args()));
     for key in [
         "VAPOR_STEAM_LAUNCH",
-        "VAPOR_LAUNCH_MODE",
-        "VAPOR_LAUNCHER_TERMINAL",
-        "VAPOR_TERMINAL_RELAUNCHED",
+        "VAPOR_LAUNCH_TARGET",
+        "VAPOR_LAUNCH_TERMINAL",
+        "VAPOR_LAUNCH_HOLD",
         "VAPOR_DIAGNOSTICS",
         "VAPOR_DIAGNOSTICS_AUTO_SUBMIT",
         "VAPOR_DIAGNOSTICS_REGISTRY",
