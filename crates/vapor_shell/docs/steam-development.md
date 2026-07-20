@@ -176,7 +176,7 @@ trees, generated outputs, or user state.
 
 A development loop now has two explicit phases:
 
-1. Use the source-controlled bootstrap/deploy path to place current Vapor
+1. Use the source-controlled bootstrap path to place current Vapor
    binaries and launch scripts into the Steam app directory.
 2. Run `vapor-installer dev-env install --app-root <app-root>` only when that
    app root needs to build, validate, package, or publish Vapor projects.
@@ -184,7 +184,6 @@ A development loop now has two explicit phases:
 Release-mode depot builds should target every shipped app platform:
 
 ```text
-root build
 root publish --dry-run
 ```
 

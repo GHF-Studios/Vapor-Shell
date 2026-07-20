@@ -156,7 +156,6 @@ release matrix without rebuilding Windows on Linux:
 
 ```text
 source open /home/leslieghf/Documents/GitHub/Loo Cast Repos/Vapor-Root
-root package
 root publish --skip-build --dry-run
 ```
 

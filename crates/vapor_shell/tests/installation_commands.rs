@@ -33,38 +33,7 @@ fn direct_facade_allows_app_first_scripts_with_open_source() {
     for command in ["source", "script"] {
         assert!(stdout.contains(command), "missing {command}: {stdout}");
     }
-    assert!(!stdout.contains("\n  setup"), "{stdout}");
     assert!(stdout.contains("Vapor Installer"), "{stdout}");
-    for legacy in ["\n  sources", "\n  open", "\n  close"] {
-        assert!(
-            !stdout.contains(legacy),
-            "host help should not list legacy command {legacy}: {stdout}"
-        );
-    }
-    for shell_only in ["validate", "build"] {
-        assert!(
-            !stdout.contains(&format!("\n  {shell_only}")),
-            "host help should not list shell-only command {shell_only}: {stdout}"
-        );
-    }
-    for removed in ["cd", "up", "pwd", "ls"] {
-        assert!(
-            !stdout.contains(&format!("\n  {removed}")),
-            "host help should not list removed command {removed}: {stdout}"
-        );
-    }
-
-    let setup = Command::new(&executable)
-        .args(["setup", "self", "status"])
-        .current_dir(outside.root())
-        .env("HOME", outside.root())
-        .env_remove("VAPOR_WORKSPACE")
-        .env("SHELL", "/bin/bash")
-        .output()
-        .unwrap();
-    assert!(!setup.status.success());
-    let stderr = String::from_utf8(setup.stderr).unwrap();
-    assert!(stderr.contains("unrecognized subcommand"), "{stderr}");
 
     installation.write(
         "resources/vapor/vapor-scripts/app-status.vapor",

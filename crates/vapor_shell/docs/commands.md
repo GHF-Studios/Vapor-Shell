@@ -284,7 +284,7 @@ scripts may run `ide status` and `ide repair --dry-run`, but not real
 
 ## Root application/depot workflows
 
-### `root build [--target TARGET]... [--release-targets] [--host-only]`
+### `root build [--skip-docs] [--target TARGET]... [--release-targets] [--host-only]`
 
 Build installable Cargo workspaces and promote declared application binaries
 from `[workspace].binaries` into the Steam installation/app root under
@@ -293,36 +293,26 @@ from `[workspace].binaries` into the Steam installation/app root under
 flags builds and promotes that full runtime matrix by default. Repeat
 `--target` to promote an explicit custom subset, such as only Windows GNU/LLVM.
 
+`root build` also refreshes installed docs, Vapor scripts, and platform launch
+scripts so the local Steam app root matches the current source checkout. Use
+`--skip-docs` for a faster binary/script refresh.
+
 `--release-targets` is accepted as an explicit spelling of the manifest-matrix
 default. Use `--host-only` for a local smoke pass that builds only Cargo's host
 target. Do not combine `--target`, `--release-targets`, and `--host-only`.
 
-### `root deploy [--skip-docs] [--target TARGET]... [--release-targets] [--host-only]`
-
-Build installable Cargo workspaces, promote declared application binaries into
-the Steam installation/app root under `bin/<target>/`, and rebuild installed
-docs. This is local-only: it does not stage a SteamPipe VDF, upload a depot, or
-touch Workshop authority.
-
-Use `--skip-docs` for a faster local binary-only deploy. When
-`[root.runtime].targets` is declared, omitting target flags deploys every
-declared runtime target and copies only the matching platform launch scripts.
-Use `--host-only` when the intent is a quick local deploy for the current
-machine.
-
 ### `root package [--target TARGET]... [--release-targets] [--host-only]`
 
-Build installed documentation, assemble the clean allowlisted split-depot app
-payload, and smoke-check the staged package without invoking SteamCMD. The
-default root payload is runtime-only: the common depot carries `App.vapor.toml`,
-`docs/`, app scripts, and packaged examples; platform depots carry selected
-`bin/<target>/` application binaries, including `vapor-entrypoint[.exe]`, and
-target-matching `bin/vapor-launch.*` scripts.
+Build and refresh the local Steam app root, assemble the clean allowlisted
+split-depot app payload, and smoke-check the staged package without invoking
+SteamCMD. The default root payload is runtime-only: the common depot carries
+`App.vapor.toml`, `docs/`, app scripts, and packaged examples; platform depots
+carry selected `bin/<target>/` application binaries, including
+`vapor-entrypoint[.exe]`, and target-matching `bin/vapor-launch.*` scripts.
 
 When `[root.runtime].targets` is declared, omitting target flags stages that
-full matrix by default. Repeat `--target` to stage a deliberate custom subset
-of platform binaries that already exist in the app root. Use `--host-only` for
-a local host-only package.
+full matrix by default. Repeat `--target` to build and stage a deliberate
+custom subset. Use `--host-only` for a local host-only package.
 
 ### `root publish [--account ACCOUNT] [--branch BRANCH] [--dry-run] [--yes]`
 

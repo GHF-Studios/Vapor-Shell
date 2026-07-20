@@ -314,20 +314,8 @@ pub enum IdeCommand {
 /// Complete application/depot root operations.
 #[derive(Debug, Subcommand)]
 pub enum RootCommand {
-    /// Build every project and promote declared binaries into the installation.
+    /// Build every project and refresh local installation outputs.
     Build {
-        /// Rust target triple for dry-run/custom root application binaries. May be repeated.
-        #[arg(long, value_name = "TARGET")]
-        target: Vec<String>,
-        /// Build the manifest runtime target matrix. This is the default when declared.
-        #[arg(long)]
-        release_targets: bool,
-        /// Build only Cargo's host target for a local smoke pass.
-        #[arg(long)]
-        host_only: bool,
-    },
-    /// Build and locally deploy root binaries and docs into the Steam app root.
-    Deploy {
         /// Skip rebuilding installed documentation.
         #[arg(long)]
         skip_docs: bool,
@@ -337,7 +325,7 @@ pub enum RootCommand {
         /// Build the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
-        /// Build and deploy only Cargo's host target for a local smoke pass.
+        /// Build only Cargo's host target for a local smoke pass.
         #[arg(long)]
         host_only: bool,
     },
@@ -1467,76 +1455,22 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
     let metadata = ResolvedMetadata::resolve(state);
     match command {
         RootCommand::Build {
-            target,
-            release_targets,
-            host_only,
-        } => {
-            metadata.validate(
-                &ValidationPlan::new("rebuild the Vapor application")
-                    .app_local_tools(&[AppToolRequirement::Rust])
-                    .workspace(),
-            )?;
-            let targets = resolve_runtime_targets(
-                metadata.workspace_manifest()?,
-                &target,
-                release_targets,
-                host_only,
-            )?;
-            run_root_workflow_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                CargoWorkflow::Build,
-                &targets,
-            )?;
-            let promoted = workflow::promote_for_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                &targets,
-            )?;
-            println!("promoted {promoted} installation binaries");
-            println!("hint: assemble the app package with `root package`");
-        }
-        RootCommand::Deploy {
             skip_docs,
             target,
             release_targets,
             host_only,
         } => {
             metadata.validate(
-                &ValidationPlan::new("locally deploy the Vapor application")
+                &ValidationPlan::new("build the Vapor application")
                     .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
-            let targets = resolve_runtime_targets(
-                metadata.workspace_manifest()?,
-                &target,
-                release_targets,
-                host_only,
-            )?;
-            run_root_workflow_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                CargoWorkflow::Build,
-                &targets,
-            )?;
-            let promoted = workflow::promote_for_targets(
-                state.active_paths()?,
-                metadata.workspace_manifest()?,
-                &targets,
-            )?;
-            println!("promoted {promoted} installation binaries");
-            if skip_docs {
-                println!("docs: skipped");
-            } else {
-                let docs =
-                    documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
-                println!("docs: {}", docs.display());
-            }
-            let scripts =
-                sync_root_asset_dir(state.active_paths()?, "resources/vapor/vapor-scripts")?;
-            let launch_scripts = sync_root_launch_scripts(state.active_paths()?, &targets)?;
-            println!("scripts: {scripts} file(s)");
-            println!("launch scripts: {launch_scripts} file(s)");
+            let paths = state.active_paths()?;
+            let workspace_manifest = metadata.workspace_manifest()?;
+            let targets =
+                resolve_runtime_targets(workspace_manifest, &target, release_targets, host_only)?;
+            let report = refresh_root_outputs(paths, workspace_manifest, &targets, skip_docs)?;
+            print_root_output_report(&report);
             println!(
                 "hint: package the local app with `root package` or preview upload with `root publish --dry-run`"
             );
@@ -1559,7 +1493,13 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 host_only,
             )?;
             let stage_options = StageOptions::runtime().with_runtime_targets(targets);
-            documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
+            let report = refresh_root_outputs(
+                state.active_paths()?,
+                metadata.workspace_manifest()?,
+                stage_options.runtime_targets(),
+                false,
+            )?;
+            print_root_output_report(&report);
             let distribution_manifest = metadata.distribution_manifest()?;
             let report = crate::distribution::stage_with_options(
                 state.active_paths()?,
@@ -1680,6 +1620,47 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+struct RootOutputReport {
+    promoted: usize,
+    docs: Option<PathBuf>,
+    scripts: usize,
+    launch_scripts: usize,
+}
+
+fn refresh_root_outputs(
+    paths: &EnvironmentPaths,
+    manifest: &WorkspaceManifest,
+    targets: &[String],
+    skip_docs: bool,
+) -> Result<RootOutputReport, String> {
+    run_root_workflow_targets(paths, manifest, CargoWorkflow::Build, targets)?;
+    let promoted = workflow::promote_for_targets(paths, manifest, targets)?;
+    let docs = if skip_docs {
+        None
+    } else {
+        Some(documentation::build(paths, manifest)?)
+    };
+    let scripts = sync_root_asset_dir(paths, "resources/vapor/vapor-scripts")?;
+    let launch_scripts = sync_root_launch_scripts(paths, targets)?;
+    Ok(RootOutputReport {
+        promoted,
+        docs,
+        scripts,
+        launch_scripts,
+    })
+}
+
+fn print_root_output_report(report: &RootOutputReport) {
+    println!("promoted {} installation binaries", report.promoted);
+    if let Some(docs) = &report.docs {
+        println!("docs: {}", docs.display());
+    } else {
+        println!("docs: skipped");
+    }
+    println!("scripts: {} file(s)", report.scripts);
+    println!("launch scripts: {} file(s)", report.launch_scripts);
 }
 
 fn print_staged_depots(

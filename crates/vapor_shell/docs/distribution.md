@@ -103,17 +103,16 @@ state such as logs, registry checkout, content cache, diagnostics cache, and
 receipts.
 
 When `[root.runtime].targets` is declared, no target flag means release-matrix
-staging. Repeat `--target` to stage a deliberate custom subset of
-already-promoted target directories. Use `--host-only` for quick local Linux
-packages that should not require or advertise Windows launch scripts. Staging
-always includes the common depot plus the platform depots implied by the
-selected targets, and fails when a selected `bin/<target>/` directory is
-missing.
+staging. Repeat `--target` to build and stage a deliberate custom subset. Use
+`--host-only` for quick local packages that should not require or advertise
+other platform launch scripts. Staging always includes the common depot plus
+the platform depots implied by the selected targets, and fails when a selected
+`bin/<target>/` directory is missing after the build refresh.
 
 Real `root publish` does not accept custom target subsets, `--host-only`, or
 `--skip-build`. It validates, builds, promotes, stages, and uploads the complete
 declared Linux+Windows runtime matrix. Those escape hatches exist only for
-`root package` and `root publish --dry-run` staging previews.
+`root package` target selection and `root publish --dry-run` staging previews.
 
 Release staging is one app build with split depot roots. Steamworks should
 mount the common depot for every OS, the Linux depot only for Linux, and the
@@ -121,9 +120,9 @@ Windows depot only for Windows. This prevents Linux Steam clients from selecting
 the Windows/Proton launch path because of a mixed mono-depot payload.
 
 For a release assembled from artifacts built on multiple machines, import the
-target-specific app binaries into `bin/<target>/`, run
-`root package`, then use `root publish --skip-build --dry-run` only as a
-preview that confirms the imported files stage correctly.
+target-specific app binaries into `bin/<target>/`, then use
+`root publish --skip-build --dry-run` only as a preview that confirms the
+imported files stage correctly.
 
 Steam-facing native entrypoints are the minimal terminal adapter split. They
 open the platform terminal, forward arguments unchanged to the matching launch

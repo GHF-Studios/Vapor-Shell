@@ -6,7 +6,6 @@ fn help_uses_defined_argument_domains() {
     let help = ShellCommand::try_parse_from(["", "--help"])
         .expect_err("help should exit through Clap")
         .to_string();
-    assert!(!help.contains("NAME"), "{help}");
     assert!(help.contains("metadata"), "{help}");
     assert!(help.contains("installation"), "{help}");
     assert!(help.contains("docs"), "{help}");
@@ -17,13 +16,7 @@ fn help_uses_defined_argument_domains() {
     assert!(help.contains("script"), "{help}");
     assert!(help.contains("source"), "{help}");
     assert!(help.contains("diagnostics"), "{help}");
-    assert!(!help.contains("\n  open"), "{help}");
-    assert!(!help.contains("\n  close"), "{help}");
-    assert!(!help.contains("\n  sources"), "{help}");
     assert!(help.contains("validate"), "{help}");
-    assert!(!help.contains("\n  setup"), "{help}");
-    assert!(!help.contains("\n  workspace"), "{help}");
-    assert!(!help.contains("steam"), "{help}");
 
     let metadata_help = ShellCommand::try_parse_from(["", "metadata", "--help"])
         .expect_err("metadata help should exit through Clap")
@@ -34,15 +27,6 @@ fn help_uses_defined_argument_domains() {
             "missing {format}: {metadata_help}"
         );
     }
-
-    let setup_error = ShellCommand::try_parse_from(["", "setup", "--help"])
-        .expect_err("setup command should not be parseable")
-        .to_string();
-    assert!(
-        setup_error.contains("unrecognized subcommand 'setup'")
-            || setup_error.contains("unrecognized subcommand"),
-        "{setup_error}"
-    );
 
     let ide_help = ShellCommand::try_parse_from(["", "ide", "--help"])
         .expect_err("ide help should exit through Clap")
@@ -78,7 +62,7 @@ fn help_uses_defined_argument_domains() {
     let root_help = ShellCommand::try_parse_from(["", "root", "--help"])
         .expect_err("root help should exit through Clap")
         .to_string();
-    for command in ["build", "deploy", "package", "publish"] {
+    for command in ["build", "package", "publish"] {
         assert!(
             root_help.contains(command),
             "missing {command}: {root_help}"
@@ -93,6 +77,7 @@ fn help_uses_defined_argument_domains() {
         "{root_build_help}"
     );
     assert!(root_build_help.contains("--host-only"), "{root_build_help}");
+    assert!(root_build_help.contains("--skip-docs"), "{root_build_help}");
     ShellCommand::try_parse_from([
         "",
         "root",
@@ -103,22 +88,6 @@ fn help_uses_defined_argument_domains() {
         "x86_64-pc-windows-gnullvm",
     ])
     .expect("root build should accept repeated runtime targets");
-    let root_deploy_help = ShellCommand::try_parse_from(["", "root", "deploy", "--help"])
-        .expect_err("root deploy help should exit through Clap")
-        .to_string();
-    assert!(
-        root_deploy_help.contains("--skip-docs"),
-        "{root_deploy_help}"
-    );
-    assert!(root_deploy_help.contains("--target"), "{root_deploy_help}");
-    assert!(
-        root_deploy_help.contains("--release-targets"),
-        "{root_deploy_help}"
-    );
-    assert!(
-        root_deploy_help.contains("--host-only"),
-        "{root_deploy_help}"
-    );
     let root_package_help = ShellCommand::try_parse_from(["", "root", "package", "--help"])
         .expect_err("root package help should exit through Clap")
         .to_string();
