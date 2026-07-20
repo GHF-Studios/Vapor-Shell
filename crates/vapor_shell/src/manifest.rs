@@ -159,8 +159,10 @@ impl VaporEntity {
 pub fn read(path: &Path, source_root: &Path) -> Result<VaporEntity, String> {
     let canonical_path = fs::canonicalize(path)
         .map_err(|error| format!("failed to resolve '{}': {error}", path.display()))?;
+    let canonical_path = shell_safe_path(canonical_path);
+    let source_root = shell_safe_path(source_root.to_path_buf());
 
-    if !canonical_path.starts_with(source_root) {
+    if !canonical_path.starts_with(&source_root) {
         return Err(format!(
             "Vapor source boundary violation: '{}' is outside '{}'",
             canonical_path.display(),
@@ -175,14 +177,15 @@ pub fn read(path: &Path, source_root: &Path) -> Result<VaporEntity, String> {
     }
 
     let role = ManifestRole::from_path(&canonical_path)?;
-    let is_root_marker = root_marker_candidates(source_root)
+    let is_root_marker = root_marker_candidates(&source_root)
         .into_iter()
         .filter_map(|marker| fs::canonicalize(marker).ok())
+        .map(shell_safe_path)
         .any(|root_marker| root_marker == canonical_path);
     let prefix = if is_root_marker {
         None
     } else {
-        Some(read_source_prefix(source_root)?)
+        Some(read_source_prefix(&source_root)?)
     };
 
     let source = fs::read_to_string(&canonical_path)
@@ -284,6 +287,23 @@ pub fn content_marker_at(root: &Path) -> Option<PathBuf> {
     content_marker_candidates(root)
         .into_iter()
         .find(|marker| marker.is_file())
+}
+
+#[cfg(windows)]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    let text = path.as_os_str().to_string_lossy();
+    if let Some(path) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{path}"));
+    }
+    if let Some(path) = text.strip_prefix(r"\\?\") {
+        return PathBuf::from(path);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn shell_safe_path(path: PathBuf) -> PathBuf {
+    path
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -406,7 +406,9 @@ impl SourceWorkspace {
 ///
 /// Returns an error containing both paths when `candidate` is not below `root`.
 pub fn ensure_contained(root: &Path, candidate: &Path) -> Result<(), String> {
-    if candidate.starts_with(root) {
+    let root = shell_safe_path(root.to_path_buf());
+    let candidate = shell_safe_path(candidate.to_path_buf());
+    if candidate.starts_with(&root) {
         Ok(())
     } else {
         Err(format!(
