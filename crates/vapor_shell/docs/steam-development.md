@@ -108,11 +108,6 @@ installed Vapor binary for Play/Shell modes:
 - **Windows Vapor Installer**: executable `bin\vapor-launch.cmd`,
   arguments `installer`.
 
-If Steam refuses to execute a `.cmd` entry directly on Windows, use `cmd.exe`
-as the executable and `/c "bin\vapor-launch.cmd" play`,
-`/c "bin\vapor-launch.cmd" shell`, or
-`/c "bin\vapor-launch.cmd" installer` as the arguments.
-
 The Linux wrapper opens Konsole when Steam starts it without a terminal. The
 Windows wrapper opens a persistent `cmd` window. Both wrappers are intentionally
 thin; installation mechanics belong to Vapor Installer and product interaction

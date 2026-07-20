@@ -20,13 +20,6 @@ executable: bin\vapor-launch.cmd
 arguments:  shell
 ```
 
-If Steam refuses to execute `.cmd` directly, use:
-
-```text
-executable: cmd.exe
-arguments:  /c "bin\vapor-launch.cmd" shell
-```
-
 Clicking that launch option should open a persistent `cmd` window running Vapor
 Shell. The user should not need to install Git before clicking Play.
 
@@ -35,13 +28,6 @@ The installer should also be exposed as its own launch option:
 ```text
 executable: bin\vapor-launch.cmd
 arguments:  installer
-```
-
-Fallback form:
-
-```text
-executable: cmd.exe
-arguments:  /c "bin\vapor-launch.cmd" installer
 ```
 
 Clicking that launch option should open a persistent `cmd` window running
