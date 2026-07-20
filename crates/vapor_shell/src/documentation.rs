@@ -35,6 +35,11 @@ pub fn build(paths: &EnvironmentPaths, manifest: &WorkspaceManifest) -> Result<P
             .root()
             .join("output/docs")
             .join(section.name());
+        ensure_contained(paths.installation().root(), &target)?;
+        if target.exists() {
+            fs::remove_dir_all(&target)
+                .map_err(|error| format!("failed to clear '{}': {error}", target.display()))?;
+        }
         let status = Command::new(&cargo)
             .args(["doc", "--workspace", "--no-deps", "--manifest-path"])
             .arg(&cargo_manifest)

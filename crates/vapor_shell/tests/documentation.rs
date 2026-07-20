@@ -16,6 +16,10 @@ fn docs_build_copies_linked_markdown_docs_next_to_crate_pages() {
     );
     let executable = installation.write("bin/vapor", "binary");
     write_fake_cargo(&installation, "rustup-home/toolchains/test-host/bin/cargo");
+    installation.write(
+        "output/docs/vapor-shell/doc/vapor_shell/stale.html",
+        "stale rustdoc",
+    );
 
     let source = TestTree::new("docs-source");
     source.write(
@@ -34,6 +38,11 @@ fn docs_build_copies_linked_markdown_docs_next_to_crate_pages() {
         docs_root
             .join("vapor-shell/vapor_shell/docs/content.md")
             .is_file()
+    );
+    assert!(
+        !docs_root
+            .join("vapor-shell/vapor_shell/stale.html")
+            .exists()
     );
 }
 
