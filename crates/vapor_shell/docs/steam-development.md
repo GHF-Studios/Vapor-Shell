@@ -78,10 +78,10 @@ required = true
 ```
 
 The project root has the full include list, including docs, launch scripts, and
-examples. `vapor-entrypoint[.exe]` is a promoted Shell binary and belongs in
-the promoted/imported `bin/<target>/` directory before depot staging. Windows
-runtime DLLs belong in the promoted/imported `bin/<windows-target>/` directory
-before depot staging.
+examples. `vapor-entrypoint[.exe]` is a promoted Vapor-Entrypoint binary and
+belongs in the promoted/imported `bin/<target>/` directory before depot
+staging. Windows runtime DLLs belong in the promoted/imported
+`bin/<windows-target>/` directory before depot staging.
 
 Use packages as access/license containers, not as source branches:
 
