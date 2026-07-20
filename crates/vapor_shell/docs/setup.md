@@ -1,7 +1,7 @@
 # Vapor installation
 
 Normal closed-alpha testers should not run manual installer commands before first
-launch. The Steam app starts through the platform launch wrapper, the wrapper
+launch. The Steam app starts through the platform entrypoint, the launch script
 runs `vapor-installer install`, and Vapor Shell or Play opens after basic
 app-local tooling is ready.
 
@@ -16,8 +16,8 @@ Windows-only product behavior.
 app root. Running `vapor-installer` with no arguments opens the visual installer
 for human-driven install, uninstall, and developer-mode upgrade/downgrade
 flows. Steam should expose Vapor Installer as its own launch option through the
-same platform wrapper with the `installer` argument. The headless subcommands
-exist for launch wrappers and automation:
+same platform entrypoint with the `installer` argument. The headless
+subcommands exist for launch scripts and automation:
 
 ```text
 vapor-installer install
@@ -59,9 +59,10 @@ files:
    downloads/extracts, generated `.vapor` state, diagnostics/logs, generated
    `content/` state, and
    `output/`. It does not remove depot-owned binaries, docs, examples, launch
-   wrappers, scripts, or `App.vapor.toml`.
+   entrypoints, scripts, or `App.vapor.toml`.
 3. Steam's uninstall feature removes the depot-owned application files,
-   including Vapor Shell, docs, launch wrappers, and the installer itself.
+   including Vapor Shell, docs, launch entrypoints, scripts, and the installer
+   itself.
 
 No uninstall command removes user-authored source checkouts outside the app
 root.

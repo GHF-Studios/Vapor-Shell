@@ -13,10 +13,11 @@ Vapor should publish one app build made from three root depots:
 - **common depot**: OS-neutral `App.vapor.toml`, docs, app scripts, and
   examples.
   Steamworks OS rule: all operating systems.
-- **linux depot**: Linux launch wrapper and Linux `bin/<target>/` runtime
-  binaries. Steamworks OS rule: Linux.
-- **windows depot**: Windows launch wrapper, Windows `bin/<target>/` runtime
-  binaries, and required runtime DLLs. Steamworks OS rule: Windows.
+- **linux depot**: Linux launch script and Linux `bin/<target>/` runtime
+  binaries, including `vapor-entrypoint`. Steamworks OS rule: Linux.
+- **windows depot**: Windows launch script, Windows `bin/<target>/` runtime
+  binaries including `vapor-entrypoint.exe`, and required runtime DLLs.
+  Steamworks OS rule: Windows.
 
 The root `App-Source.vapor.toml` records those IDs and each depot's include
 list under `[root.steam.depots.*]`. Do not publish a split build until the real
@@ -76,9 +77,11 @@ target = "x86_64-pc-windows-gnullvm"
 required = true
 ```
 
-The project root has the full include list, including docs, launch wrappers,
-and examples. Windows runtime DLLs belong in the promoted/imported
-`bin/<windows-target>/` directory before depot staging.
+The project root has the full include list, including docs, launch scripts, and
+examples. `vapor-entrypoint[.exe]` is a promoted Shell binary and belongs in
+the promoted/imported `bin/<target>/` directory before depot staging. Windows
+runtime DLLs belong in the promoted/imported `bin/<windows-target>/` directory
+before depot staging.
 
 Use packages as access/license containers, not as source branches:
 
@@ -90,33 +93,42 @@ Branches remain build channels. Keep `vapor-dev` as the development beta branch
 for uploaded test builds. Add more branches only when there is a concrete build
 promotion need, such as a stable alpha branch distinct from internal dev.
 
-After a depot build that includes `bin/vapor-launch.*`, Steam launch options
-should target the small platform wrapper. The wrapper runs
-`vapor-installer install --app-root <app-root>` first, then hands off to the
-installed Vapor binary for Play/Shell modes:
+After a depot build that includes `bin/<target>/vapor-entrypoint[.exe]` and the
+matching `bin/vapor-launch.*` script, Steam launch options should target the
+native entrypoint. The entrypoint opens the platform terminal, forwards the
+original arguments unchanged to the launch script, and waits until the terminal
+closes. The script runs `vapor-installer install --app-root <app-root>` first,
+then hands off to the installed Vapor binary for Play/Shell modes:
 
-- **Linux Play Loo-Cast**: executable `bin/vapor-launch.sh`,
+- **Linux Play Loo-Cast**: executable
+  `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
   arguments `play`.
-- **Linux Vapor Shell**: executable `bin/vapor-launch.sh`,
+- **Linux Vapor Shell**: executable
+  `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
   arguments `shell`.
-- **Linux Vapor Installer**: executable `bin/vapor-launch.sh`,
+- **Linux Vapor Installer**: executable
+  `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
   arguments `installer`.
-- **Windows Play Loo-Cast**: executable `bin\vapor-launch.cmd`,
+- **Windows Play Loo-Cast**: executable
+  `bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe`,
   arguments `play`.
-- **Windows Vapor Shell**: executable `bin\vapor-launch.cmd`,
+- **Windows Vapor Shell**: executable
+  `bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe`,
   arguments `shell`.
-- **Windows Vapor Installer**: executable `bin\vapor-launch.cmd`,
+- **Windows Vapor Installer**: executable
+  `bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe`,
   arguments `installer`.
 
-The Linux wrapper opens Konsole when Steam starts it without a terminal. The
-Windows wrapper opens a persistent `cmd` window. Both wrappers are intentionally
-thin; installation mechanics belong to Vapor Installer and product interaction
-belongs to Vapor Shell. Running `vapor-installer` without arguments opens the
-visual installer for human-driven lifecycle work; wrappers use only the
-headless install command for Play/Shell. The `installer` wrapper mode skips
-headless install and opens `vapor-installer` directly, so users can manage
-install/uninstall/developer-mode state even when player-mode install is broken
-or intentionally removed.
+The Linux entrypoint opens Konsole. The Windows entrypoint opens a persistent
+`cmd` window. Both entrypoints are intentionally thin terminal adapters; they
+do not interpret `play`, `shell`, `installer`, or future launch arguments. The
+launch scripts own mode dispatch, Vapor Installer owns installation mechanics,
+and Vapor Shell owns product interaction. Running `vapor-installer` without
+arguments opens the visual installer for human-driven lifecycle work; scripts
+use only the headless install command for Play/Shell. The `installer` script
+mode skips headless install and opens `vapor-installer` directly, so users can
+manage install/uninstall/developer-mode state even when player-mode install is
+broken or intentionally removed.
 
 Player-mode install prepares only app-local basic runtime tooling:
 
@@ -165,7 +177,7 @@ trees, generated outputs, or user state.
 A development loop now has two explicit phases:
 
 1. Use the source-controlled bootstrap/deploy path to place current Vapor
-   binaries and launch wrappers into the Steam app directory.
+   binaries and launch scripts into the Steam app directory.
 2. Run `vapor-installer dev-env install --app-root <app-root>` only when that
    app root needs to build, validate, package, or publish Vapor projects.
 
@@ -178,12 +190,12 @@ root publish --dry-run
 
 The Windows GNU/LLVM target can be built from Linux with app-local llvm-mingw,
 and the Linux GNU target can be built from Windows with the app-local Zig
-wrapper model. If a target is built on another machine, preserve the same
+cross-link wrapper model. If a target is built on another machine, preserve the same
 `bin/<target>/` and `output/dev/<workspace>/<target>/debug/` relative paths
 when copying artifacts back to the publishing app root.
 
 For quick local Linux smoke, pass `--host-only`; Vapor then stages only the
-host `bin/<target>/` directory plus the matching launch wrapper. When Windows
+host `bin/<target>/` directory plus the matching launch script. When Windows
 artifacts were imported from another machine, use
 `root publish --skip-build --dry-run` only to preview staging. A real
 `root publish` always validates, builds, promotes, stages, and uploads the full

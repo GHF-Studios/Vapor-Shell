@@ -4,7 +4,7 @@
 
 Vapor canonicalizes `current_exe()`, requires the executable to be laid out as
 `<app-root>/bin/vapor[.exe]` for bootstrap compatibility or
-`<app-root>/bin/<target>/vapor[.exe]` for release-mode launch wrappers, and
+`<app-root>/bin/<target>/vapor[.exe]` for release-mode shell execution, and
 then validates exactly `<app-root>/App.vapor.toml`. That manifest must declare
 `[root]`.
 
@@ -23,7 +23,9 @@ The app root may contain app-owned resources including:
 │   ├── vapor-launch.sh
 │   ├── vapor-launch.cmd
 │   ├── vapor[.exe]                         bootstrap compatibility
+│   ├── x86_64-unknown-linux-gnu/vapor-entrypoint
 │   ├── x86_64-unknown-linux-gnu/vapor
+│   ├── x86_64-pc-windows-gnullvm/vapor-entrypoint.exe
 │   └── x86_64-pc-windows-gnullvm/vapor.exe
 ├── rustup/
 ├── cargo-home/
@@ -75,6 +77,11 @@ standard-output terminals causes a guarded, one-time relaunch in a supported
 terminal emulator. On Linux this path is currently Konsole-only. The
 Steam-started parent waits for the terminal process; the REPL runs in the
 terminal child.
+
+Steam release launch options use `bin/<target>/vapor-entrypoint[.exe]` as the
+Steam-facing executable. That entrypoint opens the platform terminal and runs
+the matching `bin/vapor-launch.*` script inside it. The script then runs
+`vapor` or `vapor-installer`.
 
 The product launch command `launch loo-cast` uses the same no-terminal relaunch
 path so the current terminal-based runtime handoff is visible from Steam's Play

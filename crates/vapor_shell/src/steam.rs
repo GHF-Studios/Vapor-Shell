@@ -140,7 +140,15 @@ pub fn smoke(stage: &distribution::StageReport, options: &StageOptions) -> Resul
             SteamDepotKind::Linux => {
                 require_file(
                     depot.root().join("bin/vapor-launch.sh"),
-                    "staged Linux depot has no launch wrapper",
+                    "staged Linux depot has no launch script",
+                )?;
+                require_file(
+                    depot
+                        .root()
+                        .join("bin")
+                        .join(target)
+                        .join("vapor-entrypoint"),
+                    "staged Linux depot has no target Vapor entrypoint",
                 )?;
                 require_file(
                     depot.root().join("bin").join(target).join("vapor"),
@@ -158,7 +166,15 @@ pub fn smoke(stage: &distribution::StageReport, options: &StageOptions) -> Resul
             SteamDepotKind::Windows => {
                 require_file(
                     depot.root().join("bin/vapor-launch.cmd"),
-                    "staged Windows depot has no launch wrapper",
+                    "staged Windows depot has no launch script",
+                )?;
+                require_file(
+                    depot
+                        .root()
+                        .join("bin")
+                        .join(target)
+                        .join("vapor-entrypoint.exe"),
+                    "staged Windows depot has no target Vapor entrypoint",
                 )?;
                 require_file(
                     depot.root().join("bin").join(target).join("vapor.exe"),

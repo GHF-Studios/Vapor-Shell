@@ -114,7 +114,10 @@ use `--host-only` only for local package/dry-run smoke passes.
 lists used by split-depot root publication. Each include copies one file or
 directory from either the source checkout or installation/app root into that
 depot. `target` makes an include apply only when that runtime target is staged.
-The numeric IDs in this example are Vapor's current Steamworks depot IDs.
+The native `vapor-entrypoint[.exe]` launch adapter is a promoted application
+binary inside `bin/<target>/`, so it is staged through the target-directory
+include rather than through a separate source include. The numeric IDs in this
+example are Vapor's current Steamworks depot IDs.
 
 ### Normal source workspace
 

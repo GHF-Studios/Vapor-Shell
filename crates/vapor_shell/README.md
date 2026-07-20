@@ -9,6 +9,7 @@ At runtime, the shell works with two active filesystem roots:
 Steam installation / app root         Active source root (critical)
 ├── App.vapor.toml                    ├── Workspace.vapor.toml or App-Source.vapor.toml
 ├── bin/vapor-launch.*                ├── Cargo.toml      (workspace roots)
+├── bin/<target>/vapor-entrypoint[.exe]
 ├── bin/<target>/vapor[.exe]          ├── content directories with role manifests
 ├── resources/vapor/vapor-scripts/    └── authored source
 ├── .vapor/logs, state, cache, ...
@@ -43,7 +44,7 @@ not the installed Steam directory itself.
   developer-mode Rust/Cargo tooling through Vapor Installer, plus linked
   developer providers such as Git.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
-  launch wrappers, SteamPipe templates, and smoke validation.
+  launch entrypoints/scripts, SteamPipe templates, and smoke validation.
 - [Steam development](docs/steam-development.md): root publish previews, manual
   upload confirmation, beta publishing, and persistent cache state.
 - [Command scripts](docs/scripts.md): reusable REPL command sequences exposed
@@ -100,5 +101,6 @@ content verify
 
 After that shell is installed, all normal builds and checks are routed through
 the Steam app's own Vapor shell. The bootstrap path may use `bin/vapor`; release
-launches use `bin/vapor-launch.*` wrappers and `bin/<target>/vapor[.exe]`.
+launches use `bin/<target>/vapor-entrypoint[.exe]`, `bin/vapor-launch.*`
+scripts, and `bin/<target>/vapor[.exe]`.
 Vapor Installer owns app-local player and developer tooling installation.

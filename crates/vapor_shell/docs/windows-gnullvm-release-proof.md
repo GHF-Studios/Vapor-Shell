@@ -2,8 +2,8 @@
 
 This checklist proves the Windows side of the release target matrix without
 publishing Steam depot or Workshop changes. It starts from the product path:
-Steam opens a visible Vapor Shell through the wrapper, and the wrapper runs the
-installer-owned player-mode install before Shell starts.
+Steam opens a visible Vapor Shell through the native entrypoint, and the launch
+script runs the installer-owned player-mode install before Shell starts.
 
 The target is:
 
@@ -13,10 +13,11 @@ x86_64-pc-windows-gnullvm
 
 ## Steam launch
 
-The Windows Steam launch option should target the wrapper shipped in the depot:
+The Windows Steam launch option should target the native entrypoint shipped in
+the target-specific depot:
 
 ```text
-executable: bin\vapor-launch.cmd
+executable: bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe
 arguments:  shell
 ```
 
@@ -26,7 +27,7 @@ Shell. The user should not need to install Git before clicking Play.
 The installer should also be exposed as its own launch option:
 
 ```text
-executable: bin\vapor-launch.cmd
+executable: bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe
 arguments:  installer
 ```
 
@@ -36,7 +37,7 @@ before showing the installer surface.
 
 ## First-run installer
 
-Player-mode install is automatic through the launch wrapper. For development
+Player-mode install is automatic through the launch path. For development
 build/proof work, run the installer visual surface or this explicit headless
 command:
 
@@ -162,10 +163,12 @@ root publish --skip-build --dry-run
 Expected app staging shape:
 
 ```text
-output/root/content/bin/x86_64-unknown-linux-gnu/vapor
-output/root/content/bin/x86_64-pc-windows-gnullvm/vapor.exe
 output/root/content/linux/bin/vapor-launch.sh
+output/root/content/linux/bin/x86_64-unknown-linux-gnu/vapor
+output/root/content/linux/bin/x86_64-unknown-linux-gnu/vapor-entrypoint
 output/root/content/windows/bin/vapor-launch.cmd
+output/root/content/windows/bin/x86_64-pc-windows-gnullvm/vapor.exe
+output/root/content/windows/bin/x86_64-pc-windows-gnullvm/vapor-entrypoint.exe
 ```
 
 Then prove the Loo-Cast Workshop package preview:

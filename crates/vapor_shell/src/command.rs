@@ -343,7 +343,7 @@ pub enum RootCommand {
     },
     /// Assemble and smoke-check the local application/depot package.
     Package {
-        /// Runtime target triple to stage launchers for. May be repeated.
+        /// Runtime target triple to stage launch scripts for. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Stage the manifest runtime target matrix. This is the default when declared.
@@ -1534,9 +1534,9 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             }
             let scripts =
                 sync_root_asset_dir(state.active_paths()?, "resources/vapor/vapor-scripts")?;
-            let launchers = sync_root_launchers(state.active_paths()?, &targets)?;
+            let launch_scripts = sync_root_launch_scripts(state.active_paths()?, &targets)?;
             println!("scripts: {scripts} file(s)");
-            println!("launchers: {launchers} file(s)");
+            println!("launch scripts: {launch_scripts} file(s)");
             println!(
                 "hint: package the local app with `root package` or preview upload with `root publish --dry-run`"
             );
@@ -1760,7 +1760,7 @@ fn sync_root_asset_dir(paths: &EnvironmentPaths, relative: &str) -> Result<usize
     copy_script_tree(&canonical, &target)
 }
 
-fn sync_root_launchers(paths: &EnvironmentPaths, targets: &[String]) -> Result<usize, String> {
+fn sync_root_launch_scripts(paths: &EnvironmentPaths, targets: &[String]) -> Result<usize, String> {
     let source = paths.source().root().join("resources/vapor/shell-scripts");
     let target = paths.installation().root().join("bin");
     ensure_contained(paths.installation().root(), &target)?;
@@ -1769,32 +1769,35 @@ fn sync_root_launchers(paths: &EnvironmentPaths, targets: &[String]) -> Result<u
         return Ok(0);
     }
 
-    let canonical = fs::canonicalize(&source).map_err(io("resolve root launchers", &source))?;
+    let canonical =
+        fs::canonicalize(&source).map_err(io("resolve root launch scripts", &source))?;
     ensure_contained(paths.source().root(), &canonical)?;
     let mut files = 0;
     for platform in target_platforms(targets) {
-        let (relative_source, target_name) = launcher_mapping(&platform)?;
-        let launcher_source = canonical.join(relative_source);
-        if launcher_source.is_file() {
-            let launcher_target = target.join(target_name);
-            fs::copy(&launcher_source, &launcher_target)
-                .map_err(io("copy launcher", &launcher_source))?;
-            make_launcher_executable(&launcher_target)?;
+        let (relative_source, target_name) = launch_script_mapping(&platform)?;
+        let script_source = canonical.join(relative_source);
+        if script_source.is_file() {
+            let script_target = target.join(target_name);
+            fs::copy(&script_source, &script_target)
+                .map_err(io("copy launch script", &script_source))?;
+            make_launch_script_executable(&script_target)?;
             files += 1;
         }
     }
     Ok(files)
 }
 
-fn launcher_mapping(platform: &str) -> Result<(&'static str, &'static str), String> {
+fn launch_script_mapping(platform: &str) -> Result<(&'static str, &'static str), String> {
     match platform {
         "linux" => Ok(("linux/vapor-launch.sh", "vapor-launch.sh")),
         "windows" => Ok(("windows/vapor-launch.cmd", "vapor-launch.cmd")),
-        other => Err(format!("no launcher mapping exists for platform '{other}'")),
+        other => Err(format!(
+            "no launch script mapping exists for platform '{other}'"
+        )),
     }
 }
 
-fn make_launcher_executable(path: &Path) -> Result<(), String> {
+fn make_launch_script_executable(path: &Path) -> Result<(), String> {
     let _ = path;
     #[cfg(unix)]
     {

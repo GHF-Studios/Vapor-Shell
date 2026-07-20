@@ -61,8 +61,9 @@ Rust/Cargo toolchain prepared by `vapor-installer dev-env install`, then run
 installed Vapor commands from the Steam app root. The
 `scripts/bootstrap-local-app-deploy.sh` bridge exists only to seed or refresh a
 local Steam app root during development; release-mode launches use
-`bin/vapor-launch.*` wrappers and `bin/<target>/vapor[.exe]`. Integration tests
-build temporary sample trees for this topology when local coverage is useful.
+`bin/<target>/vapor-entrypoint[.exe]`, `bin/vapor-launch.*` scripts, and
+`bin/<target>/vapor[.exe]`. Integration tests build temporary sample trees for
+this topology when local coverage is useful.
 
 After the installed binary works, run `source open /path/to/source` from the
 installed shell. This validates and registers the external source selection for

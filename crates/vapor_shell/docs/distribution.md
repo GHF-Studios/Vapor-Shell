@@ -80,10 +80,11 @@ payload is split by the manifest-declared Steam depot includes:
   `resources/vapor/vapor-scripts/` when runtime startup scripts are present, and
   `examples/vapor-examples/` when the root source includes official examples.
 - `linux/` contains Linux runtime files: selected Linux `bin/<target>/`
-  application binaries plus `bin/vapor-launch.sh`.
+  application binaries including `vapor-entrypoint`, plus
+  `bin/vapor-launch.sh`.
 - `windows/` contains Windows runtime files: selected Windows `bin/<target>/`
-  application binaries, required Windows runtime DLLs, plus
-  `bin/vapor-launch.cmd`.
+  application binaries including `vapor-entrypoint.exe`, required Windows
+  runtime DLLs, plus `bin/vapor-launch.cmd`.
 
 Source repositories, Cargo build targets, Cargo registries, Git checkouts,
 Steam authentication, installer logs, generated app-root state, and SteamPipe
@@ -104,7 +105,7 @@ receipts.
 When `[root.runtime].targets` is declared, no target flag means release-matrix
 staging. Repeat `--target` to stage a deliberate custom subset of
 already-promoted target directories. Use `--host-only` for quick local Linux
-packages that should not require or advertise Windows launch wrappers. Staging
+packages that should not require or advertise Windows launch scripts. Staging
 always includes the common depot plus the platform depots implied by the
 selected targets, and fails when a selected `bin/<target>/` directory is
 missing.
@@ -124,24 +125,35 @@ target-specific app binaries into `bin/<target>/`, run
 `root package`, then use `root publish --skip-build --dry-run` only as a
 preview that confirms the imported files stage correctly.
 
-Launch wrappers are the minimal OS-facing entrypoint split. They run the
-shipped `vapor-installer install` first for Play/Shell modes, then select the
-installed platform binary and command mode. Installer mode opens
-`vapor-installer` directly and skips headless install:
+Steam-facing native entrypoints are the minimal terminal adapter split. They
+open the platform terminal, forward arguments unchanged to the matching launch
+script, and wait for the terminal to close:
 
 ```text
-bin/vapor-launch.sh play      -> bin/x86_64-unknown-linux-gnu/vapor
-bin/vapor-launch.sh shell     -> bin/x86_64-unknown-linux-gnu/vapor
-bin/vapor-launch.sh installer -> bin/x86_64-unknown-linux-gnu/vapor-installer
+bin/x86_64-unknown-linux-gnu/vapor-entrypoint play
+  -> Konsole -> bin/vapor-launch.sh play
+  -> bin/x86_64-unknown-linux-gnu/vapor
 
-bin/vapor-launch.cmd play      -> bin/x86_64-pc-windows-gnullvm/vapor.exe
-bin/vapor-launch.cmd shell     -> bin/x86_64-pc-windows-gnullvm/vapor.exe
-bin/vapor-launch.cmd installer -> bin/x86_64-pc-windows-gnullvm/vapor-installer.exe
+bin/x86_64-unknown-linux-gnu/vapor-entrypoint installer
+  -> Konsole -> bin/vapor-launch.sh installer
+  -> bin/x86_64-unknown-linux-gnu/vapor-installer
+
+bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play
+  -> cmd /K -> bin\vapor-launch.cmd play
+  -> bin\x86_64-pc-windows-gnullvm\vapor.exe
+
+bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe installer
+  -> cmd /K -> bin\vapor-launch.cmd installer
+  -> bin\x86_64-pc-windows-gnullvm\vapor-installer.exe
 ```
 
-The real implementation remains Vapor Shell. Wrappers are not a substitute for
-target-specific app or content payloads; Vapor itself, engines, games, tools,
-and dynamic libraries all need runtime outputs staged per supported target.
+The launch scripts run the shipped `vapor-installer install` first for
+Play/Shell modes, then select the installed platform binary and command mode.
+Installer mode opens `vapor-installer` directly and skips headless install. The
+real implementation remains Vapor Shell. Entry points and scripts are not a
+substitute for target-specific app or content payloads; Vapor itself, engines,
+games, tools, and dynamic libraries all need runtime outputs staged per
+supported target.
 
 The publish preflight requires app-local Rust/Cargo and cross-build tooling for
 the release matrix, a linked developer Git provider for explicit Git-backed

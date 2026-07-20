@@ -8,6 +8,10 @@ readme = "README.md"
 name = "vapor"
 path = "src/main.rs"
 
+[[bin]]
+name = "vapor-entrypoint"
+path = "src/bin/vapor-entrypoint.rs"
+
 [dependencies]
 clap.workspace = true
 clap-repl.workspace = true

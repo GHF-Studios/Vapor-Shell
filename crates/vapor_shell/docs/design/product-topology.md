@@ -357,7 +357,7 @@ The implemented first pass exposes this as `root build`, `root package`, and
 validates, builds, stages, smoke-checks, and writes a preview VDF without
 requiring active SteamCMD. When `[root.runtime].targets` is declared,
 target-aware root commands use that matrix by default and stage only the
-matching `bin/<target>/` app binaries and launch wrappers. Host-only local
+matching `bin/<target>/` app binaries and launch scripts. Host-only local
 staging is an explicit `--host-only` opt-out for package/dry-run work. Real
 publication is manual, requires an account plus explicit confirmation, and
 always stages the complete declared Linux+Windows runtime matrix.
@@ -394,8 +394,9 @@ The exact trust proof may evolve without changing these semantics.
 ## Setup experience
 
 Installation is owned by `Vapor-Installer`, not by Vapor Shell commands. Normal
-closed-alpha testers launch the Steam app; the platform launch wrapper invokes
-`vapor-installer install` before opening Vapor Shell or Play.
+closed-alpha testers launch the Steam app; the platform entrypoint opens the
+terminal, then the launch script invokes `vapor-installer install` before
+opening Vapor Shell or Play.
 
 Player-mode install prepares only basic runtime capability: SteamCMD and
 generated disposable app-root directories. Development tooling and Git-backed

@@ -22,11 +22,11 @@ pushes through the linked developer Git provider. Use `--diagnostics-registry
 PATH` or set `VAPOR_DIAGNOSTICS_REGISTRY`; add `--diagnostics-copy-only` when
 you only want the copy step.
 
-Steam wrapper examples:
+Steam launch examples:
 
 ```text
-bin/vapor-launch.sh play --send-diagnostics --diagnostics-registry /path/to/Vapor-Registry
-bin\vapor-launch.cmd play --send-diagnostics --diagnostics-registry C:\path\to\Vapor-Registry
+bin/x86_64-unknown-linux-gnu/vapor-entrypoint play --send-diagnostics --diagnostics-registry /path/to/Vapor-Registry
+bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play --send-diagnostics --diagnostics-registry C:\path\to\Vapor-Registry
 ```
 
 ## Launch
@@ -99,7 +99,7 @@ executable.
 ### `binaries`
 
 Print the app-local binary directory that contains the running Vapor executable.
-In release-mode wrapper launches this is usually `bin/<target>/`.
+In release-mode entrypoint launches this is usually `bin/<target>/`.
 
 ### `libraries`
 
@@ -306,7 +306,7 @@ touch Workshop authority.
 
 Use `--skip-docs` for a faster local binary-only deploy. When
 `[root.runtime].targets` is declared, omitting target flags deploys every
-declared runtime target and copies only the matching platform launch wrappers.
+declared runtime target and copies only the matching platform launch scripts.
 Use `--host-only` when the intent is a quick local deploy for the current
 machine.
 
@@ -316,8 +316,8 @@ Build installed documentation, assemble the clean allowlisted split-depot app
 payload, and smoke-check the staged package without invoking SteamCMD. The
 default root payload is runtime-only: the common depot carries `App.vapor.toml`,
 `docs/`, app scripts, and packaged examples; platform depots carry selected
-`bin/<target>/` application binaries and target-matching `bin/vapor-launch.*`
-wrappers.
+`bin/<target>/` application binaries, including `vapor-entrypoint[.exe]`, and
+target-matching `bin/vapor-launch.*` scripts.
 
 When `[root.runtime].targets` is declared, omitting target flags stages that
 full matrix by default. Repeat `--target` to stage a deliberate custom subset
@@ -335,9 +335,10 @@ Real publication always uses the complete `[root.runtime].targets` matrix and
 runs validation/build/promotion before staging. Narrow target selection,
 `--host-only`, and `--skip-build` are dry-run/local-package escape hatches only;
 they are rejected for real uploads. The depot smoke check rejects staged
-platform depots when their matching launch wrapper, `bin/<target>/vapor[.exe]`,
-`bin/<target>/vapor-installer[.exe]`, or required Windows runtime DLL payload is
-missing.
+platform depots when their matching `bin/vapor-launch.*` script,
+`bin/<target>/vapor-entrypoint[.exe]`, `bin/<target>/vapor[.exe]`,
+`bin/<target>/vapor-installer[.exe]`, or required Windows runtime DLL payload
+is missing.
 Real publication preflight requires app-local Rust/Cargo, cross-build tooling,
 and SteamCMD. Explicit Git-backed operations use the linked developer Git
 provider instead of app-local Git.

@@ -5,4 +5,4 @@ name = "vapor-shell"
 organization = "ghf-studios"
 version = "0.5.0"
 repository = "https://github.com/GHF-Studios/Vapor-Shell"
-binaries = ["vapor"]
+binaries = ["vapor", "vapor-entrypoint"]
