@@ -5,7 +5,7 @@ Run `help` for the command list or `help <COMMAND>` for argument details.
 context and command authority after the app root has been prepared by
 Vapor Installer. Host-level direct facades are limited to explicit automation
 entrypoints: `source`, `metadata`, `installation`, `binaries`, `libraries`,
-`launch`, `content`, `root`, `script run`, and `diagnostics`.
+`launch`, `content`, `root`, `script run`, `provider`, and `diagnostics`.
 
 Repeatable automation should live in
 `resources/vapor/vapor-scripts/NAME.vapor` and run through `vapor script run
@@ -17,11 +17,10 @@ Real Steam uploads and real IDE repair remain manual interactive-shell actions.
 Host-level launches may add `--send-diagnostics` to capture the run and send it
 after Vapor exits. This is private-test tooling, not public telemetry, and it is
 off unless the flag is present. `--send-diagnostics` copies the current run log
-into the configured Vapor-Registry checkout, commits it, and pushes it. When
-player-mode install has prepared `.vapor/registry`, that app-local checkout is
-the default. Use `--diagnostics-registry PATH` to override it or set
-`VAPOR_DIAGNOSTICS_REGISTRY`; add `--diagnostics-copy-only` when you only want
-the copy step.
+into the configured Vapor-Registry checkout. If push is enabled, it commits and
+pushes through the linked developer Git provider. Use `--diagnostics-registry
+PATH` or set `VAPOR_DIAGNOSTICS_REGISTRY`; add `--diagnostics-copy-only` when
+you only want the copy step.
 
 Steam wrapper examples:
 
@@ -62,7 +61,7 @@ SteamCMD, such as unreleased/private app testing.
 ### `diagnostics status`
 
 Show the app-local diagnostics directory, latest run log, active capture state,
-automatic submit mode, and configured registry path.
+automatic submit mode, configured registry path, and Git provider status.
 
 ### `diagnostics submit [--registry PATH] [--all] [--push] [--dry-run]`
 
@@ -70,8 +69,25 @@ Copy captured run logs into a Vapor-Registry checkout under
 `diagnostics/<app>/<machine>/<platform>/`. By default the command copies the
 current run when capture is active, otherwise the latest completed run. `--all`
 copies every local run log. `--push` commits and pushes the copied diagnostics
-with app-local Git. `--dry-run` reports the same target without changing the
-registry.
+with the linked developer Git provider. `--dry-run` reports the same target
+without changing the registry.
+
+## Provider
+
+### `provider git status`
+
+Show the developer Git provider Vapor Shell will use for explicit Git-backed
+commands.
+
+### `provider git link PATH`
+
+Persist an explicit Git executable path under app-local state. Vapor validates
+the executable with `git --version` before saving it.
+
+### `provider git clear`
+
+Remove the persisted Git executable path. `VAPOR_GIT` and PATH/common OS
+discovery may still resolve Git after this.
 
 ## Installation resources
 
@@ -116,8 +132,9 @@ vapor-installer dev-env install --app-root /path/to/steam/app
 vapor-installer dev-env uninstall --app-root /path/to/steam/app
 ```
 
-`install` prepares player mode: app-local Git, SteamCMD, the app-local
-Vapor-Registry checkout, and generated disposable app-root state.
+`install` prepares player mode: SteamCMD and generated disposable app-root
+state. Git is linked by developers through `provider git ...`, not installed
+for normal players.
 `dev-env install` upgrades that app root with Rust/Cargo and cross-build
 tooling for developers.
 
@@ -321,8 +338,9 @@ they are rejected for real uploads. The depot smoke check rejects staged
 platform depots when their matching launch wrapper, `bin/<target>/vapor[.exe]`,
 `bin/<target>/vapor-installer[.exe]`, or required Windows runtime DLL payload is
 missing.
-Real publication preflight requires app-local Rust/Cargo, Git, cross-build
-tooling, and SteamCMD.
+Real publication preflight requires app-local Rust/Cargo, cross-build tooling,
+and SteamCMD. Explicit Git-backed operations use the linked developer Git
+provider instead of app-local Git.
 
 `--dry-run` writes the staged payload and preview VDF without requiring
 SteamCMD or performing an upload. A real upload requires `--account ACCOUNT`
@@ -478,7 +496,7 @@ interactive shell. When `[workspace.runtime].targets` is declared, creation uses
 that matrix by default. Real creation rejects `--target` and `--host-only` and
 requires the declared matrix to contain Linux and Windows targets. It validates
 and builds that matrix before packaging and upload. Real creation preflight
-requires app-local Rust/Cargo, Git, cross-build tooling, and SteamCMD. Repeat
+requires app-local Rust/Cargo, cross-build tooling, and SteamCMD. Repeat
 `--target` or use `--host-only` only for dry-run previews.
 
 ### `content publish ARTIFACT... [--target TARGET]... [--release-targets] [--host-only] [--dry-run] [--account ACCOUNT] [--change-note TEXT] [--yes]`
@@ -491,9 +509,8 @@ SteamCMD provider session. When `[workspace.runtime].targets` is declared,
 publishing packages that matrix by default. Real publication rejects `--target`
 and `--host-only` and requires the declared matrix to contain Linux and Windows
 targets. It validates and builds that matrix before packaging and upload.
-Real publication preflight requires app-local Rust/Cargo, Git, cross-build
-tooling, and SteamCMD. Repeat `--target` or use `--host-only` only for dry-run
-previews.
+Real publication preflight requires app-local Rust/Cargo, cross-build tooling,
+and SteamCMD. Repeat `--target` or use `--host-only` only for dry-run previews.
 
 The intended release path is plain `content publish ...`: one Workshop item
 update per artifact, with all supported platform binaries and libraries inside

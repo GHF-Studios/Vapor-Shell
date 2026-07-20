@@ -33,9 +33,7 @@ data directories, not primarily in the Steam application directory.
 
 The default install prepares player-mode runtime functionality:
 
-- app-local Git under `tools/git`;
 - app-local SteamCMD under `tools/steamcmd`;
-- app-local Vapor-Registry checkout under `.vapor/registry`;
 - app-local generated directories for logs, diagnostics, content cache,
   installed content state, and Workshop downloads.
 
@@ -57,8 +55,9 @@ files:
    cross-build tooling.
 2. `vapor-installer uninstall --app-root /path/to/steam/app` removes every
    installer-owned mutable path: Rust/Cargo and cross-build tooling if present,
-   app-local Git, SteamCMD, `.vapor/registry`, downloads/extracts, generated
-   `.vapor` state, diagnostics/logs, generated `content/` state, and
+   obsolete app-local Git/registry state if present, SteamCMD,
+   downloads/extracts, generated `.vapor` state, diagnostics/logs, generated
+   `content/` state, and
    `output/`. It does not remove depot-owned binaries, docs, examples, launch
    wrappers, scripts, or `App.vapor.toml`.
 3. Steam's uninstall feature removes the depot-owned application files,
@@ -71,6 +70,19 @@ General development commands such as build, validate, package, and publish
 remain Vapor Shell commands. If those commands need Rust/Cargo or cross-build
 tools, they should report the missing development environment and point to the
 installer command above.
+
+Git is not a player-mode install dependency. Developer workflows that need Git
+use a linked provider resolved by Vapor Shell:
+
+```text
+provider git status
+provider git link /path/to/git
+provider git clear
+```
+
+Vapor Shell first honors `VAPOR_GIT`, then the linked provider state, then
+PATH/common OS install locations. If no usable Git exists, the developer must
+link one explicitly.
 
 ## Logging
 

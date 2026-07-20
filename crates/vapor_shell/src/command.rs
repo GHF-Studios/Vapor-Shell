@@ -12,7 +12,7 @@ use crate::{
     diagnostics::{self, SubmitOptions},
     discovery::{EnvironmentPaths, ensure_contained},
     distribution::StageOptions,
-    documentation, ide, manifest,
+    documentation, git_provider, ide, manifest,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
     source as source_tools, source_registry,
     state::ShellState,
@@ -139,6 +139,13 @@ pub enum ShellCommand {
         command: ScriptCommand,
     },
 
+    /// Inspect or link external developer providers.
+    Provider {
+        /// Provider operation.
+        #[command(subcommand)]
+        command: ProviderCommand,
+    },
+
     /// Inspect or ship private-test launch diagnostics.
     Diagnostics {
         /// Diagnostics operation.
@@ -184,6 +191,32 @@ pub enum DiagnosticsCommand {
         #[arg(long)]
         dry_run: bool,
     },
+}
+
+/// External developer provider operations.
+#[derive(Debug, Subcommand)]
+pub enum ProviderCommand {
+    /// Inspect or link the developer Git provider.
+    Git {
+        /// Git provider operation.
+        #[command(subcommand)]
+        command: GitProviderCommand,
+    },
+}
+
+/// Developer Git provider operations.
+#[derive(Debug, Subcommand)]
+pub enum GitProviderCommand {
+    /// Report how Git is currently resolved.
+    Status,
+    /// Persist an explicit Git executable path.
+    Link {
+        /// Git executable path.
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+    /// Remove the persisted Git executable path.
+    Clear,
 }
 
 /// Documentation operations.
@@ -625,6 +658,7 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
         ShellCommand::Root { command } => execute_root(command, state)?,
         ShellCommand::Content { command } => execute_content(command, state)?,
         ShellCommand::Script { command } => execute_script_command(command, state)?,
+        ShellCommand::Provider { command } => execute_provider(command, state)?,
         ShellCommand::Diagnostics { command } => execute_diagnostics(command, state)?,
         ShellCommand::Exit => return Ok(Control::Exit),
     }
@@ -1252,7 +1286,7 @@ fn execute_workflow(
     let metadata = ResolvedMetadata::resolve(state);
     metadata.validate(
         &ValidationPlan::new(command.label())
-            .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
+            .app_local_tools(&[AppToolRequirement::Rust])
             .workspace(),
     )?;
     let paths = state.active_paths()?;
@@ -1439,7 +1473,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         } => {
             metadata.validate(
                 &ValidationPlan::new("rebuild the Vapor application")
-                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -1470,7 +1504,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         } => {
             metadata.validate(
                 &ValidationPlan::new("locally deploy the Vapor application")
-                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -1514,7 +1548,7 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
         } => {
             metadata.validate(
                 &ValidationPlan::new("package the Vapor application")
-                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace()
                     .distribution(),
             )?;
@@ -1570,11 +1604,10 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 );
             }
             let tool_requirements = if dry_run {
-                vec![AppToolRequirement::Rust, AppToolRequirement::Git]
+                vec![AppToolRequirement::Rust]
             } else {
                 vec![
                     AppToolRequirement::Rust,
-                    AppToolRequirement::Git,
                     AppToolRequirement::CrossToolchains,
                     AppToolRequirement::SteamCmd,
                 ]
@@ -1905,7 +1938,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
                 &ValidationPlan::new("build content")
-                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -1932,7 +1965,7 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
             let metadata = ResolvedMetadata::resolve(state);
             metadata.validate(
                 &ValidationPlan::new("locally deploy content")
-                    .app_local_tools(&[AppToolRequirement::Rust, AppToolRequirement::Git])
+                    .app_local_tools(&[AppToolRequirement::Rust])
                     .workspace(),
             )?;
             let targets = resolve_runtime_targets(
@@ -2173,7 +2206,6 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
                     &ValidationPlan::new("create Workshop item")
                         .app_local_tools(&[
                             AppToolRequirement::Rust,
-                            AppToolRequirement::Git,
                             AppToolRequirement::CrossToolchains,
                             AppToolRequirement::SteamCmd,
                         ])
@@ -2246,7 +2278,6 @@ fn execute_content(command: ContentCommand, state: &ShellState) -> Result<(), St
                     &ValidationPlan::new("publish Workshop items")
                         .app_local_tools(&[
                             AppToolRequirement::Rust,
-                            AppToolRequirement::Git,
                             AppToolRequirement::CrossToolchains,
                             AppToolRequirement::SteamCmd,
                         ])
@@ -2407,6 +2438,64 @@ fn execute_script_command(command: ScriptCommand, state: &mut ShellState) -> Res
     run_script(&name, dry_run, state)
 }
 
+fn execute_provider(command: ProviderCommand, state: &ShellState) -> Result<(), String> {
+    match command {
+        ProviderCommand::Git { command } => execute_git_provider(command, state),
+    }
+}
+
+fn execute_git_provider(command: GitProviderCommand, state: &ShellState) -> Result<(), String> {
+    match command {
+        GitProviderCommand::Status => {
+            println!("Git Provider");
+            println!();
+            match git_provider::linked_path(state.installation())? {
+                Some(path) => println!("Linked path: {}", path.display()),
+                None => println!("Linked path: none"),
+            }
+            match git_provider::resolve(state.installation()) {
+                Ok(provider) => {
+                    println!("Status: ready");
+                    println!("Path: {}", provider.path().display());
+                    println!("Source: {}", provider.source().label());
+                }
+                Err(error) => {
+                    println!("Status: not configured");
+                    println!("Error: {error}");
+                    println!();
+                    println!("Next");
+                    println!("  provider git link /path/to/git");
+                }
+            }
+            Ok(())
+        }
+        GitProviderCommand::Link { path } => {
+            let provider = git_provider::link(state.installation(), &path)?;
+            println!("Git Provider");
+            println!();
+            println!("Status: linked");
+            println!("Path: {}", provider.path().display());
+            Ok(())
+        }
+        GitProviderCommand::Clear => {
+            let removed = git_provider::clear(state.installation())?;
+            println!("Git Provider");
+            println!();
+            println!(
+                "Status: {}",
+                if removed {
+                    "linked path cleared"
+                } else {
+                    "no linked path was set"
+                }
+            );
+            println!("Next");
+            println!("  provider git status");
+            Ok(())
+        }
+    }
+}
+
 fn execute_diagnostics(command: DiagnosticsCommand, state: &ShellState) -> Result<(), String> {
     match command {
         DiagnosticsCommand::Status => {
@@ -2435,26 +2524,22 @@ fn execute_diagnostics(command: DiagnosticsCommand, state: &ShellState) -> Resul
                 Some(mode) => println!("  Automatic submit: {mode}"),
                 None => println!("  Automatic submit: off"),
             }
-            let app_local_registry = state.installation().root().join(".vapor/registry");
             match diagnostics::registry_setting() {
                 Some(path) => println!("  Registry target: {}", path.display()),
-                None if app_local_registry.join(".git").is_dir() => {
-                    println!(
-                        "  Registry target: {} (app-local default)",
-                        app_local_registry.display()
-                    );
-                }
                 None => println!("  Registry target: not set"),
+            }
+            match git_provider::resolve(state.installation()) {
+                Ok(provider) => {
+                    println!("  Git provider: {}", provider.path().display());
+                    println!("    source: {}", provider.source().label());
+                }
+                Err(_) => println!("  Git provider: not linked"),
             }
             println!();
             println!("Next");
-            if app_local_registry.join(".git").is_dir() {
-                println!("  diagnostics submit");
-                println!("  diagnostics submit --push");
-            } else {
-                println!("  diagnostics submit --registry /path/to/Vapor-Registry");
-                println!("  diagnostics submit --registry /path/to/Vapor-Registry --push");
-            }
+            println!("  diagnostics submit --registry /path/to/Vapor-Registry");
+            println!("  diagnostics submit --registry /path/to/Vapor-Registry --push");
+            println!("  provider git link /path/to/git");
         }
         DiagnosticsCommand::Submit {
             registry,

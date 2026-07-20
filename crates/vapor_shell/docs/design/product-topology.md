@@ -125,7 +125,6 @@ The Steam installation owns:
 - `bin/<target>/vapor[.exe]` for release-mode app binaries;
 - optional bootstrap `bin/vapor[.exe]` during early local setup;
 - app-local Rust, Cargo, rustup state, and Cargo home;
-- app-local Git/GitHub tooling when bundled;
 - app-local SteamCMD;
 - libraries, launchers, SDK tools, docs, caches, staging, and output;
 - installed or downloaded custom content;
@@ -398,9 +397,9 @@ Installation is owned by `Vapor-Installer`, not by Vapor Shell commands. Normal
 closed-alpha testers launch the Steam app; the platform launch wrapper invokes
 `vapor-installer install` before opening Vapor Shell or Play.
 
-Player-mode install prepares only basic runtime capability: app-local Git,
-SteamCMD, the public Vapor-Registry checkout, and generated disposable app-root
-directories. Development tooling is explicit and separate:
+Player-mode install prepares only basic runtime capability: SteamCMD and
+generated disposable app-root directories. Development tooling and Git-backed
+provider workflows are explicit and separate:
 
 ```text
 vapor-installer dev-env install --app-root /path/to/steam/app

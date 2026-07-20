@@ -5,6 +5,7 @@
 mod app;
 mod cross_toolchain;
 mod diagnostics;
+mod git_provider;
 mod ide;
 mod prompt;
 mod source;

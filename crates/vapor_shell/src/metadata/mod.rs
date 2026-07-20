@@ -120,7 +120,7 @@ impl ResolvedMetadata {
         self.workspace.as_ref().map_err(Clone::clone)
     }
 
-    /// App-local Rust, Git, and SteamCMD status from this snapshot.
+    /// App-local Rust, cross-toolchain, and SteamCMD status from this snapshot.
     pub fn app_local_tools_status(&self) -> &AppToolStatus {
         &self.app_local_tools
     }

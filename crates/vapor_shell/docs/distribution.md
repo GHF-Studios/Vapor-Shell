@@ -143,9 +143,9 @@ The real implementation remains Vapor Shell. Wrappers are not a substitute for
 target-specific app or content payloads; Vapor itself, engines, games, tools,
 and dynamic libraries all need runtime outputs staged per supported target.
 
-The publish preflight requires app-local Rust/Cargo, Git, and cross-build
-tooling for the release matrix, plus SteamCMD for real upload. Player-mode
-tooling belongs to
+The publish preflight requires app-local Rust/Cargo and cross-build tooling for
+the release matrix, a linked developer Git provider for explicit Git-backed
+workflows, plus SteamCMD for real upload. Player-mode tooling belongs to
 `vapor-installer install`; explicit development toolchain upgrade/downgrade
 belongs to `vapor-installer dev-env`. The root depots contain release runtime
 files only; installer-managed tools and generated app-local state stay outside

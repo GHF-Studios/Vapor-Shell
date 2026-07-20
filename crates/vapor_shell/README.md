@@ -12,7 +12,7 @@ Steam installation / app root         Active source root (critical)
 ├── bin/<target>/vapor[.exe]          ├── content directories with role manifests
 ├── resources/vapor/vapor-scripts/    └── authored source
 ├── .vapor/logs, state, cache, ...
-├── tools/git / tools/steamcmd
+├── tools/steamcmd
 └── content / installed Workshop artifacts
 ```
 
@@ -39,8 +39,9 @@ not the installed Steam directory itself.
   command can affect.
 - [Cargo integration](docs/cargo-metadata.md): required Rust workspaces,
   authority boundaries, nested-workspace consequences, and derived metadata.
-- [Setup](docs/setup.md): explicit app-local installation of Rust, Git,
-  Git, SteamCMD, and developer-mode tooling through Vapor Installer.
+- [Setup](docs/setup.md): explicit app-local installation of SteamCMD and
+  developer-mode Rust/Cargo tooling through Vapor Installer, plus linked
+  developer providers such as Git.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
   launch wrappers, SteamPipe templates, and smoke validation.
 - [Steam development](docs/steam-development.md): root publish previews, manual

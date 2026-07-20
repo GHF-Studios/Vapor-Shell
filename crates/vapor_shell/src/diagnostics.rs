@@ -1,6 +1,6 @@
 //! Private-test diagnostics capture and explicit shipping.
 
-use crate::{app_local_tools, discovery::InstallationPaths, manifest};
+use crate::{discovery::InstallationPaths, git_provider, manifest};
 use std::{
     env,
     fs::{self, File, OpenOptions},
@@ -282,8 +282,8 @@ fn submit_from_installation(
     options: &SubmitOptions,
     current: Option<&Path>,
 ) -> Result<SubmitReport, String> {
-    let registry = resolve_registry(installation, options.registry.as_deref())?;
-    if !registry.join(".git").is_dir() {
+    let registry = resolve_registry(options.registry.as_deref())?;
+    if !is_git_checkout(&registry) {
         return Err(format!(
             "diagnostics registry '{}' is not a Git checkout",
             registry.display()
@@ -393,15 +393,15 @@ fn run_git<const N: usize>(
 }
 
 fn git_command(installation: &InstallationPaths) -> Result<Command, String> {
-    let status = app_local_tools::inspect(installation);
-    if status.git().installed() {
-        Ok(Command::new(status.git().path()))
-    } else {
-        Err(
-            "cannot push diagnostics: app-local Git is not installed\nhelp: run `vapor-installer install --app-root <app-root>`"
-                .to_owned(),
+    git_provider::command(installation).map_err(|error| {
+        format!(
+            "cannot push diagnostics: {error}\nhelp: pass `--registry /path/to/Vapor-Registry` and link Git with `provider git link /path/to/git`"
         )
-    }
+    })
+}
+
+fn is_git_checkout(path: &Path) -> bool {
+    path.join(".git").exists()
 }
 
 fn logs_to_submit(
@@ -437,19 +437,12 @@ fn logs_to_submit(
     Ok(Vec::new())
 }
 
-fn resolve_registry(
-    installation: &InstallationPaths,
-    explicit: Option<&Path>,
-) -> Result<PathBuf, String> {
+fn resolve_registry(explicit: Option<&Path>) -> Result<PathBuf, String> {
     let path = explicit
         .map(Path::to_path_buf)
         .or_else(|| env::var_os("VAPOR_DIAGNOSTICS_REGISTRY").map(PathBuf::from))
-        .or_else(|| {
-            let app_local = installation.root().join(".vapor/registry");
-            app_local.join(".git").is_dir().then_some(app_local)
-        })
         .ok_or_else(|| {
-            "diagnostics registry is not set\nhelp: run `vapor-installer install --app-root <app-root>`, pass `--registry /path/to/Vapor-Registry`, or set VAPOR_DIAGNOSTICS_REGISTRY"
+            "diagnostics registry is not set\nhelp: pass `--registry /path/to/Vapor-Registry` or set VAPOR_DIAGNOSTICS_REGISTRY\nnote: normal Steam installs no longer create an app-local registry checkout"
                 .to_owned()
         })?;
     fs::canonicalize(&path).map_err(|error| {

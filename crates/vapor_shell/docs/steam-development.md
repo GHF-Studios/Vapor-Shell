@@ -125,9 +125,7 @@ or intentionally removed.
 
 Player-mode install prepares only app-local basic runtime tooling:
 
-- Git under `tools/git`;
 - SteamCMD under `tools/steamcmd`;
-- Vapor-Registry checkout under `.vapor/registry`;
 - disposable app-local state, log, diagnostics, and content-cache directories.
 
 It does not install Rust/Cargo or cross-build toolchains. Development tooling is

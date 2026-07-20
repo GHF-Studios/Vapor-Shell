@@ -21,8 +21,8 @@ Original implementation intent, now superseded:
 1. keep installed-environment setup under a Shell-owned setup command group;
 2. keep backend tools hidden behind Vapor source, content, root, Steam, and setup
    goals;
-3. always attempt to provide Rust/Cargo, Git, and SteamCMD availability rather
-   than asking users to choose player/developer/publisher modes;
+3. always attempt to provide player SteamCMD readiness, with Rust/Cargo
+   development tooling and external Git providers handled explicitly;
 4. use OS and package-manager detection to explain repair paths without silently
    performing privileged system changes;
 5. keep app/depot root authority separate from operating-system administrator
@@ -268,9 +268,8 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 - Detect app-local, imported host, system, and configured Git/SteamCMD
   providers.
 - Reject delegating Git scripts as app-owned providers.
-- Use a portable MinGit archive for Windows app-owned Git setup. Keep Linux
-  host Git import as the explicit fallback until a Linux portable Git payload is
-  chosen.
+- Do not make Git part of player-mode setup. Git-backed developer workflows use
+  an explicitly linked or discovered developer Git provider.
 - Add OS/distro/package-manager detection as diagnostic data.
 
 ### Phase 5: Self-Setup Repair Actions

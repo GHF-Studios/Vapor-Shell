@@ -125,7 +125,6 @@ impl InstallationReport {
 struct AppToolReport {
     complete: bool,
     rust: AppToolComponentReport,
-    git: AppToolComponentReport,
     cross_toolchains: AppToolComponentReport,
     steamcmd: AppToolComponentReport,
 }
@@ -135,7 +134,6 @@ impl AppToolReport {
         Self {
             complete: status.complete(),
             rust: AppToolComponentReport::new(status.rust()),
-            git: AppToolComponentReport::new(status.git()),
             cross_toolchains: AppToolComponentReport::new(status.cross_toolchains()),
             steamcmd: AppToolComponentReport::new(status.steamcmd()),
         }
@@ -435,7 +433,6 @@ fn diagnostics(
     let mut diagnostics = Vec::new();
     for status in [
         app_local_tools.rust(),
-        app_local_tools.git(),
         app_local_tools.cross_toolchains(),
         app_local_tools.steamcmd(),
     ] {

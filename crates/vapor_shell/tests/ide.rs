@@ -115,7 +115,6 @@ fn sample_ide_state() -> (TestTree, TestTree, ShellState) {
         "rustup-home/toolchains/nightly-host/bin/rustfmt",
         "rustup-home/toolchains/nightly-host/bin/cargo-clippy",
         "rustup-home/toolchains/nightly-host/bin/rustdoc",
-        "tools/git/bin/git",
     ] {
         write_executable(&installation, path);
     }

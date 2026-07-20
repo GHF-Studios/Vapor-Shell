@@ -29,7 +29,6 @@ The app root may contain app-owned resources including:
 ├── cargo-home/
 ├── lib/
 ├── rustup-home/
-├── tools/git/
 ├── tools/steamcmd/
 ├── content/
 └── output/

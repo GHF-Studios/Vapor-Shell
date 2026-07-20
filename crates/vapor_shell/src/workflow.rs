@@ -504,8 +504,6 @@ pub(crate) fn managed_path(paths: &EnvironmentPaths) -> Result<OsString, String>
         entries.push(parent.to_path_buf());
     }
     entries.extend([
-        root.join("tools/git/cmd"),
-        root.join("tools/git/bin"),
         root.join("tools/cross/bin"),
         root.join("tools/zig"),
         root.join("tools/llvm-mingw/bin"),

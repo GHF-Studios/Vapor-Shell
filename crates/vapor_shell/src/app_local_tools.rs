@@ -17,8 +17,6 @@ use std::{
 pub enum AppToolRequirement {
     /// Rustup, Cargo, Rustc, Rustfmt, Clippy, and Rustdoc.
     Rust,
-    /// Portable Git distribution.
-    Git,
     /// Portable Zig-based cross-linker wrappers.
     CrossToolchains,
     /// SteamCMD distribution.
@@ -30,7 +28,6 @@ impl AppToolRequirement {
     pub fn label(self) -> &'static str {
         match self {
             Self::Rust => "Rust/Cargo",
-            Self::Git => "Git",
             Self::CrossToolchains => "Zig/Cross",
             Self::SteamCmd => "SteamCMD",
         }
@@ -68,11 +65,10 @@ impl AppToolComponentStatus {
     }
 }
 
-/// Complete status of active Rust, Git, cross-linker, and SteamCMD.
+/// Complete status of active Rust, cross-linker, and SteamCMD.
 #[derive(Debug, Clone)]
 pub struct AppToolStatus {
     rust: AppToolComponentStatus,
-    git: AppToolComponentStatus,
     cross: AppToolComponentStatus,
     steamcmd: AppToolComponentStatus,
 }
@@ -81,11 +77,6 @@ impl AppToolStatus {
     /// App-local Rust status.
     pub fn rust(&self) -> &AppToolComponentStatus {
         &self.rust
-    }
-
-    /// App-local Git status.
-    pub fn git(&self) -> &AppToolComponentStatus {
-        &self.git
     }
 
     /// App-local portable cross-linker status.
@@ -100,14 +91,13 @@ impl AppToolStatus {
 
     /// Whether every developer tool group is installed.
     pub fn complete(&self) -> bool {
-        self.rust.installed && self.git.installed && self.cross.installed && self.steamcmd.installed
+        self.rust.installed && self.cross.installed && self.steamcmd.installed
     }
 
     /// Status of one requested tool group.
     pub fn requirement(&self, requirement: AppToolRequirement) -> &AppToolComponentStatus {
         match requirement {
             AppToolRequirement::Rust => &self.rust,
-            AppToolRequirement::Git => &self.git,
             AppToolRequirement::CrossToolchains => &self.cross,
             AppToolRequirement::SteamCmd => &self.steamcmd,
         }
@@ -180,27 +170,6 @@ fn inspect_root(root: &Path) -> AppToolStatus {
         missing,
     };
 
-    let git_paths = git_candidates(root);
-    let git_path = git_paths
-        .iter()
-        .find(|path| is_healthy_git(path, root))
-        .cloned()
-        .unwrap_or_else(|| preferred_git_path(root));
-    let git_delegates_to_system = git_paths.iter().any(|path| is_delegating_git_script(path));
-    let git_installed = git_paths.iter().any(|path| is_healthy_git(path, root));
-    let git = AppToolComponentStatus {
-        label: "Git",
-        installed: git_installed,
-        path: git_path,
-        missing: if git_installed {
-            Vec::new()
-        } else if git_delegates_to_system {
-            vec!["app-owned Git executable (replace delegating script)".to_owned()]
-        } else {
-            vec!["git".to_owned()]
-        },
-    };
-
     let steam_path = steam_executable(root);
     let steam_installed = is_executable(&steam_path);
     let steamcmd = AppToolComponentStatus {
@@ -224,44 +193,9 @@ fn inspect_root(root: &Path) -> AppToolStatus {
 
     AppToolStatus {
         rust,
-        git,
         cross,
         steamcmd,
     }
-}
-
-fn preferred_git_path(root: &Path) -> PathBuf {
-    if cfg!(target_os = "windows") {
-        root.join("tools/git/cmd").join(executable("git"))
-    } else {
-        root.join("tools/git/bin").join(executable("git"))
-    }
-}
-
-fn git_candidates(root: &Path) -> Vec<PathBuf> {
-    vec![
-        root.join("tools/git/bin").join(executable("git")),
-        root.join("tools/git/cmd").join(executable("git")),
-    ]
-}
-
-fn is_healthy_git(path: &Path, root: &Path) -> bool {
-    !is_delegating_git_script(path) && is_healthy_executable(path, root)
-}
-
-fn is_delegating_git_script(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else {
-        return false;
-    };
-    if metadata.len() > 4096 {
-        return false;
-    }
-    let Ok(source) = fs::read_to_string(path) else {
-        return false;
-    };
-    source.starts_with("#!")
-        && source.contains("exec")
-        && (source.contains("/usr/bin/git") || source.contains(" git"))
 }
 
 fn inspect_rust(toolchains: &Path, active_root: Option<&Path>) -> (Option<PathBuf>, Vec<String>) {

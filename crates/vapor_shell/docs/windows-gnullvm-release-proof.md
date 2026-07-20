@@ -62,8 +62,6 @@ Expected installer behavior:
 
 - Rustup is downloaded and run with `RUSTUP_HOME` and `CARGO_HOME` inside the
   Steam app root.
-- Git is downloaded as the portable MinGit zip and extracted under
-  `tools\git`.
 - SteamCMD is downloaded as the Windows zip and extracted under
   `tools\steamcmd`.
 - Zig is downloaded as the portable Windows zip and extracted under
@@ -71,8 +69,8 @@ Expected installer behavior:
 - llvm-mingw is downloaded as a portable archive and extracted under
   `tools\llvm-mingw`.
 
-No downloaded setup component should run a system installer, require global
-Git, write to a global Git location, or mutate machine-wide PATH state.
+No downloaded setup component should run a system installer, write to a global
+Git/tool location, or mutate machine-wide PATH state.
 
 The Windows GNU/LLVM and Linux GNU cross-linker path is app-local and portable.
 Vapor uses llvm-mingw from `tools\llvm-mingw` for Windows GNU/LLVM and Zig
@@ -86,16 +84,16 @@ the source root must be present by one of these explicit handoff methods:
 
 - a prepared source checkout or archive;
 - a future Vapor workspace/template import command;
-- a manual clone using app-local Git after installer bootstrap/dev-env.
+- a manual clone using a developer-installed Git provider.
 
-If a manual clone is needed for this proof, use the app-local Git binary:
+If Git-backed source work is needed for this proof, install Git as a developer
+tool on the host and link it inside Vapor Shell:
 
 ```cmd
-set "APP_ROOT=C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
-"%APP_ROOT%\tools\git\cmd\git.exe" clone --recurse-submodules REPO_URL "%USERPROFILE%\Documents\Loo Cast Repos\Vapor-Root"
+provider git link "C:\Program Files\Git\cmd\git.exe"
 ```
 
-Do not ask the Windows machine to install system Git.
+Normal Steam play does not require Git.
 
 ## Windows build
 

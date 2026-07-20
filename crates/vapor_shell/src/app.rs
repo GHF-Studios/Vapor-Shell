@@ -3,8 +3,8 @@
 use crate::{
     app_local_tools,
     command::{
-        self, ContentCommand, Control, DiagnosticsCommand, LaunchCommand, RootCommand,
-        ScriptCommand, ShellCommand, SourceCommand,
+        self, ContentCommand, Control, DiagnosticsCommand, LaunchCommand, ProviderCommand,
+        RootCommand, ScriptCommand, ShellCommand, SourceCommand,
     },
     diagnostics::{self, CaptureOptions},
     discovery::EnvironmentPaths,
@@ -113,9 +113,7 @@ fn print_startup_overview(state: &ShellState) {
     println!();
     println!("Status");
     println!("  App root: {}", installation.root().display());
-    let registry_ready = installation.root().join(".vapor/registry/.git").is_dir();
-    let runtime_tools_ready =
-        tool_status.git().installed() && tool_status.steamcmd().installed() && registry_ready;
+    let runtime_tools_ready = tool_status.steamcmd().installed();
     println!(
         "  Runtime tools: {}",
         if runtime_tools_ready {
@@ -293,6 +291,11 @@ enum HostSubcommand {
         #[command(subcommand)]
         command: ScriptCommand,
     },
+    /// Inspect or link external developer providers.
+    Provider {
+        #[command(subcommand)]
+        command: ProviderCommand,
+    },
     /// Inspect or ship private-test launch diagnostics.
     Diagnostics {
         #[command(subcommand)]
@@ -345,6 +348,7 @@ impl HostSubcommand {
             HostSubcommand::Content { command } => ShellCommand::Content { command },
             HostSubcommand::Root { command } => ShellCommand::Root { command },
             HostSubcommand::Script { command } => ShellCommand::Script { command },
+            HostSubcommand::Provider { command } => ShellCommand::Provider { command },
             HostSubcommand::Diagnostics { command } => ShellCommand::Diagnostics { command },
         }
     }

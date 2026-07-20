@@ -260,7 +260,6 @@ fn vapor_xml(
         .ok_or_else(|| "cannot configure IDE: bundled Cargo is missing".to_owned())?;
     let rustc = app_tools.rust().path().join(executable("rustc"));
     let rustup = root.join("rustup/bin").join(executable("rustup"));
-    let git = app_tools.git().path();
     Ok(VAPOR_TEMPLATE
         .replace("{{source_id}}", &xml_escape(paths.source().identity_id()))
         .replace("{{app_root}}", &xml_escape(&root.to_string_lossy()))
@@ -275,7 +274,6 @@ fn vapor_xml(
         .replace("{{cargo_path}}", &xml_escape(&cargo.to_string_lossy()))
         .replace("{{rustc_path}}", &xml_escape(&rustc.to_string_lossy()))
         .replace("{{rustup_path}}", &xml_escape(&rustup.to_string_lossy()))
-        .replace("{{git_path}}", &xml_escape(&git.to_string_lossy()))
         .replace(
             "{{stdlib_option}}",
             &xml_option("rustStdlibSource", stdlib_source),

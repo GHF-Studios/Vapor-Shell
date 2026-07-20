@@ -9,6 +9,5 @@
     <option name="cargoPath" value="{{cargo_path}}" />
     <option name="rustcPath" value="{{rustc_path}}" />
     <option name="rustupPath" value="{{rustup_path}}" />
-    <option name="gitPath" value="{{git_path}}" />
 {{stdlib_option}}  </component>
 </project>
