@@ -8,6 +8,7 @@ use crate::{
     },
     diagnostics::{self, CaptureOptions},
     discovery::EnvironmentPaths,
+    launch_session,
     metadata::MetadataFormat,
     prompt::VaporPrompt,
     source_registry,
@@ -99,6 +100,7 @@ fn print_startup_script_header(script: &str) {
 fn print_startup_overview(state: &ShellState) {
     let installation = state.installation();
     let tool_status = app_local_tools::inspect(installation);
+    let installer_failure = launch_session::installer_bootstrap_failure(installation.root());
 
     println!("Vapor Shell");
     println!();
@@ -121,11 +123,11 @@ fn print_startup_overview(state: &ShellState) {
             "not installed"
         }
     );
-    if let Some(failure) = std::env::var_os("VAPOR_INSTALLER_INSTALL_FAILED") {
+    if let Some(failure) = &installer_failure {
         println!("  Installer: failed");
-        println!("    error: {}", failure.to_string_lossy());
-        if let Some(log) = std::env::var_os("VAPOR_INSTALLER_LOG") {
-            println!("    log: {}", log.to_string_lossy());
+        println!("    error: {}", failure.message());
+        if let Some(log) = failure.log() {
+            println!("    log: {}", log.display());
         }
         println!(
             "    command: vapor-installer install --app-root {}",
@@ -142,7 +144,7 @@ fn print_startup_overview(state: &ShellState) {
 
     println!();
     println!("Next");
-    if std::env::var_os("VAPOR_INSTALLER_INSTALL_FAILED").is_some() {
+    if installer_failure.is_some() {
         println!("  reinstall the Steam app, or run the installer command shown above");
     } else if !runtime_tools_ready {
         println!(

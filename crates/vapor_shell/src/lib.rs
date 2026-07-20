@@ -7,6 +7,7 @@ mod cross_toolchain;
 mod diagnostics;
 mod git_provider;
 mod ide;
+mod launch_session;
 mod prompt;
 mod source;
 

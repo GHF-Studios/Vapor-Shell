@@ -125,25 +125,26 @@ target-specific app binaries into `bin/<target>/`, then use
 imported files stage correctly.
 
 Steam-facing native entrypoints are the minimal terminal adapter split. They
-open the platform terminal, forward arguments unchanged to the matching launch
-script, and wait for the terminal to close:
+open the platform terminal, start the matching launch script with the internal
+`--hold` wrapper flag, forward Steam launch arguments after that flag, and wait
+for the terminal to close:
 
 ```text
 bin/x86_64-unknown-linux-gnu/vapor-entrypoint play
-  -> Konsole -> bin/vapor-launch.sh play
+  -> Konsole -> bin/vapor-launch.sh --hold play
   -> bin/x86_64-unknown-linux-gnu/vapor
 
 bin/x86_64-unknown-linux-gnu/vapor-entrypoint installer
-  -> Konsole -> bin/vapor-launch.sh installer
+  -> Konsole -> bin/vapor-launch.sh --hold installer
   -> bin/x86_64-unknown-linux-gnu/vapor-installer
 
 bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play
-  -> cmd /C -> bin\vapor-launch.cmd play
+  -> cmd /C -> bin\vapor-launch.cmd --hold play
   -> bin\x86_64-pc-windows-gnullvm\vapor.exe
   -> cmd /K after Vapor exits
 
 bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe installer
-  -> cmd /C -> bin\vapor-launch.cmd installer
+  -> cmd /C -> bin\vapor-launch.cmd --hold installer
   -> bin\x86_64-pc-windows-gnullvm\vapor-installer.exe
   -> cmd /K after Vapor Installer exits
 ```
@@ -152,9 +153,10 @@ The launch scripts run the shipped `vapor-installer install` first for
 Play/Shell launch targets, then select the installed platform binary and
 command. The Installer launch target opens `vapor-installer` directly and skips
 headless install. Installer child-tool output is routed to
-`<app-root>/.vapor/logs/installer.log`; the launch wrapper prints only the
-session banner, failures, and terminal-hold message. The real implementation
-remains Vapor Shell. Entry points and scripts are not a
+`<app-root>/.vapor/logs/installer.log`; bootstrap failure is recorded as
+`<app-root>/.vapor/state/installer/bootstrap-failure.txt`; the launch wrapper
+prints only the session banner, failures, and terminal-hold message. The real
+implementation remains Vapor Shell. Entry points and scripts are not a
 substitute for target-specific app or content payloads; Vapor itself, engines,
 games, tools, and dynamic libraries all need runtime outputs staged per
 supported target.

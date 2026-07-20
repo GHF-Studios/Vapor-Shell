@@ -100,6 +100,12 @@ terminal should show the launch wrapper, the installer report or Shell status,
 and explicit failures.
 
 If launch-time install fails, the first visible Vapor Shell reports what
-failed, the installer log path, and the exact installer command. For normal
-testers, the preferred recovery is reinstalling the Steam app because the app
-root should contain no authoritative user state.
+failed, the installer log path, and the exact installer command. The launch
+script records that failure under:
+
+```text
+<app-root>/.vapor/state/installer/bootstrap-failure.txt
+```
+
+For normal testers, the preferred recovery is reinstalling the Steam app
+because the app root should contain no authoritative user state.

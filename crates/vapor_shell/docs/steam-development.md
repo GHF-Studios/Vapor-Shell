@@ -95,9 +95,10 @@ promotion need, such as a stable alpha branch distinct from internal dev.
 
 After a depot build that includes `bin/<target>/vapor-entrypoint[.exe]` and the
 matching `bin/vapor-launch.*` script, Steam launch options should target the
-native entrypoint. The entrypoint opens the platform terminal, forwards the
-original arguments unchanged to the launch script, and waits until the terminal
-closes. For Play/Shell launch targets, the script runs
+native entrypoint. The entrypoint opens the platform terminal, starts the launch
+script with the internal `--hold` wrapper flag, forwards Steam's launch
+arguments after that flag, and waits until the terminal closes. For Play/Shell
+launch targets, the script runs
 `vapor-installer install --app-root <app-root>` first, then hands off to the
 installed Vapor binary:
 
@@ -124,13 +125,17 @@ The Linux entrypoint opens Konsole. The Windows entrypoint opens `cmd` long
 enough to run the launch script, and the launch script owns the persistent
 interactive command prompt after Vapor exits. Both entrypoints are intentionally
 thin terminal adapters; they do not interpret `play`, `shell`, `installer`, or
-future launch arguments. The launch scripts own launch-target dispatch and the
-visible wrapper banner, Vapor Installer owns installation mechanics and writes
-child-tool output to `<app-root>/.vapor/logs/installer.log`, and Vapor Shell owns
-product interaction. Running `vapor-installer` without arguments opens the
-visual installer for human-driven lifecycle work; scripts use only the headless
-install command for Play/Shell. The `installer` launch target skips headless
-install and opens `vapor-installer` directly, so users can manage
+future launch arguments beyond inserting the internal wrapper hold flag. The
+launch scripts own launch-target dispatch and the visible wrapper banner, Vapor
+Installer owns installation mechanics and writes child-tool output to
+`<app-root>/.vapor/logs/installer.log`, and Vapor Shell owns product
+interaction. Launch-time bootstrap failure is recorded under
+`<app-root>/.vapor/state/installer/bootstrap-failure.txt`; Shell reads that
+app-local state instead of inheriting wrapper environment variables. Running
+`vapor-installer` without arguments opens the visual installer for human-driven
+lifecycle work; scripts use only the headless install command for Play/Shell.
+The `installer` launch target skips headless install and opens
+`vapor-installer` directly, so users can manage
 install/uninstall/developer-mode state even when player-mode install is broken
 or intentionally removed.
 
