@@ -99,8 +99,7 @@ runtime depot content unless `App-Source.vapor.toml` explicitly includes them.
 
 Source-controlled support assets live under visible `resources/` paths. The
 installed app-root `.vapor/` directory is reserved for disposable generated
-state such as logs, registry checkout, content cache, diagnostics cache, and
-receipts.
+state such as logs, diagnostics runs, content cache, and receipts.
 
 When `[root.runtime].targets` is declared, no target flag means release-matrix
 staging. Repeat `--target` to build and stage a deliberate custom subset. Use

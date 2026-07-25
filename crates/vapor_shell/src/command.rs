@@ -9,7 +9,7 @@
 use crate::{
     app_local_tools::AppToolRequirement,
     content,
-    diagnostics::{self, SubmitOptions},
+    diagnostics::{self, UploadOptions},
     discovery::{EnvironmentPaths, ensure_contained},
     distribution::StageOptions,
     documentation, git_provider, ide, manifest,
@@ -173,21 +173,12 @@ pub enum LaunchCommand {
 /// Private-test diagnostics operations.
 #[derive(Debug, Subcommand)]
 pub enum DiagnosticsCommand {
-    /// Report local diagnostics capture and shipping state.
+    /// Report local diagnostics capture and upload state.
     Status,
-    /// Copy diagnostics into a registry checkout; `--push` also commits and pushes.
-    #[command(alias = "ship")]
-    Submit {
-        /// Registry checkout used as the private diagnostics sink.
-        #[arg(long, value_name = "PATH")]
-        registry: Option<PathBuf>,
-        /// Copy every local run log instead of only the current/latest run.
-        #[arg(long)]
-        all: bool,
-        /// Commit and push diagnostics after copying them into the registry.
-        #[arg(long)]
-        push: bool,
-        /// Preview copied files and Git actions without changing the registry.
+    /// Upload the current/latest local diagnostics run through the configured transport.
+    #[command(alias = "submit", alias = "send")]
+    Upload {
+        /// Preview the local run and transport without sending it.
         #[arg(long)]
         dry_run: bool,
     },
@@ -661,6 +652,7 @@ fn execute_launch(command: LaunchCommand, state: &ShellState) -> Result<(), Stri
 }
 
 fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), String> {
+    diagnostics::record_launch_target("loo-cast");
     diagnostics::event(format!(
         "launch loo-cast started; account={}",
         account.unwrap_or("<default>")
@@ -680,6 +672,7 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
         selection.artifact_id(),
         selection.installed_root().display()
     ));
+    diagnostics::record_selected_packagepack(selection.artifact_id(), selection.installed_root());
 
     let reports = content::verify(state.installation(), None)?;
     diagnostics::event(format!("content verify reports: {}", reports.len()));
@@ -714,6 +707,7 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
         "engine handoff binary: {} ({runtime_target})",
         binary.display()
     ));
+    diagnostics::record_engine_handoff(&engine_id, &engine_root, &runtime_target, &binary);
 
     println!("  Spacetime Engine: {engine_id}");
     println!("    runtime target: {runtime_target}");
@@ -1036,6 +1030,7 @@ fn execute_source_init(
     let (name, entry) = source_registry::add(state.installation(), paths.source())?;
     source_registry::set_active(state.installation(), paths.source())?;
     print_warnings(state.open_paths(paths)?);
+    diagnostics::record_source_context(state.source());
 
     println!("Source Created");
     println!();
@@ -1106,6 +1101,7 @@ fn execute_source_open(source: &str, state: &mut ShellState) -> Result<(), Strin
     let (name, entry) = source_registry::add(state.installation(), paths.source())?;
     source_registry::set_active(state.installation(), paths.source())?;
     print_warnings(state.open_paths(paths)?);
+    diagnostics::record_source_context(state.source());
     println!("Source Opened");
     println!();
     println!("Status");
@@ -1124,6 +1120,7 @@ fn execute_source_open(source: &str, state: &mut ShellState) -> Result<(), Strin
 fn execute_source_close(state: &mut ShellState) -> Result<(), String> {
     source_registry::clear_active(state.installation())?;
     state.close_source();
+    diagnostics::record_source_context(state.source());
     println!("Source Closed");
     println!();
     println!("Next");
@@ -2487,13 +2484,18 @@ fn execute_diagnostics(command: DiagnosticsCommand, state: &ShellState) -> Resul
             println!();
             println!("Status");
             println!(
-                "  Local logs: {}",
+                "  Local diagnostics: {}",
                 diagnostics::local_directory(state.installation()).display()
             );
-            match diagnostics::current_run_path()
-                .or_else(|| diagnostics::latest_run_path(state.installation()))
+            match diagnostics::current_run()
+                .or_else(|| diagnostics::latest_run(state.installation()))
             {
-                Some(path) => println!("  Latest run: {}", path.display()),
+                Some(run) => {
+                    println!("  Latest run: {}", run.run_id());
+                    println!("    directory: {}", run.run_dir().display());
+                    println!("    metadata: {}", run.metadata_path().display());
+                    println!("    log: {}", run.log_path().display());
+                }
                 None => println!("  Latest run: none"),
             }
             println!(
@@ -2504,83 +2506,35 @@ fn execute_diagnostics(command: DiagnosticsCommand, state: &ShellState) -> Resul
                     "off for this process"
                 }
             );
-            match diagnostics::auto_submit_setting() {
-                Some(mode) => println!("  Automatic submit: {mode}"),
-                None => println!("  Automatic submit: off"),
-            }
-            match diagnostics::registry_setting() {
-                Some(path) => println!("  Registry target: {}", path.display()),
-                None => println!("  Registry target: not set"),
-            }
-            match git_provider::resolve(state.installation()) {
-                Ok(provider) => {
-                    println!("  Git provider: {}", provider.path().display());
-                    println!("    source: {}", provider.source().label());
-                }
-                Err(_) => println!("  Git provider: not linked"),
+            match diagnostics::upload_setting() {
+                Some(mode) => println!("  Upload request: {mode}"),
+                None => println!("  Upload request: off"),
             }
             println!();
             println!("Next");
-            println!("  diagnostics submit --registry /path/to/Vapor-Registry");
-            println!("  diagnostics submit --registry /path/to/Vapor-Registry --push");
-            println!("  provider git link /path/to/git");
+            println!("  rerun the launch with --send-diagnostics to capture a local run");
+            println!("  diagnostics upload --dry-run");
         }
-        DiagnosticsCommand::Submit {
-            registry,
-            all,
-            push,
-            dry_run,
-        } => {
-            let report = diagnostics::submit(
-                state.installation(),
-                &SubmitOptions {
-                    registry,
-                    push,
-                    all,
-                    dry_run,
-                },
-            )?;
-            println!("Diagnostics Submit");
+        DiagnosticsCommand::Upload { dry_run } => {
+            let report = diagnostics::upload(state.installation(), &UploadOptions { dry_run })?;
+            println!("Diagnostics Upload");
             println!();
             println!("Status");
-            println!("  Registry: {}", report.registry().display());
-            println!("  Target: {}", report.target_dir().display());
-            println!(
-                "  Logs: {}{}",
-                report.logs().len(),
-                if report.dry_run() { " (dry-run)" } else { "" }
-            );
-            for log in report.logs() {
-                println!("    - {}", log.display());
-            }
-            if push {
-                println!(
-                    "  Commit: {}",
-                    if report.committed() {
-                        "created"
-                    } else {
-                        "not needed"
-                    }
-                );
-                println!(
-                    "  Push: {}",
-                    if report.pushed() {
-                        "complete"
-                    } else {
-                        "skipped"
-                    }
-                );
-            } else {
-                println!("  Push: skipped");
-            }
+            println!("  Run: {}", report.run().run_id());
+            println!("    directory: {}", report.run().run_dir().display());
+            println!("    metadata: {}", report.run().metadata_path().display());
+            println!("    log: {}", report.run().log_path().display());
+            println!("  Transport: {}", report.transport());
             if report.dry_run() {
+                println!("  Mode: dry-run");
+                println!("  Upload: not sent");
                 println!();
                 println!("Next");
-                println!(
-                    "  diagnostics submit --registry {}{}",
-                    report.registry().display(),
-                    if push { " --push" } else { "" }
-                );
+                println!("  diagnostics upload");
+            } else if report.sent() {
+                println!("  Upload: sent");
+            } else {
+                println!("  Upload: not sent");
             }
         }
     }
@@ -2612,10 +2566,11 @@ pub(crate) fn run_script(name: &str, dry_run: bool, state: &mut ShellState) -> R
         .map_err(|error| error.to_string())?;
         if !script_command_allowed(&parsed) {
             return Err(
-                "scripts may not invoke scripts, exit the host shell, perform real publishes, delete Workshop items, or apply IDE repairs"
+                "scripts may not invoke scripts, exit the host shell, perform real publishes, delete Workshop items, send diagnostics, or apply IDE repairs"
                     .to_owned(),
             );
         }
+        diagnostics::step(format!("script {name}:{}: {line}", index + 1));
         execute(parsed, state)?;
         diagnostics::event(format!("script {name}:{} complete", index + 1));
     }
@@ -2677,11 +2632,7 @@ fn script_command_allowed(command: &ShellCommand) -> bool {
                 command: IdeCommand::Repair { dry_run: false },
             }
             | ShellCommand::Diagnostics {
-                command: DiagnosticsCommand::Submit {
-                    push: true,
-                    dry_run: false,
-                    ..
-                },
+                command: DiagnosticsCommand::Upload { dry_run: false },
             }
     )
 }

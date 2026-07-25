@@ -499,21 +499,28 @@ pub(crate) fn managed_path(paths: &EnvironmentPaths) -> Result<OsString, String>
     let installation = paths.installation();
     let root = installation.root();
     let mut entries = Vec::<PathBuf>::new();
-    let cargo = installation.bundled_cargo();
-    if let Some(parent) = cargo.as_deref().and_then(|cargo| cargo.parent()) {
-        entries.push(parent.to_path_buf());
+    entries.push(installation.binaries().to_path_buf());
+    entries.push(root.join("bin"));
+    if let Some(existing) = env::var_os("PATH") {
+        entries
+            .extend(env::split_paths(&existing).filter(|entry| !is_raw_app_tool_path(root, entry)));
     }
-    entries.extend([
-        root.join("tools/cross/bin"),
-        root.join("tools/zig"),
-        root.join("tools/llvm-mingw/bin"),
+    env::join_paths(entries).map_err(|error| format!("failed to construct Vapor PATH: {error}"))
+}
+
+fn is_raw_app_tool_path(root: &Path, entry: &Path) -> bool {
+    let raw_exact = [
         root.join("cargo-home/bin"),
         root.join("rustup/bin"),
         root.join("tools/steamcmd"),
-        root.join("bin"),
-    ]);
-    if let Some(existing) = env::var_os("PATH") {
-        entries.extend(env::split_paths(&existing));
+        root.join("tools/zig"),
+        root.join("tools/cross/bin"),
+        root.join("tools/llvm-mingw/bin"),
+    ];
+    if raw_exact.iter().any(|raw| entry == raw) {
+        return true;
     }
-    env::join_paths(entries).map_err(|error| format!("failed to construct Vapor PATH: {error}"))
+
+    let toolchains = root.join("rustup-home/toolchains");
+    entry.starts_with(&toolchains) && entry.file_name().is_some_and(|name| name == "bin")
 }

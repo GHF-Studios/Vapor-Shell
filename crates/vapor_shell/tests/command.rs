@@ -42,22 +42,30 @@ fn help_uses_defined_argument_domains() {
     let diagnostics_help = ShellCommand::try_parse_from(["", "diagnostics", "--help"])
         .expect_err("diagnostics help should exit through Clap")
         .to_string();
-    for command in ["status", "submit"] {
+    for command in ["status", "upload"] {
         assert!(
             diagnostics_help.contains(command),
             "missing {command}: {diagnostics_help}"
         );
     }
     let diagnostics_submit_help =
-        ShellCommand::try_parse_from(["", "diagnostics", "submit", "--help"])
-            .expect_err("diagnostics submit help should exit through Clap")
+        ShellCommand::try_parse_from(["", "diagnostics", "upload", "--help"])
+            .expect_err("diagnostics upload help should exit through Clap")
             .to_string();
-    for argument in ["--registry", "--all", "--push", "--dry-run"] {
+    assert!(
+        diagnostics_submit_help.contains("--dry-run"),
+        "{diagnostics_submit_help}"
+    );
+    for legacy_argument in ["--registry", "--all", "--push"] {
         assert!(
-            diagnostics_submit_help.contains(argument),
-            "missing {argument}: {diagnostics_submit_help}"
+            !diagnostics_submit_help.contains(legacy_argument),
+            "legacy argument still exposed: {legacy_argument}: {diagnostics_submit_help}"
         );
     }
+    ShellCommand::try_parse_from(["", "diagnostics", "submit", "--dry-run"])
+        .expect("submit alias should parse as diagnostics upload");
+    ShellCommand::try_parse_from(["", "diagnostics", "upload", "--registry", "/tmp/registry"])
+        .expect_err("arbitrary diagnostics registry paths should not parse");
 
     let root_help = ShellCommand::try_parse_from(["", "root", "--help"])
         .expect_err("root help should exit through Clap")

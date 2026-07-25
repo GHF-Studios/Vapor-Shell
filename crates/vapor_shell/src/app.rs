@@ -16,7 +16,7 @@ use crate::{
 };
 use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 enum StartupMode {
     Repl { startup_script: Option<String> },
@@ -52,8 +52,10 @@ pub fn run() -> Result<(), String> {
 
 fn run_inner(startup: StartupMode) -> Result<(), String> {
     diagnostics::event(format!("startup mode: {}", startup.diagnostic_label()));
+    diagnostics::record_startup_mode(startup.diagnostic_label());
 
     let installation = EnvironmentPaths::discover_installation()?;
+    diagnostics::record_installation(&installation);
     diagnostics::event(format!(
         "installation: {} ({})",
         installation.root().display(),
@@ -61,9 +63,12 @@ fn run_inner(startup: StartupMode) -> Result<(), String> {
     ));
     let mut state = ShellState::closed(installation);
     open_saved_source(&mut state)?;
+    diagnostics::record_source_context(state.source());
 
     if let StartupMode::Direct(command) = startup {
         diagnostics::event(format!("direct command: {command:?}"));
+        diagnostics::record_direct_command(format!("{command:?}"));
+        diagnostics::step(format!("direct command: {command:?}"));
         command::execute(command, &mut state)?;
         return Ok(());
     }
@@ -74,8 +79,10 @@ fn run_inner(startup: StartupMode) -> Result<(), String> {
     if let Some(script) = startup_script {
         print_startup_script_header(&script);
         diagnostics::event(format!("startup script: {script}"));
+        diagnostics::record_startup_script(&script);
+        diagnostics::step(format!("startup script: {script}"));
         if let Err(error) = command::run_script(&script, false, &mut state) {
-            diagnostics::event(format!("startup script error: {error}"));
+            diagnostics::record_error(format!("startup script error: {error}"));
             eprintln!("error: {error}");
         }
         println!();
@@ -263,15 +270,9 @@ fn shell_only_error() -> String {
     after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse Vapor Installer for player-mode install/uninstall and development tooling.\nUse source commands to choose the project you want Vapor to work with."
 )]
 struct HostCommand {
-    /// Capture this run and send it through the private diagnostics path on exit.
+    /// Capture this run for explicit private-test diagnostics handling.
     #[arg(long, global = true)]
     send_diagnostics: bool,
-    /// Registry checkout used by `--send-diagnostics`.
-    #[arg(long, global = true, value_name = "PATH")]
-    diagnostics_registry: Option<PathBuf>,
-    /// Copy diagnostics into the registry without committing or pushing.
-    #[arg(long, global = true)]
-    diagnostics_copy_only: bool,
     /// Run `resources/vapor/vapor-scripts/<NAME>.vapor` before entering the interactive shell.
     #[arg(long, value_name = "NAME")]
     startup_script: Option<String>,
@@ -333,9 +334,7 @@ impl HostCommand {
     fn into_startup_mode(self) -> Result<Startup, String> {
         let diagnostics = CaptureOptions {
             enabled: self.send_diagnostics,
-            submit: self.send_diagnostics,
-            push: self.send_diagnostics && !self.diagnostics_copy_only,
-            registry: self.diagnostics_registry,
+            upload: self.send_diagnostics,
         };
         match (self.startup_script, self.command) {
             (Some(script), None) => Ok(Startup {
@@ -424,6 +423,7 @@ fn run_shell(mut state: ShellState) {
         match editor.read_command() {
             ReadCommandOutput::Command(command) => {
                 let summary = format!("{command:?}");
+                diagnostics::step(format!("shell command: {summary}"));
                 match command::execute(command, &mut state) {
                     Ok(Control::Continue) => {
                         diagnostics::event(format!("shell command ok: {summary}"));
@@ -433,7 +433,9 @@ fn run_shell(mut state: ShellState) {
                         break;
                     }
                     Err(error) => {
-                        diagnostics::event(format!("shell command error: {summary}: {error}"));
+                        diagnostics::record_error(format!(
+                            "shell command error: {summary}: {error}"
+                        ));
                         eprintln!("error: {error}");
                     }
                 }
@@ -456,4 +458,33 @@ fn run_shell(mut state: ShellState) {
 
 fn prompt_for(state: &ShellState) -> Box<VaporPrompt> {
     Box::new(VaporPrompt::new(state.prompt_context()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_help_exposes_send_diagnostics_without_registry_path() {
+        let help = HostCommand::try_parse_from(["vapor", "--help"])
+            .expect_err("help should exit through Clap")
+            .to_string();
+        assert!(help.contains("--send-diagnostics"), "{help}");
+        assert!(!help.contains("--diagnostics-registry"), "{help}");
+        assert!(!help.contains("--diagnostics-copy-only"), "{help}");
+    }
+
+    #[test]
+    fn host_rejects_legacy_diagnostics_registry_flag() {
+        let error = HostCommand::try_parse_from([
+            "vapor",
+            "--send-diagnostics",
+            "--diagnostics-registry",
+            "/tmp/Vapor-Registry",
+            "metadata",
+        ])
+        .expect_err("legacy registry flag should not parse")
+        .to_string();
+        assert!(error.contains("unexpected argument"), "{error}");
+    }
 }

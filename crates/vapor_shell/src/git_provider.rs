@@ -64,15 +64,6 @@ struct GitProviderConfig {
     path: PathBuf,
 }
 
-/// Build a command for the resolved Git provider.
-///
-/// # Errors
-///
-/// Returns an actionable error if Git cannot be discovered or linked.
-pub(crate) fn command(installation: &InstallationPaths) -> Result<Command, String> {
-    Ok(Command::new(resolve(installation)?.path))
-}
-
 /// Resolve the developer Git provider.
 ///
 /// # Errors

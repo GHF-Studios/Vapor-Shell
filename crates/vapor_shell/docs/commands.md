@@ -14,19 +14,18 @@ state. Use `vapor --startup-script NAME` to enter the interactive shell, run a
 source or app-root script, and keep the shell open.
 Real Steam uploads and real IDE repair remain manual interactive-shell actions.
 
-Host-level launches may add `--send-diagnostics` to capture the run and send it
-after Vapor exits. This is private-test tooling, not public telemetry, and it is
-off unless the flag is present. `--send-diagnostics` copies the current run log
-into the configured Vapor-Registry checkout. If push is enabled, it commits and
-pushes through the linked developer Git provider. Use `--diagnostics-registry
-PATH` or set `VAPOR_DIAGNOSTICS_REGISTRY`; add `--diagnostics-copy-only` when
-you only want the copy step.
+Host-level launches may add `--send-diagnostics` to capture the run into the
+app-local diagnostics directory. This is private-test tooling, not public
+telemetry, and it is off unless the flag is present. The current build stores
+small text diagnostics locally and has a future server-upload seam; it does not
+ship diagnostics through an arbitrary registry path or require Git for normal
+players.
 
 Steam launch examples:
 
 ```text
-bin/x86_64-unknown-linux-gnu/vapor-entrypoint play --send-diagnostics --diagnostics-registry /path/to/Vapor-Registry
-bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play --send-diagnostics --diagnostics-registry C:\path\to\Vapor-Registry
+bin/x86_64-unknown-linux-gnu/vapor-entrypoint play --send-diagnostics
+bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play --send-diagnostics
 ```
 
 ## Launch
@@ -60,17 +59,25 @@ SteamCMD, such as unreleased/private app testing.
 
 ### `diagnostics status`
 
-Show the app-local diagnostics directory, latest run log, active capture state,
-automatic submit mode, configured registry path, and Git provider status.
+Show the app-local diagnostics directory, latest run directory, metadata file,
+run log, active capture state, and requested upload transport state.
 
-### `diagnostics submit [--registry PATH] [--all] [--push] [--dry-run]`
+### `diagnostics upload [--dry-run]`
 
-Copy captured run logs into a Vapor-Registry checkout under
-`diagnostics/<app>/<machine>/<platform>/`. By default the command copies the
-current run when capture is active, otherwise the latest completed run. `--all`
-copies every local run log. `--push` commits and pushes the copied diagnostics
-with the linked developer Git provider. `--dry-run` reports the same target
-without changing the registry.
+Preview or send the current/latest local diagnostics run through the configured
+diagnostics transport. The current transport boundary is reserved for a future
+Vapor HTTP server and intentionally reports not-configured rather than falling
+back to Git or a user-managed registry checkout.
+
+Captured runs are stored under:
+
+```text
+<app-root>/.vapor/diagnostics/
+  runs/YYYY-MM-DD/<unix_timestamp>-<platform>-<short-random>/
+    metadata.toml
+    vapor.log
+  latest.toml
+```
 
 ## Provider
 
@@ -525,10 +532,10 @@ source is open; app-root scripts under the installed app's
 `--dry-run` prints the commands without executing them.
 
 Scripts stop on error and cannot recursively invoke scripts, exit the host REPL,
-perform real publishes, delete Workshop items, or apply IDE repairs. Scripts may
-run status inspection and Workshop download/install operations, including
-account-backed SteamCMD acquisition when a private or unreleased item requires
-visible Steam authentication.
+perform real publishes, delete Workshop items, send diagnostics, or apply IDE
+repairs. Scripts may run status inspection and Workshop download/install
+operations, including account-backed SteamCMD acquisition when a private or
+unreleased item requires visible Steam authentication.
 
 ## Session control
 

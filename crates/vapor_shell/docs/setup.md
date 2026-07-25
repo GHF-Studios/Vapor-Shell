@@ -34,7 +34,7 @@ data directories, not primarily in the Steam application directory.
 The default install prepares player-mode runtime functionality:
 
 - app-local SteamCMD under `tools/steamcmd`;
-- app-local generated directories for logs, diagnostics, content cache,
+- app-local generated directories for logs, diagnostics runs, content cache,
   installed content state, and Workshop downloads.
 
 It does not install Rust/Cargo, Zig, llvm-mingw, or other general development
