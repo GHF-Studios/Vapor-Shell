@@ -103,7 +103,7 @@ first. The shim delegates to the app-root
 `resources/vapor/tools/production/app_setup/setup_player.rs` tool, then the
 launch script hands off to the installed Vapor binary:
 
-- **Linux Play Loo-Cast**: executable
+- **Linux Play**: executable
   `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
   arguments `play`.
 - **Linux Vapor Shell**: executable
@@ -112,7 +112,7 @@ launch script hands off to the installed Vapor binary:
 - **Linux Vapor Installer**: executable
   `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
   arguments `installer`.
-- **Windows Play Loo-Cast**: executable
+- **Windows Play**: executable
   `bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe`,
   arguments `play`.
 - **Windows Vapor Shell**: executable
@@ -159,23 +159,18 @@ preferred recovery because the app root is disposable and should not hold
 authoritative user data.
 
 The `play` launch target opens the normal interactive Vapor Shell, runs the
-installed `resources/vapor/vapor-scripts/loo-cast.vapor` script, and leaves the
-shell open.
-That script currently calls `launch loo-cast --account ghf_vapor_build` so
-SteamCMD authentication, Steam Guard prompts, Workshop download output, and
-runtime handoff output stay visible in the terminal-owned session.
+installed `resources/vapor/vapor-scripts/default.vapor` script, and leaves the
+shell open. That script calls `launch default`.
 
-`launch loo-cast` verifies the selected installed packagepack, reads its
-declared dependency roles, resolves the required `engine` dependency by content
-ID, records any declared `game` dependency by content ID, and hands off to the
-resolved engine artifact's binary for the host runtime target. If the
-packagepack is missing, Vapor can download/cache/install/select the default
-Workshop packagepack and dependency closure from the app-root `[[root.content]]`
-seed once SteamCMD is available.
+`launch default` resolves the app manifest's default packagepack seed, installs
+that packagepack and its dependency closure when missing, reads the selected
+packagepack's declared dependency roles, resolves the required `engine`
+dependency by content ID, records any declared `game` dependency by content ID,
+and hands off to the resolved engine artifact's binary for the host runtime
+target.
 
-The `--account` argument is currently needed while the app and Workshop items
-are not publicly accessible to anonymous SteamCMD sessions. Once the app/content
-is public, the same command can be tested without `--account`.
+Workshop downloads use anonymous SteamCMD by default. `--account ACCOUNT` exists
+for deliberately private app/content testing, not normal Play.
 
 ## Local development deploy bridge
 

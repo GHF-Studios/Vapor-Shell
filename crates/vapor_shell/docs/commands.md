@@ -30,11 +30,11 @@ bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play --send-diagnostics
 
 ## Launch
 
-### `launch loo-cast [--account ACCOUNT]`
+### `launch default [--account ACCOUNT]`
 
-Launch Play Loo-Cast through the selected installed packagepack composition.
-When no packagepack is selected, Vapor tries the default Loo-Cast packagepack
-seed, `ghf-studios/loo-cast/loo-cast-packagepack`, if it is already installed.
+Launch the app manifest's default packagepack composition. The `default`
+selector is declared by `App.vapor.toml` through a `[[root.content]]`
+packagepack seed.
 
 The command verifies installed content, reads the selected packagepack's
 declared dependency roles, resolves the required `engine` dependency by content
@@ -55,8 +55,13 @@ player-mode tooling reports
 missing development tooling reports the matching app-root
 `setup_development.rs`.
 
-Use `--account ACCOUNT` when the Workshop item is not downloadable by anonymous
-SteamCMD, such as unreleased/private app testing.
+Workshop downloads use anonymous SteamCMD by default. Use `--account ACCOUNT`
+only for deliberately private app/content testing.
+
+### `launch selected`
+
+Launch the currently selected installed packagepack composition without
+changing selection or installing the app manifest default.
 
 ## Diagnostics
 

@@ -553,11 +553,11 @@ fn root_content_seed_resolves_public_workshop_selector() {
 }
 
 #[test]
-fn launch_loo_cast_uses_root_seed_not_active_source_package() {
+fn launch_default_uses_root_seed_not_active_source_package() {
     let installation = TestTree::new("launch-root-seed-installation");
     installation.write(
         "App.vapor.toml",
-        "schema = 1\n\n[root]\nname = \"installation\"\norganization = \"example\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/spacetime-engine\"\nkind = \"engine\"\napp-id = 2122620\nworkshop-id = \"1001\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/loo-cast-game\"\nkind = \"game\"\napp-id = 2122620\nworkshop-id = \"1002\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/loo-cast-packagepack\"\nkind = \"packagepack\"\napp-id = 2122620\nworkshop-id = \"1003\"\ndefault-launch = \"loo-cast\"\n",
+        "schema = 1\n\n[root]\nname = \"installation\"\norganization = \"example\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/spacetime-engine\"\nkind = \"engine\"\napp-id = 2122620\nworkshop-id = \"1001\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/loo-cast-game\"\nkind = \"game\"\napp-id = 2122620\nworkshop-id = \"1002\"\n\n[[root.content]]\nid = \"ghf-studios/loo-cast/loo-cast-packagepack\"\nkind = \"packagepack\"\napp-id = 2122620\nworkshop-id = \"1003\"\ndefault-launch = \"default\"\n",
     );
     let executable = installation.write("bin/vapor", "binary");
     let source = TestTree::new("launch-active-source");
@@ -567,7 +567,7 @@ fn launch_loo_cast_uses_root_seed_not_active_source_package() {
 
     let error = command::execute(
         ShellCommand::Launch {
-            command: LaunchCommand::LooCast { account: None },
+            command: LaunchCommand::Default { account: None },
         },
         &mut state,
     )

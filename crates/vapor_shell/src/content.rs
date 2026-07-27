@@ -1427,6 +1427,28 @@ pub fn current_selection(
     })
 }
 
+/// Resolve an app manifest launch alias to its packagepack content ID.
+///
+/// # Errors
+///
+/// Returns an error when the app manifest has no matching launch alias or the
+/// alias does not point at a packagepack seed.
+pub fn default_packagepack_id(
+    installation: &InstallationPaths,
+    launch: &str,
+) -> Result<String, String> {
+    let seed = root_content_seed(installation, launch)?
+        .ok_or_else(|| format!("app manifest has no default packagepack launch '{launch}'"))?;
+    let expected_kind = ContentKind::Packagepack.to_string();
+    if seed.kind != expected_kind {
+        return Err(format!(
+            "app manifest default launch '{launch}' must point at a packagepack, but '{}' is {}",
+            seed.id, seed.kind
+        ));
+    }
+    Ok(seed.id)
+}
+
 /// Clear the selected packagepack.
 ///
 /// # Errors
@@ -3479,6 +3501,7 @@ fn root_steam_app_id(installation: &InstallationPaths) -> Result<u32, String> {
 #[serde(rename_all = "kebab-case")]
 struct RootContentSeed {
     id: String,
+    kind: String,
     app_id: u32,
     workshop_id: String,
     default_launch: Option<String>,

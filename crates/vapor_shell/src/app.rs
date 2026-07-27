@@ -176,7 +176,7 @@ fn print_startup_overview(state: &ShellState) {
             )
         );
     } else if state.source().is_none() {
-        println!("  launch loo-cast");
+        println!("  launch default");
     } else {
         println!("  validate");
     }

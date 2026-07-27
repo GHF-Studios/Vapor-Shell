@@ -247,14 +247,16 @@ fn help_uses_defined_argument_domains() {
     let launch_help = ShellCommand::try_parse_from(["", "launch", "--help"])
         .expect_err("launch help should exit through Clap")
         .to_string();
-    assert!(launch_help.contains("loo-cast"), "{launch_help}");
-    ShellCommand::try_parse_from(["", "launch", "loo-cast"]).expect("launch loo-cast should parse");
-    let launch_loo_cast_help = ShellCommand::try_parse_from(["", "launch", "loo-cast", "--help"])
-        .expect_err("launch loo-cast help should exit through Clap")
+    assert!(launch_help.contains("default"), "{launch_help}");
+    assert!(launch_help.contains("selected"), "{launch_help}");
+    ShellCommand::try_parse_from(["", "launch", "default"]).expect("launch default should parse");
+    ShellCommand::try_parse_from(["", "launch", "selected"]).expect("launch selected should parse");
+    let launch_default_help = ShellCommand::try_parse_from(["", "launch", "default", "--help"])
+        .expect_err("launch default help should exit through Clap")
         .to_string();
     assert!(
-        launch_loo_cast_help.contains("--account"),
-        "{launch_loo_cast_help}"
+        launch_default_help.contains("--account"),
+        "{launch_default_help}"
     );
 
     let source_help = ShellCommand::try_parse_from(["", "source", "--help"])

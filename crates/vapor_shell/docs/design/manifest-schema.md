@@ -119,7 +119,7 @@ id = "ghf-studios/loo-cast/loo-cast-packagepack"
 kind = "packagepack"
 app-id = 2122620
 workshop-id = "3762162548"
-default-launch = "loo-cast"
+default-launch = "default"
 ```
 
 Direct Git submodules define its application/depot workspace membership. Each

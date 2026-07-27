@@ -29,13 +29,11 @@ use std::{
     process::Command,
 };
 
-const LOO_CAST_PACKAGEPACK_ID: &str = "ghf-studios/loo-cast/loo-cast-packagepack";
-
 #[derive(Debug, Parser)]
 #[command(
     name = "vapor",
     bin_name = "vapor",
-    after_help = "Run `help COMMAND` for details on one command group.\nNormal tester launches start with `launch loo-cast`; developer work starts with script-prepared tooling, then `source open SOURCE`."
+    after_help = "Run `help COMMAND` for details on one command group.\nNormal tester launches start with `launch default`; developer work starts with script-prepared tooling, then `source open SOURCE`."
 )]
 /// Commands accepted by the Vapor shell and its narrow host facades.
 pub enum ShellCommand {
@@ -161,13 +159,14 @@ pub enum ShellCommand {
 /// Playable launch targets.
 #[derive(Debug, Subcommand)]
 pub enum LaunchCommand {
-    /// Launch the default Loo-Cast packagepack composition, installing default Workshop content when needed.
-    #[command(name = "loo-cast")]
-    LooCast {
+    /// Launch the app manifest's default packagepack composition, installing it when needed.
+    Default {
         /// Steam account used when Workshop content must be downloaded.
         #[arg(long)]
         account: Option<String>,
     },
+    /// Launch the currently selected installed packagepack composition.
+    Selected,
 }
 
 /// Private-test diagnostics operations.
@@ -659,22 +658,55 @@ pub fn execute(command: ShellCommand, state: &mut ShellState) -> Result<Control,
 
 fn execute_launch(command: LaunchCommand, state: &ShellState) -> Result<(), String> {
     match command {
-        LaunchCommand::LooCast { account } => launch_loo_cast(state, account.as_deref()),
+        LaunchCommand::Default { account } => launch_default_composition(state, account.as_deref()),
+        LaunchCommand::Selected => launch_selected_composition(state),
     }
 }
 
-fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), String> {
-    diagnostics::record_launch_target("loo-cast");
+fn launch_default_composition(state: &ShellState, account: Option<&str>) -> Result<(), String> {
+    let packagepack_id = content::default_packagepack_id(state.installation(), "default")?;
+    let account_label = account
+        .map(str::trim)
+        .filter(|account| !account.is_empty())
+        .unwrap_or("anonymous");
+
+    diagnostics::record_launch_target("default");
     diagnostics::event(format!(
-        "launch loo-cast started; account={}",
-        account.unwrap_or("<default>")
+        "launch default started; packagepack={packagepack_id}; account={account_label}"
     ));
-    let selection = match content::current_selection(state.installation())? {
-        Some(selection) => selection,
-        None => ensure_loo_cast_installed_and_selected(state, account)?,
+
+    let selection = match content::select_packagepack(state.installation(), &packagepack_id) {
+        Ok(selection) => selection,
+        Err(_) => {
+            ensure_default_packagepack_installed_and_selected(state, &packagepack_id, account)?
+        }
     };
 
-    println!("Play Loo-Cast");
+    launch_packagepack_composition(state, "default", selection)
+}
+
+fn launch_selected_composition(state: &ShellState) -> Result<(), String> {
+    let selection = content::current_selection(state.installation())?.ok_or_else(|| {
+        "no selected packagepack\nhelp: run `launch default` or `content select ARTIFACT_OR_WORKSHOP_ID`"
+            .to_owned()
+    })?;
+    diagnostics::record_launch_target("selected");
+    diagnostics::event(format!(
+        "launch selected started; packagepack={}",
+        selection.artifact_id()
+    ));
+    launch_packagepack_composition(state, "selected", selection)
+}
+
+fn launch_packagepack_composition(
+    state: &ShellState,
+    launch_request: &str,
+    selection: content::PackagepackSelection,
+) -> Result<(), String> {
+    println!("Launch composition");
+    println!();
+    println!("Launch request");
+    println!("  request: {launch_request}");
     println!();
     println!("Content composition");
     println!("  packagepack: {}", selection.artifact_id());
@@ -691,7 +723,7 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
     if reports.is_empty() {
         println!("  Installed content: none");
         println!();
-        print_loo_cast_first_run_next();
+        print_default_first_run_next();
         return Ok(());
     }
     let broken = reports
@@ -753,7 +785,7 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
     let mut command = Command::new(&binary);
     command
         .current_dir(selection.installed_root())
-        .env("VAPOR_LAUNCH_TARGET", "loo-cast")
+        .env("VAPOR_LAUNCH_REQUEST", launch_request)
         .env("VAPOR_PACKAGEPACK_ID", selection.artifact_id())
         .env("VAPOR_PACKAGEPACK_ROOT", selection.installed_root())
         .env("VAPOR_ENGINE_ID", &engine_id)
@@ -775,23 +807,23 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
     }
 }
 
-fn print_loo_cast_first_run() {
-    println!("Play Loo-Cast");
+fn print_default_first_run() {
+    println!("Launch composition");
     println!();
     println!("Status");
     println!("  default packagepack: not installed");
     println!("  engine handoff: unavailable");
     println!();
-    print_loo_cast_first_run_next();
+    print_default_first_run_next();
 }
 
-fn print_loo_cast_first_run_next() {
+fn print_default_first_run_next() {
     println!("Next");
     println!("  reinstall the Steam app if this is a normal tester install");
     println!(
         "  rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_player.rs"
     );
-    println!("  launch loo-cast");
+    println!("  launch default");
     println!();
     println!("Note");
     println!(
@@ -799,44 +831,44 @@ fn print_loo_cast_first_run_next() {
     );
 }
 
-fn ensure_loo_cast_installed_and_selected(
+fn ensure_default_packagepack_installed_and_selected(
     state: &ShellState,
+    packagepack_id: &str,
     account: Option<&str>,
 ) -> Result<content::PackagepackSelection, String> {
-    if let Ok(selection) =
-        content::select_packagepack(state.installation(), LOO_CAST_PACKAGEPACK_ID)
-    {
+    if let Ok(selection) = content::select_packagepack(state.installation(), packagepack_id) {
         return Ok(selection);
     }
 
-    println!("Play Loo-Cast");
+    println!("Launch composition");
     println!();
     println!("Status");
     println!("  default packagepack: not installed");
+    let account_label = account
+        .map(str::trim)
+        .filter(|account| !account.is_empty())
+        .unwrap_or("anonymous");
     println!(
-        "  Workshop: downloading default packagepack and dependency closure: {LOO_CAST_PACKAGEPACK_ID}"
+        "  Workshop: downloading default packagepack and dependency closure: {packagepack_id}"
     );
+    println!("  Workshop account: {account_label}");
     diagnostics::event(format!(
-        "launch loo-cast installing default packagepack from Workshop: {LOO_CAST_PACKAGEPACK_ID}"
+        "launch default installing default packagepack from Workshop: {packagepack_id}; account={account_label}"
     ));
-    let reports = match content::install_with_account(
-        state.installation(),
-        None,
-        LOO_CAST_PACKAGEPACK_ID,
-        account,
-    ) {
-        Ok(reports) => reports,
-        Err(error) if error.contains("SteamCMD is not installed") => {
-            print_loo_cast_first_run();
-            return Err(error);
-        }
-        Err(error) => return Err(error),
-    };
+    let reports =
+        match content::install_with_account(state.installation(), None, packagepack_id, account) {
+            Ok(reports) => reports,
+            Err(error) if error.contains("SteamCMD is not installed") => {
+                print_default_first_run();
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
     for report in &reports {
         println!("    installed: {}", report.artifact_id());
         diagnostics::event(format!("installed content: {}", report.artifact_id()));
     }
-    let selection = content::select_packagepack(state.installation(), LOO_CAST_PACKAGEPACK_ID)?;
+    let selection = content::select_packagepack(state.installation(), packagepack_id)?;
     println!("  selected packagepack: {}", selection.artifact_id());
     println!();
     Ok(selection)
