@@ -14,7 +14,7 @@ use crate::{
     source_registry,
     state::ShellState,
 };
-use clap::{error::ErrorKind, Parser, Subcommand};
+use clap::{Parser, Subcommand, error::ErrorKind};
 use clap_repl::{ClapEditor, ReadCommandOutput};
 use std::path::Path;
 

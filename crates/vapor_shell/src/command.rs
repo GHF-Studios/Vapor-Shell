@@ -10,7 +10,7 @@ use crate::{
     app_local_tools::AppToolRequirement,
     content,
     diagnostics::{self, UploadOptions},
-    discovery::{ensure_contained, EnvironmentPaths},
+    discovery::{EnvironmentPaths, ensure_contained},
     distribution::StageOptions,
     documentation, git_provider, ide, manifest,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
@@ -813,7 +813,9 @@ fn ensure_loo_cast_installed_and_selected(
     println!();
     println!("Status");
     println!("  default packagepack: not installed");
-    println!("  Workshop: downloading default packagepack and dependency closure: {LOO_CAST_PACKAGEPACK_ID}");
+    println!(
+        "  Workshop: downloading default packagepack and dependency closure: {LOO_CAST_PACKAGEPACK_ID}"
+    );
     diagnostics::event(format!(
         "launch loo-cast installing default packagepack from Workshop: {LOO_CAST_PACKAGEPACK_ID}"
     ));
