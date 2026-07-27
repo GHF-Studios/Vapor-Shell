@@ -1,9 +1,9 @@
 //! App-local tool readiness inspection.
 //!
-//! Vapor-Installer owns installation, uninstallation, player-mode bootstrap,
-//! and developer-environment upgrade/downgrade. Vapor Shell only inspects the
-//! resulting app-local tools so command preflight can point at the installer
-//! without mutating the Steam app root.
+//! Source-visible setup scripts own installation, uninstallation, player-mode
+//! bootstrap, and developer-environment upgrade/downgrade. Vapor Shell only
+//! inspects the resulting app-local tools so command preflight can point at the
+//! script layer without mutating the Steam app root.
 
 use crate::{cross_toolchain, discovery::InstallationPaths};
 use std::{
@@ -104,7 +104,7 @@ impl AppToolStatus {
     }
 }
 
-/// Inspect installer-managed app-local tools.
+/// Inspect script-managed app-local tools.
 pub fn inspect(installation: &InstallationPaths) -> AppToolStatus {
     inspect_root(installation.root())
 }
@@ -113,8 +113,7 @@ pub fn inspect(installation: &InstallationPaths) -> AppToolStatus {
 ///
 /// # Errors
 ///
-/// Returns a diagnostic naming missing components and explicit installer
-/// commands.
+/// Returns a diagnostic naming missing components and explicit setup commands.
 pub fn require(
     installation: &InstallationPaths,
     requirements: &[AppToolRequirement],
@@ -128,8 +127,7 @@ pub fn require(
 ///
 /// # Errors
 ///
-/// Returns a diagnostic naming missing components and explicit installer
-/// commands.
+/// Returns a diagnostic naming missing components and explicit setup commands.
 pub fn require_status(
     status: &AppToolStatus,
     requirements: &[AppToolRequirement],
@@ -144,7 +142,7 @@ pub fn require_status(
         return Ok(());
     }
     Err(format!(
-        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: player-mode tooling uses `vapor-installer install --app-root <app-root>`\nhelp: development tooling uses `vapor-installer dev-env install --app-root <app-root>`\nnote: this command will not install prerequisites automatically",
+        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: player-mode tooling uses `rust-script --force tools/production/app_setup/setup_player.rs --app-root <app-root>`\nhelp: development tooling uses `rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>`\ncompat: packaged launchers may still call `vapor-installer install` or `vapor-installer dev-env install`\nnote: this command will not install prerequisites automatically",
         missing
             .iter()
             .map(|requirement| requirement.label())

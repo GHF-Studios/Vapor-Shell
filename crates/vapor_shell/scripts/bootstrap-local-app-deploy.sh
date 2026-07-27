@@ -124,6 +124,6 @@ echo "  manifest: $manifest -> $dest_manifest"
 echo "  binary:   $binary -> $dest_binary"
 echo
 echo "next:"
-echo "  vapor-installer install --app-root \"$target\""
-echo "  vapor-installer dev-env install --app-root \"$target\""
+echo "  rust-script --force tools/production/app_setup/setup_player.rs --app-root \"$target\""
+echo "  rust-script --force tools/production/app_setup/setup_development.rs --app-root \"$target\""
 echo "  \"$dest_binary\" source open /path/to/external/source"

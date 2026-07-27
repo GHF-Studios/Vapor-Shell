@@ -33,24 +33,27 @@ bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe play --send-diagnostics
 ### `launch loo-cast [--account ACCOUNT]`
 
 Launch Play Loo-Cast through the selected installed packagepack composition.
-When no packagepack is selected, Vapor tries the first-party Loo-Cast
-Packagepack, `ghf-studios/loo-cast/loo-cast-packagepack`, if it is already
-installed.
+When no packagepack is selected, Vapor tries the default Loo-Cast packagepack
+seed, `ghf-studios/loo-cast/loo-cast-packagepack`, if it is already installed.
 
-The command verifies installed content, resolves the packagepack's Spacetime
-Engine dependency, and hands off to the installed engine binary declared by
-that engine artifact's deployed `Engine.vapor.toml`. The current first-party
-Spacetime Engine is a product placeholder; the dynamic terminal/game-library
-proof lives in `Vapor-Examples`. On Linux/Steam desktop starts without a
-terminal, this command opens the same Konsole-owned terminal path used by the
-Shell so terminal-based runtime output remains visible.
+The command verifies installed content, reads the selected packagepack's
+declared dependency roles, resolves the required `engine` dependency by content
+ID, records any declared `game` dependency by content ID, and hands off to the
+resolved engine artifact's runtime binary declared by its deployed
+`Engine.vapor.toml`. Engine/game identities are content data, not built-in
+Vapor Shell knowledge.
 
-If content is not installed yet, the command uses the app-root first-party
-content seed to download/cache/install/select the public Loo-Cast Packagepack
-and required first-party engine/game dependencies. It still does not silently
-install the development toolchain. Missing player-mode tooling reports
-`vapor-installer install`; missing development tooling reports
-`vapor-installer dev-env install`.
+On Linux/Steam desktop starts without a terminal, this command opens the same
+Konsole-owned terminal path used by the Shell so terminal-based runtime output
+remains visible.
+
+If content is not installed yet, the command uses the app-root content seed to
+download/cache/install/select the default packagepack and its dependency
+closure. It still does not silently install the development toolchain. Missing
+player-mode tooling reports
+`<app-root>/resources/vapor/tools/production/app_setup/setup_player.rs`;
+missing development tooling reports the matching app-root
+`setup_development.rs`.
 
 Use `--account ACCOUNT` when the Workshop item is not downloadable by anonymous
 SteamCMD, such as unreleased/private app testing.
@@ -128,27 +131,30 @@ resolved model and reject unmet prerequisites before acting.
 
 ## Setup
 
-Normal closed-alpha installation is installer-owned, not a manual Shell setup
-flow. Run `vapor-installer` with no arguments for the visual installer, or use
-the narrow headless commands when automation needs them:
+Normal closed-alpha installation is app-root-tool-owned, not a manual Shell
+setup flow. Use the installed app-root tools:
 
 ```text
-vapor-installer install --app-root /path/to/steam/app
-vapor-installer uninstall --app-root /path/to/steam/app
-vapor-installer dev-env install --app-root /path/to/steam/app
-vapor-installer dev-env uninstall --app-root /path/to/steam/app
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/status.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_player.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_development.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/teardown_development.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/teardown_player.rs
 ```
 
-`install` prepares player mode: SteamCMD and generated disposable app-root
-state. Git is linked by developers through `provider git ...`, not installed
-for normal players.
-`dev-env install` upgrades that app root with Rust/Cargo and cross-build
+`vapor-installer` is the compiled Steam/app-root launcher for setup flows; it
+delegates to the same app-root tool implementation.
+
+`setup_player.rs` prepares player mode: SteamCMD and generated disposable
+app-root state. Git is linked by developers through `provider git ...`, not
+installed for normal players.
+`setup_development.rs` upgrades that app root with Rust/Cargo and cross-build
 tooling for developers.
 
-`dev-env uninstall` downgrades developer mode back to player mode without
-removing player-mode tooling. `vapor-installer uninstall` removes all
-installer-managed mutable app-root state; Steam's uninstall feature removes
-depot-owned Shell/docs/installer files.
+`teardown_development.rs` downgrades developer mode back to player mode without
+removing player-mode tooling. `teardown_player.rs` removes script-managed
+mutable app-root state; Steam's uninstall feature removes depot-owned
+Shell/docs/installer files.
 
 ## Cargo workflows
 
@@ -160,8 +166,8 @@ root. `[workspace]` sources expose their root Cargo workspace. `[root]` sources
 expose direct submodules that declare `[workspace]` and contain `Cargo.toml`.
 
 Artifacts go to `output/dev/<project>` inside the app root instead of source
-trees. Development tooling should be installed through
-`vapor-installer dev-env install`.
+trees. Development tooling should be installed through the app-root
+`resources/vapor/tools/production/app_setup/setup_development.rs` tool.
 Workspaces that declare `[workspace].binaries` in `Workspace.vapor.toml` can promote
 those outputs into `bin/<target>/` through `root build`.
 
@@ -291,22 +297,33 @@ scripts may run `ide status` and `ide repair --dry-run`, but not real
 
 ## Root application/depot workflows
 
-### `root build [--skip-docs] [--target TARGET]... [--release-targets] [--host-only]`
+### `root build [--target TARGET]... [--release-targets] [--host-only]`
 
-Build installable Cargo workspaces and promote declared application binaries
-from `[workspace].binaries` into the Steam installation/app root under
-`bin/<target>/`. Installable means a workspace declares at least one
-`[workspace].binaries` entry. When `[root.runtime].targets` is declared, omitting target
-flags builds and promotes that full runtime matrix by default. Repeat
-`--target` to promote an explicit custom subset, such as only Windows GNU/LLVM.
+Build installable Cargo workspaces into app-root build outputs under
+`output/dev/<project>/`. Installable means a workspace declares at least one
+`[workspace].binaries` entry. When `[root.runtime].targets` is declared,
+omitting target flags builds that full runtime matrix by default. Repeat
+`--target` to build an explicit custom subset, such as only Windows GNU/LLVM.
 
-`root build` also refreshes installed docs, Vapor scripts, and platform launch
-scripts so the local Steam app root matches the current source checkout. Use
-`--skip-docs` for a faster binary/script refresh.
+`root build` does not refresh installed app binaries, docs, Vapor scripts, or
+launch scripts. Use `root deploy` to promote already-built app outputs into the
+local Steam/app root.
 
 `--release-targets` is accepted as an explicit spelling of the manifest-matrix
 default. Use `--host-only` for a local smoke pass that builds only Cargo's host
 target. Do not combine `--target`, `--release-targets`, and `--host-only`.
+
+### `root deploy [--skip-docs] [--target TARGET]... [--release-targets] [--host-only]`
+
+Promote already-built application binaries from `[workspace].binaries` into the
+local Steam installation/app root under `bin/<target>/`, then refresh installed
+docs, Vapor scripts, setup tools, and platform launch scripts. This is a local
+app-root deploy/sync operation; it does not upload to Steam.
+
+When `[root.runtime].targets` is declared, omitting target flags deploys that
+full runtime matrix by default. Repeat `--target` to deploy an explicit custom
+subset. Use `--host-only` for a local host-only deploy. Use `--skip-docs` for a
+faster binary/script refresh.
 
 ### `root package [--target TARGET]... [--release-targets] [--host-only]`
 

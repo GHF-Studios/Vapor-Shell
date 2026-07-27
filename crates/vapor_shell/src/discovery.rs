@@ -282,7 +282,7 @@ impl InstallationPaths {
         self.cargo.as_deref()
     }
 
-    /// Rescan the installation for Cargo after installer-managed tools change.
+    /// Rescan the installation for Cargo after script-managed tools change.
     pub fn bundled_cargo(&self) -> Option<PathBuf> {
         bundled_cargo_candidates(&self.root)
             .into_iter()
@@ -559,13 +559,21 @@ fn bundled_cargo_candidates(root: &Path) -> Vec<PathBuf> {
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
         .collect::<Vec<_>>();
 
-    toolchains.sort_by_key(|entry| {
-        let name = entry.file_name();
-        let selected = selected_toolchain.as_deref().is_some_and(|value| {
-            name.to_string_lossy()
-                .starts_with(value.to_string_lossy().as_ref())
-        });
-        (!selected, name)
+    toolchains.sort_by(|left, right| {
+        let left_name = left.file_name().to_string_lossy().into_owned();
+        let right_name = right.file_name().to_string_lossy().into_owned();
+        let left_selected = selected_toolchain
+            .as_deref()
+            .is_some_and(|value| left_name.starts_with(value.to_string_lossy().as_ref()));
+        let right_selected = selected_toolchain
+            .as_deref()
+            .is_some_and(|value| right_name.starts_with(value.to_string_lossy().as_ref()));
+        right_selected
+            .cmp(&left_selected)
+            .then_with(|| {
+                toolchain_version_key(&right_name).cmp(&toolchain_version_key(&left_name))
+            })
+            .then_with(|| right_name.cmp(&left_name))
     });
 
     let mut candidates = toolchains
@@ -575,4 +583,13 @@ fn bundled_cargo_candidates(root: &Path) -> Vec<PathBuf> {
     candidates.push(root.join("cargo-home").join("bin").join(&executable));
     candidates.push(root.join("bin").join(executable));
     candidates
+}
+
+fn toolchain_version_key(name: &str) -> Vec<u32> {
+    name.split('-')
+        .next()
+        .unwrap_or(name)
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect()
 }

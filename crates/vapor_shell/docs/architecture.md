@@ -77,8 +77,8 @@ Cargo integration has three materially different states:
   installed or healthy;
 - **loaded**: bundled Cargo returned compatible metadata.
 
-The shell retains diagnostics for unmet prerequisites, but installer-owned
-tooling lifecycle is outside the normal command surface. Cargo-backed workflows
+The shell retains diagnostics for unmet prerequisites, but script-owned tooling
+lifecycle is outside the normal command surface. Cargo-backed workflows
 do not proceed until required source structure and tools validate.
 
 ## Resolution and validation
@@ -88,8 +88,8 @@ action commands. It resolves source-root policy, optional `[root.steam]` policy,
 app-root registration state, tool health, and Cargo-derived state once.
 
 Before an action mutates state or launches a child process, its handler supplies
-a targeted `ValidationPlan`. A Cargo build requires installer-prepared Rust,
-Git, and valid source-root policy. A real root publish additionally requires
+a targeted `ValidationPlan`. A Cargo build requires script-prepared Rust, Git,
+and valid source-root policy. A real root publish additionally requires
 SteamCMD; `root publish --dry-run` does not. Commands never install or repair
 failed prerequisites implicitly.
 
@@ -97,7 +97,7 @@ failed prerequisites implicitly.
 
 The interactive shell is the primary command environment. Source-bound commands
 derive authority from the shell's active source, current source cursor,
-discovered app root, and installer-prepared tool status. Host-level direct
+discovered app root, and script-prepared tool status. Host-level direct
 facades are narrow: app inspection, source selection, metadata reporting,
 read-only content inspection, launch, diagnostics, and script entry.
 

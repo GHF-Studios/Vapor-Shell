@@ -43,7 +43,7 @@ fn metadata_reports_partial_state_in_human_and_json_formats() {
     );
     assert!(human.contains("Workspace manifest: ready"), "{human}");
     assert!(
-        human.contains("Next\n  vapor-installer dev-env install --app-root <app-root>"),
+        human.contains("Next\n  rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>"),
         "{human}"
     );
 
@@ -77,7 +77,7 @@ fn validation_plans_check_only_requested_capabilities() {
             &ValidationPlan::new("build projects").app_local_tools(&[AppToolRequirement::Rust]),
         )
         .unwrap_err();
-    assert!(error.contains("vapor-installer dev-env install"), "{error}");
+    assert!(error.contains("setup_development.rs"), "{error}");
 
     let error = metadata
         .validate(

@@ -94,7 +94,7 @@ pub(crate) fn copy_windows_runtime_dlls(
         let source = source_directory.join(dll);
         if !source.is_file() {
             return Err(format!(
-                "cannot stage Windows runtime DLL '{dll}': missing {}\nhelp: run `vapor-installer dev-env install --app-root <app-root>` to install app-local llvm-mingw",
+                "cannot stage Windows runtime DLL '{dll}': missing {}\nhelp: run `rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>` to install app-local llvm-mingw",
                 source.display()
             ));
         }
@@ -147,7 +147,7 @@ fn require_ready(root: &Path, target: &str) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "cannot build target {target}: app-local cross toolchains are missing\nmissing entries:\n  - {}\nhelp: run `vapor-installer dev-env install --app-root <app-root>`\nnote: cross-target builds use portable toolchains from the Steam app root",
+        "cannot build target {target}: app-local cross toolchains are missing\nmissing entries:\n  - {}\nhelp: run `rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>`\nnote: cross-target builds use portable toolchains from the Steam app root",
         status.missing.join("\n  - ")
     ))
 }

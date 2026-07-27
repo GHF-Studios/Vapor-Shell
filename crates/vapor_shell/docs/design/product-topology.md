@@ -393,27 +393,29 @@ The exact trust proof may evolve without changing these semantics.
 
 ## Setup experience
 
-Installation is owned by `Vapor-Installer`, not by Vapor Shell commands. Normal
-closed-alpha testers launch the Steam app; the platform entrypoint opens the
-terminal, then the launch script invokes `vapor-installer install` before
-opening Vapor Shell or Play.
+Installation is owned by app-root tools, not by Vapor Shell commands. The root
+source owns the tool payload under `resources/vapor/tools` so root builds can
+ship it into the Steam app root; deployed tools run from the installed app root.
+Normal closed-alpha testers launch the Steam app; the platform entrypoint opens
+the terminal, then the launch script invokes the `vapor-installer install` shim
+before opening Vapor Shell or Play.
 
 Player-mode install prepares only basic runtime capability: SteamCMD and
 generated disposable app-root directories. Development tooling and Git-backed
 provider workflows are explicit and separate:
 
 ```text
-vapor-installer dev-env install --app-root /path/to/steam/app
-vapor-installer dev-env uninstall --app-root /path/to/steam/app
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_development.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/teardown_development.rs
 ```
 
 The Steam app root is disposable by design. Authoritative user progress, account
 state, and authored source work must live in OS-appropriate user data or source
 directories outside the app root. If the app-root tooling is badly damaged, the
-preferred recovery is reinstalling the app or rerunning the installer-owned
+preferred recovery is reinstalling the app or rerunning the script-owned
 bootstrap/dev-env command, not maintaining a growing set of Shell repair shims.
 
-Root depot staging is runtime-only. Installer-managed tools and generated
+Root depot staging is runtime-only. Script-managed tools and generated
 app-local state stay outside SteamPipe staging.
 
 ## IDE integration

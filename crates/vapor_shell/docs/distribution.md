@@ -148,11 +148,11 @@ bin\x86_64-pc-windows-gnullvm\vapor-entrypoint.exe installer
   -> cmd /K after Vapor Installer exits
 ```
 
-The launch scripts run the shipped `vapor-installer install` first for
-Play/Shell launch targets, then select the installed platform binary and
-command. The Installer launch target opens `vapor-installer` directly and skips
-headless install. Installer child-tool output is routed to
-`<app-root>/.vapor/logs/installer.log`; bootstrap failure is recorded as
+The launch scripts run the shipped `vapor-installer install` shim first for
+Play/Shell launch targets. The shim delegates to the script-owned setup layer,
+then the launch script selects the installed platform binary and command. The
+Installer launch target opens `vapor-installer` directly and skips headless
+install. Bootstrap failure is recorded as
 `<app-root>/.vapor/state/installer/bootstrap-failure.txt`; the launch wrapper
 prints only the session banner, failures, and terminal-hold message. The real
 implementation remains Vapor Shell. Entry points and scripts are not a
@@ -162,11 +162,14 @@ supported target.
 
 The publish preflight requires app-local Rust/Cargo and cross-build tooling for
 the release matrix, a linked developer Git provider for explicit Git-backed
-workflows, plus SteamCMD for real upload. Player-mode tooling belongs to
-`vapor-installer install`; explicit development toolchain upgrade/downgrade
-belongs to `vapor-installer dev-env`. The root depots contain release runtime
-files only; installer-managed tools and generated app-local state stay outside
-SteamPipe staging.
+workflows, plus SteamCMD for real upload. Player-mode and developer-mode setup
+are owned by app-root tools under `<app-root>/resources/vapor/tools/`.
+
+The root source owns the tool payload under `resources/vapor/tools`; root
+build/package/publish copies that payload into the installed app root. The
+generated mutable state those tools create remains outside SteamPipe staging.
+`vapor-installer` still uses the same shared implementation in-process so
+first-run setup does not depend on `rust-script` already being available.
 
 Workshop content is separate from this depot flow. A workspace such as
 Loo-Cast can publish Workshop items and packagepacks, but the content itself is

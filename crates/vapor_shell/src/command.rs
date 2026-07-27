@@ -10,7 +10,7 @@ use crate::{
     app_local_tools::AppToolRequirement,
     content,
     diagnostics::{self, UploadOptions},
-    discovery::{EnvironmentPaths, ensure_contained},
+    discovery::{ensure_contained, EnvironmentPaths},
     distribution::StageOptions,
     documentation, git_provider, ide, manifest,
     metadata::{MetadataFormat, ResolvedMetadata, ValidationPlan},
@@ -35,7 +35,7 @@ const LOO_CAST_PACKAGEPACK_ID: &str = "ghf-studios/loo-cast/loo-cast-packagepack
 #[command(
     name = "vapor",
     bin_name = "vapor",
-    after_help = "Run `help COMMAND` for details on one command group.\nNormal tester launches start with `launch loo-cast`; developer work starts with installer-prepared tooling, then `source open SOURCE`."
+    after_help = "Run `help COMMAND` for details on one command group.\nNormal tester launches start with `launch loo-cast`; developer work starts with script-prepared tooling, then `source open SOURCE`."
 )]
 /// Commands accepted by the Vapor shell and its narrow host facades.
 pub enum ShellCommand {
@@ -161,7 +161,7 @@ pub enum ShellCommand {
 /// Playable launch targets.
 #[derive(Debug, Subcommand)]
 pub enum LaunchCommand {
-    /// Launch the selected Loo-Cast packagepack composition, installing the first-party one when needed.
+    /// Launch the default Loo-Cast packagepack composition, installing default Workshop content when needed.
     #[command(name = "loo-cast")]
     LooCast {
         /// Steam account used when Workshop content must be downloaded.
@@ -305,18 +305,30 @@ pub enum IdeCommand {
 /// Complete application/depot root operations.
 #[derive(Debug, Subcommand)]
 pub enum RootCommand {
-    /// Build every project and refresh local installation outputs.
+    /// Build every root application project into app-root build outputs.
     Build {
-        /// Skip rebuilding installed documentation.
-        #[arg(long)]
-        skip_docs: bool,
-        /// Rust target triple for dry-run/custom root application binaries. May be repeated.
+        /// Rust target triple for root application binaries. May be repeated.
         #[arg(long, value_name = "TARGET")]
         target: Vec<String>,
         /// Build the manifest runtime target matrix. This is the default when declared.
         #[arg(long)]
         release_targets: bool,
         /// Build only Cargo's host target for a local smoke pass.
+        #[arg(long)]
+        host_only: bool,
+    },
+    /// Promote already-built root application outputs into the local app root.
+    Deploy {
+        /// Skip rebuilding installed documentation.
+        #[arg(long)]
+        skip_docs: bool,
+        /// Rust target triple for root application binaries. May be repeated.
+        #[arg(long, value_name = "TARGET")]
+        target: Vec<String>,
+        /// Deploy the manifest runtime target matrix. This is the default when declared.
+        #[arg(long)]
+        release_targets: bool,
+        /// Deploy only Cargo's host target for a local smoke pass.
         #[arg(long)]
         host_only: bool,
     },
@@ -664,8 +676,8 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
 
     println!("Play Loo-Cast");
     println!();
-    println!("Status");
-    println!("  Loo-Cast Packagepack: {}", selection.artifact_id());
+    println!("Content composition");
+    println!("  packagepack: {}", selection.artifact_id());
     println!("    root: {}", selection.installed_root().display());
     diagnostics::event(format!(
         "launch selection: {} at {}",
@@ -698,39 +710,68 @@ fn launch_loo_cast(state: &ShellState, account: Option<&str>) -> Result<(), Stri
     }
     println!("  Installed content: verified ({} item(s))", reports.len());
 
-    let engine_id = selected_packagepack_engine_id(selection.installed_root())?;
+    let dependencies = selected_packagepack_dependencies(selection.installed_root())?;
+    if dependencies.is_empty() {
+        println!("  dependencies: none declared");
+    } else {
+        println!("  dependencies:");
+        for dependency in &dependencies {
+            println!("    - {}: {}", dependency.relationship, dependency.id);
+        }
+    }
+
+    let engine_id =
+        required_packagepack_dependency_id(selection.installed_root(), &dependencies, "engine")?;
+    let game_id = packagepack_dependency_id(&dependencies, "game");
     let layout = content::ContentLayout::new(state.installation());
     let engine_root = layout.installed().join(&engine_id);
+    let game_root = game_id
+        .as_ref()
+        .map(|game_id| layout.installed().join(game_id));
     let runtime_target = content::host_runtime_target();
     let binary = engine_launch_binary(&engine_root, &runtime_target)?;
     diagnostics::event(format!(
-        "engine handoff binary: {} ({runtime_target})",
+        "engine dependency handoff binary: {} ({runtime_target})",
         binary.display()
     ));
     diagnostics::record_engine_handoff(&engine_id, &engine_root, &runtime_target, &binary);
 
-    println!("  Spacetime Engine: {engine_id}");
+    println!("Engine content");
+    println!("  id: {engine_id}");
+    println!("  root: {}", engine_root.display());
     println!("    runtime target: {runtime_target}");
     println!("    binary: {}", binary.display());
+    if let (Some(game_id), Some(game_root)) = (game_id.as_deref(), game_root.as_ref()) {
+        println!("Game content");
+        println!("  id: {game_id}");
+        println!("  root: {}", game_root.display());
+    }
     println!();
     println!("Handoff");
-    println!("  Spacetime Engine binary: {}", binary.display());
+    println!("  engine binary: {}", binary.display());
 
-    let status = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    command
         .current_dir(selection.installed_root())
         .env("VAPOR_LAUNCH_TARGET", "loo-cast")
         .env("VAPOR_PACKAGEPACK_ID", selection.artifact_id())
         .env("VAPOR_PACKAGEPACK_ROOT", selection.installed_root())
         .env("VAPOR_ENGINE_ID", &engine_id)
         .env("VAPOR_ENGINE_ROOT", &engine_root)
-        .env("VAPOR_RUNTIME_TARGET", &runtime_target)
+        .env("VAPOR_RUNTIME_TARGET", &runtime_target);
+    if let (Some(game_id), Some(game_root)) = (game_id.as_deref(), game_root.as_ref()) {
+        command
+            .env("VAPOR_GAME_ID", game_id)
+            .env("VAPOR_GAME_ROOT", game_root);
+    }
+    let status = command
         .status()
         .map_err(|error| format!("failed to launch '{}': {error}", binary.display()))?;
-    diagnostics::event(format!("engine exited with {status}"));
+    diagnostics::event(format!("engine dependency exited with {status}"));
     if status.success() {
         Ok(())
     } else {
-        Err(format!("Spacetime Engine exited with {status}"))
+        Err(format!("engine content {engine_id} exited with {status}"))
     }
 }
 
@@ -738,8 +779,8 @@ fn print_loo_cast_first_run() {
     println!("Play Loo-Cast");
     println!();
     println!("Status");
-    println!("  Loo-Cast Packagepack: not installed");
-    println!("  Spacetime Engine handoff: unavailable");
+    println!("  default packagepack: not installed");
+    println!("  engine handoff: unavailable");
     println!();
     print_loo_cast_first_run_next();
 }
@@ -747,12 +788,14 @@ fn print_loo_cast_first_run() {
 fn print_loo_cast_first_run_next() {
     println!("Next");
     println!("  reinstall the Steam app if this is a normal tester install");
-    println!("  vapor-installer install --app-root /path/to/steam/app");
+    println!(
+        "  rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_player.rs"
+    );
     println!("  launch loo-cast");
     println!();
     println!("Note");
     println!(
-        "  Steam Play can download the first-party Loo-Cast Packagepack after player-mode tooling is installed."
+        "  Steam Play can download the default packagepack and dependency closure after player-mode tooling is installed."
     );
 }
 
@@ -769,9 +812,11 @@ fn ensure_loo_cast_installed_and_selected(
     println!("Play Loo-Cast");
     println!();
     println!("Status");
-    println!("  Loo-Cast Packagepack: not installed");
-    println!("  Workshop: downloading first-party Loo-Cast Packagepack and dependencies");
-    diagnostics::event("launch loo-cast installing first-party packagepack from Workshop");
+    println!("  default packagepack: not installed");
+    println!("  Workshop: downloading default packagepack and dependency closure: {LOO_CAST_PACKAGEPACK_ID}");
+    diagnostics::event(format!(
+        "launch loo-cast installing default packagepack from Workshop: {LOO_CAST_PACKAGEPACK_ID}"
+    ));
     let reports = match content::install_with_account(
         state.installation(),
         None,
@@ -790,15 +835,14 @@ fn ensure_loo_cast_installed_and_selected(
         diagnostics::event(format!("installed content: {}", report.artifact_id()));
     }
     let selection = content::select_packagepack(state.installation(), LOO_CAST_PACKAGEPACK_ID)?;
-    println!(
-        "  Selected Loo-Cast Packagepack: {}",
-        selection.artifact_id()
-    );
+    println!("  selected packagepack: {}", selection.artifact_id());
     println!();
     Ok(selection)
 }
 
-fn selected_packagepack_engine_id(packagepack_root: &Path) -> Result<String, String> {
+fn selected_packagepack_dependencies(
+    packagepack_root: &Path,
+) -> Result<Vec<LaunchReference>, String> {
     let manifest = packagepack_root.join(manifest::PACKAGEPACK_FILE_NAME);
     let source = fs::read_to_string(&manifest)
         .map_err(|error| format!("failed to read '{}': {error}", manifest.display()))?;
@@ -810,17 +854,32 @@ fn selected_packagepack_engine_id(packagepack_root: &Path) -> Result<String, Str
             manifest.display()
         )
     })?;
-    packagepack
-        .dependencies
-        .into_iter()
-        .find(|dependency| dependency.relationship == "engine")
-        .map(|dependency| dependency.id)
-        .ok_or_else(|| {
-            format!(
-                "selected packagepack '{}' has no required engine dependency",
-                manifest.display()
-            )
-        })
+    Ok(packagepack.dependencies)
+}
+
+fn required_packagepack_dependency_id(
+    packagepack_root: &Path,
+    dependencies: &[LaunchReference],
+    relationship: &str,
+) -> Result<String, String> {
+    packagepack_dependency_id(dependencies, relationship).ok_or_else(|| {
+        format!(
+            "selected packagepack '{}' has no required {relationship} dependency",
+            packagepack_root
+                .join(manifest::PACKAGEPACK_FILE_NAME)
+                .display()
+        )
+    })
+}
+
+fn packagepack_dependency_id(
+    dependencies: &[LaunchReference],
+    relationship: &str,
+) -> Option<String> {
+    dependencies
+        .iter()
+        .find(|dependency| dependency.relationship == relationship)
+        .map(|dependency| dependency.id.clone())
 }
 
 fn engine_launch_binary(engine_root: &Path, runtime_target: &str) -> Result<PathBuf, String> {
@@ -831,7 +890,7 @@ fn engine_launch_binary(engine_root: &Path, runtime_target: &str) -> Result<Path
         .map_err(|error| format!("failed to parse '{}': {error}", manifest.display()))?;
     let engine = parsed.engine.ok_or_else(|| {
         format!(
-            "selected packagepack engine manifest '{}' has no [engine] section",
+            "resolved engine content manifest '{}' has no [engine] section",
             manifest.display()
         )
     })?;
@@ -841,13 +900,13 @@ fn engine_launch_binary(engine_root: &Path, runtime_target: &str) -> Result<Path
         .find(|runtime| runtime.target == runtime_target)
         .ok_or_else(|| {
             format!(
-                "selected packagepack engine '{}' has no runtime payload for {runtime_target}\nhelp: install content built for this platform",
+                "resolved engine content '{}' has no runtime payload for {runtime_target}\nhelp: install content built for this platform",
                 manifest.display()
             )
         })?;
     let binary_name = runtime.binaries.first().ok_or_else(|| {
         format!(
-            "selected packagepack engine '{}' declares no runtime binary for {runtime_target}",
+            "resolved engine content '{}' declares no runtime binary for {runtime_target}",
             manifest.display()
         )
     })?;
@@ -859,7 +918,7 @@ fn engine_launch_binary(engine_root: &Path, runtime_target: &str) -> Result<Path
         Ok(binary)
     } else {
         Err(format!(
-            "selected packagepack engine binary is missing: {}\nhelp: deploy or install content with runtime outputs",
+            "resolved engine content binary is missing: {}\nhelp: deploy or install content with runtime outputs",
             binary.display()
         ))
     }
@@ -1452,7 +1511,6 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
     let metadata = ResolvedMetadata::resolve(state);
     match command {
         RootCommand::Build {
-            skip_docs,
             target,
             release_targets,
             host_only,
@@ -1466,10 +1524,30 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
             let workspace_manifest = metadata.workspace_manifest()?;
             let targets =
                 resolve_runtime_targets(workspace_manifest, &target, release_targets, host_only)?;
-            let report = refresh_root_outputs(paths, workspace_manifest, &targets, skip_docs)?;
+            run_root_workflow_targets(paths, workspace_manifest, CargoWorkflow::Build, &targets)?;
+            println!(
+                "hint: deploy built app outputs with `root deploy`, package with `root package`, or publish with `root publish`"
+            );
+        }
+        RootCommand::Deploy {
+            skip_docs,
+            target,
+            release_targets,
+            host_only,
+        } => {
+            metadata.validate(
+                &ValidationPlan::new("deploy the Vapor application locally")
+                    .app_local_tools(&[AppToolRequirement::Rust])
+                    .workspace(),
+            )?;
+            let paths = state.active_paths()?;
+            let workspace_manifest = metadata.workspace_manifest()?;
+            let targets =
+                resolve_runtime_targets(workspace_manifest, &target, release_targets, host_only)?;
+            let report = deploy_root_outputs(paths, workspace_manifest, &targets, skip_docs)?;
             print_root_output_report(&report);
             println!(
-                "hint: package the local app with `root package` or preview upload with `root publish --dry-run`"
+                "hint: package the local app with `root package` or publish with `root publish`"
             );
         }
         RootCommand::Package {
@@ -1564,32 +1642,37 @@ fn execute_root(command: RootCommand, state: &ShellState) -> Result<(), String> 
                 "app publication",
             )?;
             let stage_options = StageOptions::runtime().with_runtime_targets(targets.clone());
+            let paths = state.active_paths()?;
             if skip_build {
                 println!("build: skipped; using already-promoted app binaries");
             } else {
                 run_root_workflow_targets(
-                    state.active_paths()?,
+                    paths,
                     metadata.workspace_manifest()?,
                     CargoWorkflow::Validate,
                     &targets,
                 )?;
                 run_root_workflow_targets(
-                    state.active_paths()?,
+                    paths,
                     metadata.workspace_manifest()?,
                     CargoWorkflow::Build,
                     &targets,
                 )?;
-                let promoted = workflow::promote_for_targets(
-                    state.active_paths()?,
-                    metadata.workspace_manifest()?,
-                    &targets,
-                )?;
+                let promoted =
+                    workflow::promote_for_targets(paths, metadata.workspace_manifest()?, &targets)?;
                 println!("promoted {promoted} installation binaries");
             }
-            documentation::build(state.active_paths()?, metadata.workspace_manifest()?)?;
+            let docs = documentation::build(paths, metadata.workspace_manifest()?)?;
+            let scripts = sync_root_asset_dir(paths, "resources/vapor/vapor-scripts")?;
+            let app_root_tools = sync_app_root_tool_payload(paths)?;
+            let launch_scripts = sync_root_launch_scripts(paths, &targets)?;
+            println!("docs: {}", docs.display());
+            println!("scripts: {scripts} file(s)");
+            println!("app-root tools: {app_root_tools} file(s)");
+            println!("launch scripts: {launch_scripts} file(s)");
             let distribution_manifest = metadata.distribution_manifest()?;
             let publish = steam::publish(
-                state.active_paths()?,
+                paths,
                 distribution_manifest,
                 steam::PublishOptions {
                     account: account.as_deref().unwrap_or("dry-run"),
@@ -1623,6 +1706,7 @@ struct RootOutputReport {
     promoted: usize,
     docs: Option<PathBuf>,
     scripts: usize,
+    app_root_tools: usize,
     launch_scripts: usize,
 }
 
@@ -1633,6 +1717,15 @@ fn refresh_root_outputs(
     skip_docs: bool,
 ) -> Result<RootOutputReport, String> {
     run_root_workflow_targets(paths, manifest, CargoWorkflow::Build, targets)?;
+    deploy_root_outputs(paths, manifest, targets, skip_docs)
+}
+
+fn deploy_root_outputs(
+    paths: &EnvironmentPaths,
+    manifest: &WorkspaceManifest,
+    targets: &[String],
+    skip_docs: bool,
+) -> Result<RootOutputReport, String> {
     let promoted = workflow::promote_for_targets(paths, manifest, targets)?;
     let docs = if skip_docs {
         None
@@ -1640,11 +1733,13 @@ fn refresh_root_outputs(
         Some(documentation::build(paths, manifest)?)
     };
     let scripts = sync_root_asset_dir(paths, "resources/vapor/vapor-scripts")?;
+    let app_root_tools = sync_app_root_tool_payload(paths)?;
     let launch_scripts = sync_root_launch_scripts(paths, targets)?;
     Ok(RootOutputReport {
         promoted,
         docs,
         scripts,
+        app_root_tools,
         launch_scripts,
     })
 }
@@ -1657,6 +1752,7 @@ fn print_root_output_report(report: &RootOutputReport) {
         println!("docs: skipped");
     }
     println!("scripts: {} file(s)", report.scripts);
+    println!("app-root tools: {} file(s)", report.app_root_tools);
     println!("launch scripts: {} file(s)", report.launch_scripts);
 }
 
@@ -1735,6 +1831,27 @@ fn sync_root_asset_dir(paths: &EnvironmentPaths, relative: &str) -> Result<usize
 
     let canonical = fs::canonicalize(&source).map_err(io("resolve root scripts", &source))?;
     ensure_contained(paths.source().root(), &canonical)?;
+    copy_script_tree(&canonical, &target)
+}
+
+fn sync_app_root_tool_payload(paths: &EnvironmentPaths) -> Result<usize, String> {
+    let source = paths.source().root().join("resources/vapor/tools");
+    if !source.is_dir() {
+        return Ok(0);
+    }
+    let target = paths.installation().root().join("resources/vapor/tools");
+    ensure_contained(paths.installation().root(), &target)?;
+    if target.exists() {
+        fs::remove_dir_all(&target).map_err(io("reset installed app-root tools", &target))?;
+    }
+    let canonical = fs::canonicalize(&source).map_err(io("resolve app-root tools", &source))?;
+    if !canonical.starts_with(paths.source().root()) {
+        return Err(format!(
+            "app-root tool payload '{}' is outside source root '{}'",
+            canonical.display(),
+            paths.source().root().display()
+        ));
+    }
     copy_script_tree(&canonical, &target)
 }
 

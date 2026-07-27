@@ -98,9 +98,10 @@ matching `bin/vapor-launch.*` script, Steam launch options should target the
 native entrypoint. The entrypoint opens the platform terminal, starts the launch
 script with the internal `--hold` wrapper flag, forwards Steam's launch
 arguments after that flag, and waits until the terminal closes. For Play/Shell
-launch targets, the script runs
-`vapor-installer install --app-root <app-root>` first, then hands off to the
-installed Vapor binary:
+launch targets, the script runs the shipped `vapor-installer install` shim
+first. The shim delegates to the app-root
+`resources/vapor/tools/production/app_setup/setup_player.rs` tool, then the
+launch script hands off to the installed Vapor binary:
 
 - **Linux Play Loo-Cast**: executable
   `bin/x86_64-unknown-linux-gnu/vapor-entrypoint`,
@@ -126,14 +127,14 @@ enough to run the launch script, and the launch script owns the persistent
 interactive command prompt after Vapor exits. Both entrypoints are intentionally
 thin terminal adapters; they do not interpret `play`, `shell`, `installer`, or
 future launch arguments beyond inserting the internal wrapper hold flag. The
-launch scripts own launch-target dispatch and the visible wrapper banner, Vapor
-Installer owns installation mechanics and writes child-tool output to
-`<app-root>/.vapor/logs/installer.log`, and Vapor Shell owns product
-interaction. Launch-time bootstrap failure is recorded under
+launch scripts own launch-target dispatch and the visible wrapper banner, the
+setup scripts own installation mechanics, `vapor-installer` is only a
+compatibility entrypoint, and Vapor Shell owns product interaction.
+Launch-time bootstrap failure is recorded under
 `<app-root>/.vapor/state/installer/bootstrap-failure.txt`; Shell reads that
 app-local state instead of inheriting wrapper environment variables. Running
-`vapor-installer` without arguments opens the visual installer for human-driven
-lifecycle work; scripts use only the headless install command for Play/Shell.
+`vapor-installer` without arguments prints shim help/status for human-driven
+lifecycle work; scripts are the direct source-checkout command surface.
 The `installer` launch target skips headless install and opens
 `vapor-installer` directly, so users can manage
 install/uninstall/developer-mode state even when player-mode install is broken
@@ -148,13 +149,12 @@ It does not install Rust/Cargo or cross-build toolchains. Development tooling is
 explicit:
 
 ```text
-vapor-installer dev-env install --app-root /path/to/steam/app
-vapor-installer dev-env uninstall --app-root /path/to/steam/app
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_development.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/teardown_development.rs
 ```
 
 If launch-time install fails, the first visible Vapor Shell reports the
-failure, the log at `<app-root>/.vapor/logs/installer.log`, and the exact
-installer command. For ordinary testers, reinstalling the Steam app is the
+failure and the exact setup command. For ordinary testers, reinstalling the Steam app is the
 preferred recovery because the app root is disposable and should not hold
 authoritative user data.
 
@@ -165,12 +165,13 @@ That script currently calls `launch loo-cast --account ghf_vapor_build` so
 SteamCMD authentication, Steam Guard prompts, Workshop download output, and
 runtime handoff output stay visible in the terminal-owned session.
 
-`launch loo-cast` verifies the selected installed Loo-Cast Packagepack,
-resolves that packagepack's Spacetime Engine dependency, and hands off to the
-installed engine binary for the host runtime target. If the packagepack is
-missing, Vapor can download/cache/install/select the first-party Workshop
-packagepack and dependencies from the app-root `[[root.content]]` seed once
-SteamCMD is available.
+`launch loo-cast` verifies the selected installed packagepack, reads its
+declared dependency roles, resolves the required `engine` dependency by content
+ID, records any declared `game` dependency by content ID, and hands off to the
+resolved engine artifact's binary for the host runtime target. If the
+packagepack is missing, Vapor can download/cache/install/select the default
+Workshop packagepack and dependency closure from the app-root `[[root.content]]`
+seed once SteamCMD is available.
 
 The `--account` argument is currently needed while the app and Workshop items
 are not publicly accessible to anonymous SteamCMD sessions. Once the app/content
@@ -187,8 +188,9 @@ A development loop now has two explicit phases:
 
 1. Use the source-controlled bootstrap path to place current Vapor
    binaries and launch scripts into the Steam app directory.
-2. Run `vapor-installer dev-env install --app-root <app-root>` only when that
-   app root needs to build, validate, package, or publish Vapor projects.
+2. Run `<app-root>/resources/vapor/tools/production/app_setup/setup_development.rs`
+   only when that app root needs to build, validate, package, or publish Vapor
+   projects.
 
 Release-mode depot builds should target every shipped app platform:
 

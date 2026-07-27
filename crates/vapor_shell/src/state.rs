@@ -204,7 +204,7 @@ impl ShellState {
         &self.cargo
     }
 
-    /// Rebuild Cargo-derived state after installer-managed tools change.
+    /// Rebuild Cargo-derived state after script-managed tools change.
     pub fn refresh_cargo_index(&mut self) {
         self.cargo = self
             .paths

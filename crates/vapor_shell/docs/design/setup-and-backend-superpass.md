@@ -18,7 +18,7 @@ agent session fails, continue from this file before using older chat context.
 
 Original implementation intent, now superseded:
 
-1. keep installed-environment setup under a Shell-owned setup command group;
+1. keep installed-environment setup under source-visible setup scripts;
 2. keep backend tools hidden behind Vapor source, content, root, Steam, and setup
    goals;
 3. always attempt to provide player SteamCMD readiness, with Rust/Cargo
@@ -30,9 +30,10 @@ Original implementation intent, now superseded:
 
 Current implementation progress:
 
-- installed app setup is owned by `Vapor-Installer`;
+- installed app setup is owned by app-root
+  `resources/vapor/tools/production/app_setup` tools;
 - Vapor Shell no longer exposes retired setup staging commands;
-- Workshop/content commands do not prepare installer-managed tools;
+- Workshop/content commands do not prepare script-managed tools;
 - Shell preflight still uses setup status terminology internally until that
   reporting layer is renamed.
 
@@ -65,13 +66,13 @@ steam
   inspect Steam availability and session-scoped publication state when needed
 ```
 
-Current lifecycle commands live in Vapor-Installer instead:
+Current lifecycle commands live in the script layer instead:
 
 ```text
-vapor-installer install
-vapor-installer uninstall
-vapor-installer dev-env install
-vapor-installer dev-env uninstall
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_player.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/teardown_player.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_development.rs
+rust-script --force <app-root>/resources/vapor/tools/production/app_setup/teardown_development.rs
 ```
 
 Backend tools remain implementation details unless a diagnostic needs to explain
@@ -143,11 +144,13 @@ grammar should remain Vapor-domain grammar.
 
 ## Retired setup command direction
 
-This document previously proposed Shell-owned setup command grammar. That
-direction is retired. Vapor-Installer owns install, uninstall, and
-development-environment upgrade/downgrade. Vapor Shell keeps source, content,
-root, diagnostics, docs, and IDE operations, and reports missing
-installer-managed capabilities only as command preflight blockers.
+This document previously proposed Shell-owned setup command grammar, then moved
+that work into `Vapor-Installer`. That direction is superseded: app-root tools
+now own install, uninstall, and development-environment upgrade/downgrade.
+`vapor-installer` is the compiled Steam/app-root launcher for those flows.
+Vapor Shell keeps source, content, root, diagnostics, docs, and IDE operations,
+and reports missing tool-managed capabilities only as command preflight
+blockers.
 
 ## Source command direction
 
@@ -251,8 +254,9 @@ Avoid generic "setup incomplete" errors when the actual blocker is narrower.
 
 ### Phase 2: command grammar migration
 
-- Move install/uninstall/developer-environment lifecycle into Vapor-Installer.
-- Keep installer-owned tooling preparation separate from Workshop content
+- Move install/uninstall/developer-environment lifecycle into
+  `resources/vapor/tools/production/app_setup`.
+- Keep script-owned tooling preparation separate from Workshop content
   commands.
 
 ### Phase 3: status model split

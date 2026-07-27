@@ -3,7 +3,8 @@
 This checklist proves the Windows side of the release target matrix without
 publishing Steam depot or Workshop changes. It starts from the product path:
 Steam opens a visible Vapor Shell through the native entrypoint, and the launch
-script runs the installer-owned player-mode install before Shell starts.
+script runs the script-owned player-mode install through the `vapor-installer`
+shim before Shell starts.
 
 The target is:
 
@@ -32,20 +33,19 @@ arguments:  installer
 ```
 
 Clicking that launch option should open a persistent `cmd` window running
-Vapor Installer directly. It should not run the quiet player-mode install
-before showing the installer surface.
+`vapor-installer` directly. It should not run the quiet player-mode install
+before showing the installer/status surface.
 
 ## First-run installer
 
 Player-mode install is automatic through the launch path. For development
-build/proof work, run the installer visual surface or this explicit headless
-command:
+build/proof work from a source checkout, run the script directly:
 
 ```text
-vapor-installer dev-env install --app-root "C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
+rust-script tools\production\app_setup\setup_development.rs --app-root "C:\Program Files (x86)\Steam\steamapps\common\Loo Cast"
 ```
 
-Expected installer behavior:
+Expected setup behavior:
 
 - Rustup is downloaded and run with `RUSTUP_HOME` and `CARGO_HOME` inside the
   Steam app root.
@@ -113,9 +113,11 @@ Build the example runtime outputs:
 "%VAPOR%" content build --target x86_64-pc-windows-gnullvm
 ```
 
-This proof expects `vapor-installer dev-env install` to have prepared app-local
-Git, Rustup state, Cargo state, SteamCMD, Zig, and linker wrappers. No Microsoft
-compiler/linker toolchain is part of this proof path.
+This proof expects the app-root
+`resources/vapor/tools/production/app_setup/setup_development.rs` tool to have
+prepared app-local Rustup state, Cargo state, SteamCMD, Zig, and linker wrappers.
+Git remains a linked provider rather than a player-mode setup dependency. No
+Microsoft compiler/linker toolchain is part of this proof path.
 
 ## Windows artifact checks
 

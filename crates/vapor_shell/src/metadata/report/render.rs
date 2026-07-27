@@ -198,7 +198,7 @@ fn next_command(report: &MetadataReport) -> &'static str {
         return "source open /path/to/source";
     }
     if !report.app_local_tools.complete {
-        return "vapor-installer dev-env install --app-root <app-root>";
+        return "rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>";
     }
     if matches!(report.manifests.workspace.status, ResourceState::Invalid) {
         return "source status";
@@ -219,5 +219,9 @@ fn source_kind_label(kind: &str) -> &str {
 }
 
 fn plural(count: usize) -> &'static str {
-    if count == 1 { "" } else { "s" }
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
 }

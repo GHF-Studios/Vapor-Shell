@@ -40,9 +40,9 @@ not the installed Steam directory itself.
   command can affect.
 - [Cargo integration](docs/cargo-metadata.md): required Rust workspaces,
   authority boundaries, nested-workspace consequences, and derived metadata.
-- [Setup](docs/setup.md): explicit app-local installation of SteamCMD and
-  developer-mode Rust/Cargo tooling through Vapor Installer, plus linked
-  developer providers such as Git.
+- [Setup](docs/setup.md): explicit script-owned app-local installation of
+  SteamCMD and developer-mode Rust/Cargo tooling, plus linked developer
+  providers such as Git.
 - [Distribution](docs/distribution.md): allowlisted staging, exclusions, docs,
   launch entrypoints/scripts, SteamPipe templates, and smoke validation.
 - [Steam development](docs/steam-development.md): root publish previews, manual
@@ -90,7 +90,8 @@ Then run the installed app-local command:
 
 ```text
 /home/.../steamapps/common/Loo Cast/bin/vapor source open /path/to/source
-/home/.../steamapps/common/Loo Cast/bin/vapor-installer install
+rust-script --force tools/production/app_setup/setup_player.rs --app-root "/home/.../steamapps/common/Loo Cast"
+rust-script --force tools/production/app_setup/setup_development.rs --app-root "/home/.../steamapps/common/Loo Cast"
 fmt
 test
 validate
@@ -103,4 +104,6 @@ After that shell is installed, all normal builds and checks are routed through
 the Steam app's own Vapor shell. The bootstrap path may use `bin/vapor`; release
 launches use `bin/<target>/vapor-entrypoint[.exe]`, `bin/vapor-launch.*`
 scripts, and `bin/<target>/vapor[.exe]`.
-Vapor Installer owns app-local player and developer tooling installation.
+The source-visible `tools/production/app_setup` scripts own app-local player and
+developer tooling installation. `vapor-installer` is a compatibility shim for
+launch wrappers.

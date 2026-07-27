@@ -14,7 +14,7 @@ use crate::{
     source_registry,
     state::ShellState,
 };
-use clap::{Parser, Subcommand, error::ErrorKind};
+use clap::{error::ErrorKind, Parser, Subcommand};
 use clap_repl::{ClapEditor, ReadCommandOutput};
 use std::path::Path;
 
@@ -137,7 +137,7 @@ fn print_startup_overview(state: &ShellState) {
             println!("    log: {}", log.display());
         }
         println!(
-            "    command: vapor-installer install --app-root {}",
+            "    command: rust-script --force tools/production/app_setup/setup_player.rs --app-root {}",
             display_command_argument(installation.root())
         );
     }
@@ -152,15 +152,15 @@ fn print_startup_overview(state: &ShellState) {
     println!();
     println!("Next");
     if installer_failure.is_some() {
-        println!("  reinstall the Steam app, or run the installer command shown above");
+        println!("  reinstall the Steam app, or run the setup script shown above");
     } else if !runtime_tools_ready {
         println!(
-            "  vapor-installer install --app-root {}",
+            "  rust-script --force tools/production/app_setup/setup_player.rs --app-root {}",
             display_command_argument(installation.root())
         );
     } else if !tool_status.complete() && state.source().is_some() {
         println!(
-            "  vapor-installer dev-env install --app-root {}",
+            "  rust-script --force tools/production/app_setup/setup_development.rs --app-root {}",
             display_command_argument(installation.root())
         );
     } else if state.source().is_none() {
@@ -267,7 +267,7 @@ fn shell_only_error() -> String {
     name = "vapor",
     bin_name = "vapor",
     about = "Open Vapor Shell or run a launch/source command",
-    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse Vapor Installer for player-mode install/uninstall and development tooling.\nUse source commands to choose the project you want Vapor to work with."
+    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse tools/production/app_setup scripts for player/developer setup.\nUse source commands to choose the project you want Vapor to work with."
 )]
 struct HostCommand {
     /// Capture this run for explicit private-test diagnostics handling.
