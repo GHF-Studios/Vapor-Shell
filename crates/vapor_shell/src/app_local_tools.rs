@@ -142,7 +142,7 @@ pub fn require_status(
         return Ok(());
     }
     Err(format!(
-        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: player-mode tooling uses `rust-script --force tools/production/app_setup/setup_player.rs --app-root <app-root>`\nhelp: development tooling uses `rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>`\ncompat: packaged launchers may still call `vapor-installer install` or `vapor-installer dev-env install`\nnote: this command will not install prerequisites automatically",
+        "cannot {action}: the app-local {} {} not installed\n{}\nhelp: player-mode tooling uses `rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_player.rs`\nhelp: development tooling uses `rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_development.rs`\nnote: this command will not install prerequisites automatically",
         missing
             .iter()
             .map(|requirement| requirement.label())

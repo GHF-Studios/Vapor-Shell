@@ -137,8 +137,12 @@ fn print_startup_overview(state: &ShellState) {
             println!("    log: {}", log.display());
         }
         println!(
-            "    command: rust-script --force tools/production/app_setup/setup_player.rs --app-root {}",
-            display_command_argument(installation.root())
+            "    command: rust-script --force {}",
+            display_command_argument(
+                &installation
+                    .root()
+                    .join("resources/vapor/tools/production/app_setup/setup_player.rs")
+            )
         );
     }
     match state.source() {
@@ -155,13 +159,21 @@ fn print_startup_overview(state: &ShellState) {
         println!("  reinstall the Steam app, or run the setup script shown above");
     } else if !runtime_tools_ready {
         println!(
-            "  rust-script --force tools/production/app_setup/setup_player.rs --app-root {}",
-            display_command_argument(installation.root())
+            "  rust-script --force {}",
+            display_command_argument(
+                &installation
+                    .root()
+                    .join("resources/vapor/tools/production/app_setup/setup_player.rs")
+            )
         );
     } else if !tool_status.complete() && state.source().is_some() {
         println!(
-            "  rust-script --force tools/production/app_setup/setup_development.rs --app-root {}",
-            display_command_argument(installation.root())
+            "  rust-script --force {}",
+            display_command_argument(
+                &installation
+                    .root()
+                    .join("resources/vapor/tools/production/app_setup/setup_development.rs")
+            )
         );
     } else if state.source().is_none() {
         println!("  launch loo-cast");
@@ -267,7 +279,7 @@ fn shell_only_error() -> String {
     name = "vapor",
     bin_name = "vapor",
     about = "Open Vapor Shell or run a launch/source command",
-    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse tools/production/app_setup scripts for player/developer setup.\nUse source commands to choose the project you want Vapor to work with."
+    after_help = "Run `vapor` with no command to enter the interactive Shell.\nUse `vapor --startup-script NAME` to run an app/source script before the prompt.\nUse app-root tools under `resources/vapor/tools/production/app_setup` for player/developer setup.\nUse source commands to choose the project you want Vapor to work with."
 )]
 struct HostCommand {
     /// Capture this run for explicit private-test diagnostics handling.

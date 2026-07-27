@@ -43,7 +43,7 @@ fn metadata_reports_partial_state_in_human_and_json_formats() {
     );
     assert!(human.contains("Workspace manifest: ready"), "{human}");
     assert!(
-        human.contains("Next\n  rust-script --force tools/production/app_setup/setup_development.rs --app-root <app-root>"),
+        human.contains("Next\n  rust-script --force <app-root>/resources/vapor/tools/production/app_setup/setup_development.rs"),
         "{human}"
     );
 

@@ -70,7 +70,7 @@ fn help_uses_defined_argument_domains() {
     let root_help = ShellCommand::try_parse_from(["", "root", "--help"])
         .expect_err("root help should exit through Clap")
         .to_string();
-    for command in ["build", "package", "publish"] {
+    for command in ["build", "deploy", "package", "publish"] {
         assert!(
             root_help.contains(command),
             "missing {command}: {root_help}"
@@ -85,7 +85,6 @@ fn help_uses_defined_argument_domains() {
         "{root_build_help}"
     );
     assert!(root_build_help.contains("--host-only"), "{root_build_help}");
-    assert!(root_build_help.contains("--skip-docs"), "{root_build_help}");
     ShellCommand::try_parse_from([
         "",
         "root",
@@ -96,6 +95,20 @@ fn help_uses_defined_argument_domains() {
         "x86_64-pc-windows-gnullvm",
     ])
     .expect("root build should accept repeated runtime targets");
+    let root_deploy_help = ShellCommand::try_parse_from(["", "root", "deploy", "--help"])
+        .expect_err("root deploy help should exit through Clap")
+        .to_string();
+    for argument in [
+        "--target",
+        "--release-targets",
+        "--host-only",
+        "--skip-docs",
+    ] {
+        assert!(
+            root_deploy_help.contains(argument),
+            "missing {argument}: {root_deploy_help}"
+        );
+    }
     let root_package_help = ShellCommand::try_parse_from(["", "root", "package", "--help"])
         .expect_err("root package help should exit through Clap")
         .to_string();

@@ -33,7 +33,7 @@ fn direct_facade_allows_app_first_scripts_with_open_source() {
     for command in ["source", "script"] {
         assert!(stdout.contains(command), "missing {command}: {stdout}");
     }
-    assert!(stdout.contains("Vapor Installer"), "{stdout}");
+    assert!(stdout.contains("app-root tools"), "{stdout}");
 
     installation.write(
         "resources/vapor/vapor-scripts/app-status.vapor",
