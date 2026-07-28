@@ -1337,6 +1337,7 @@ fn execute_ide(command: IdeCommand, state: &ShellState) -> Result<(), String> {
 }
 
 fn print_ide_status(status: &ide::IdeStatus) {
+    println!("IDE project root: {}", status.project_root().display());
     println!("source root: {}", status.source_root().display());
     println!("IDE directory: {}", status.idea_dir().display());
     println!("Rust/Cargo bin: {}", status.rust_bin().display());

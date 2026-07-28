@@ -1,7 +1,7 @@
 <project version="4">
   <component name="VaporProjectSettings">
     <option name="schemaVersion" value="1" />
-    <option name="sourceRoot" value="$PROJECT_DIR$" />
+    <option name="sourceRoot" value="{{source_root}}" />
     <option name="sourceId" value="{{source_id}}" />
     <option name="appRoot" value="{{app_root}}" />
     <option name="cargoHome" value="{{cargo_home}}" />

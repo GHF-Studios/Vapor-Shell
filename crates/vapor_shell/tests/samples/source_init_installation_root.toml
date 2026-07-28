@@ -1,8 +1,0 @@
-schema = 1
-
-[root]
-name = "installation"
-organization = "example"
-
-[root.steam]
-app-id = 2122620

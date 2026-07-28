@@ -1,9 +1,10 @@
 //! Project-local IDE configuration managed by explicit Vapor commands.
 //!
-//! This module intentionally writes only files under the selected source
-//! root's `.idea` directory. It does not edit global JetBrains settings because
-//! those files mix durable preferences with volatile window, workspace, and AI
-//! session state.
+//! This module writes only files under the opened IDE project directory's
+//! `.idea` directory. In a SuperWorkspace checkout container that means the
+//! SuperWorkspace root, not an individual source member such as `Vapor-Root`.
+//! It does not edit global JetBrains settings because those files mix durable
+//! preferences with volatile window, workspace, and AI session state.
 
 use crate::{
     app_local_tools::AppToolStatus,
@@ -18,6 +19,7 @@ use std::{
 const CARGO_PROJECTS_FILE: &str = "cargoProjects.xml";
 const RUST_SETTINGS_FILE: &str = "rust.xml";
 const VAPOR_SETTINGS_FILE: &str = "vapor.xml";
+const SUPER_WORKSPACE_FILE_NAME: &str = "SuperWorkspace.vapor.toml";
 
 const CARGO_PROJECTS_TEMPLATE: &str = include_str!("../templates/ide/cargoProjects.xml");
 const RUST_TEMPLATE: &str = include_str!("../templates/ide/rust.xml");
@@ -25,6 +27,7 @@ const VAPOR_TEMPLATE: &str = include_str!("../templates/ide/vapor.xml");
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdeStatus {
+    project_root: PathBuf,
     source_root: PathBuf,
     idea_dir: PathBuf,
     rust_bin: PathBuf,
@@ -33,6 +36,10 @@ pub(crate) struct IdeStatus {
 }
 
 impl IdeStatus {
+    pub(crate) fn project_root(&self) -> &Path {
+        &self.project_root
+    }
+
     pub(crate) fn source_root(&self) -> &Path {
         &self.source_root
     }
@@ -102,7 +109,8 @@ impl IdeRepairReport {
 }
 
 struct IdePlan {
-    root: PathBuf,
+    project_root: PathBuf,
+    source_root: PathBuf,
     idea_dir: PathBuf,
     rust_bin: PathBuf,
     stdlib_source: Option<PathBuf>,
@@ -143,7 +151,7 @@ pub(crate) fn preview(
     })
 }
 
-/// Write project-local IDE files under the selected source root's `.idea`.
+/// Write project-local IDE files under the IDE project root's `.idea`.
 pub(crate) fn repair(
     paths: &EnvironmentPaths,
     manifest: &WorkspaceManifest,
@@ -158,7 +166,7 @@ pub(crate) fn repair(
     })?;
     let mut written = Vec::new();
     for file in &plan.files {
-        ensure_contained(&plan.root, &file.path)?;
+        ensure_contained(&plan.project_root, &file.path)?;
         if file_current(file) {
             continue;
         }
@@ -177,14 +185,15 @@ fn build_plan(
     manifest: &WorkspaceManifest,
     app_tools: &AppToolStatus,
 ) -> Result<IdePlan, String> {
-    let root = paths.source().root().to_path_buf();
-    let idea_dir = root.join(".idea");
+    let source_root = paths.source().root().to_path_buf();
+    let project_root = ide_project_root(&source_root);
+    let idea_dir = project_root.join(".idea");
     let rust_bin = app_tools.rust().path().to_path_buf();
     let stdlib_source = rust_stdlib_source(&rust_bin).filter(|path| path.is_dir());
     let files = vec![
         IdeFile {
             path: idea_dir.join(CARGO_PROJECTS_FILE),
-            contents: cargo_projects_xml(manifest),
+            contents: cargo_projects_xml(manifest, &project_root, &source_root)?,
         },
         IdeFile {
             path: idea_dir.join(RUST_SETTINGS_FILE),
@@ -192,11 +201,12 @@ fn build_plan(
         },
         IdeFile {
             path: idea_dir.join(VAPOR_SETTINGS_FILE),
-            contents: vapor_xml(paths, app_tools, stdlib_source.as_deref())?,
+            contents: vapor_xml(paths, app_tools, stdlib_source.as_deref(), &project_root)?,
         },
     ];
     Ok(IdePlan {
-        root,
+        project_root,
+        source_root,
         idea_dir,
         rust_bin,
         stdlib_source,
@@ -217,7 +227,8 @@ impl IdePlan {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(IdeStatus {
-            source_root: self.root.clone(),
+            project_root: self.project_root.clone(),
+            source_root: self.source_root.clone(),
             idea_dir: self.idea_dir.clone(),
             rust_bin: self.rust_bin.clone(),
             stdlib_source: self.stdlib_source.clone(),
@@ -226,14 +237,22 @@ impl IdePlan {
     }
 }
 
-fn cargo_projects_xml(manifest: &WorkspaceManifest) -> String {
+fn cargo_projects_xml(
+    manifest: &WorkspaceManifest,
+    project_root: &Path,
+    source_root: &Path,
+) -> Result<String, String> {
     let mut cargo_projects = String::new();
     for project in manifest.cargo_projects() {
-        cargo_projects.push_str("    <cargoProject FILE=\"$PROJECT_DIR$/");
-        cargo_projects.push_str(&xml_escape(&project.manifest().to_string_lossy()));
+        let manifest_path = source_root.join(project.manifest());
+        cargo_projects.push_str("    <cargoProject FILE=\"");
+        cargo_projects.push_str(&xml_escape(&project_reference(
+            project_root,
+            &manifest_path,
+        )?));
         cargo_projects.push_str("\" />\n");
     }
-    CARGO_PROJECTS_TEMPLATE.replace("{{cargo_projects}}", &cargo_projects)
+    Ok(CARGO_PROJECTS_TEMPLATE.replace("{{cargo_projects}}", &cargo_projects))
 }
 
 fn rust_xml(rust_bin: &Path, stdlib_source: Option<&Path>) -> String {
@@ -252,6 +271,7 @@ fn vapor_xml(
     paths: &EnvironmentPaths,
     app_tools: &AppToolStatus,
     stdlib_source: Option<&Path>,
+    project_root: &Path,
 ) -> Result<String, String> {
     let root = paths.installation().root();
     let cargo = paths
@@ -261,6 +281,10 @@ fn vapor_xml(
     let rustc = app_tools.rust().path().join(executable("rustc"));
     let rustup = root.join("rustup/bin").join(executable("rustup"));
     Ok(VAPOR_TEMPLATE
+        .replace(
+            "{{source_root}}",
+            &xml_escape(&project_reference(project_root, paths.source().root())?),
+        )
         .replace("{{source_id}}", &xml_escape(paths.source().identity_id()))
         .replace("{{app_root}}", &xml_escape(&root.to_string_lossy()))
         .replace(
@@ -278,6 +302,39 @@ fn vapor_xml(
             "{{stdlib_option}}",
             &xml_option("rustStdlibSource", stdlib_source),
         ))
+}
+
+fn ide_project_root(source_root: &Path) -> PathBuf {
+    find_superworkspace_root(source_root).unwrap_or_else(|| source_root.to_path_buf())
+}
+
+fn find_superworkspace_root(start: &Path) -> Option<PathBuf> {
+    let mut cursor = Some(start);
+    while let Some(directory) = cursor {
+        if directory.join(SUPER_WORKSPACE_FILE_NAME).is_file() {
+            return Some(directory.to_path_buf());
+        }
+        cursor = directory.parent();
+    }
+    None
+}
+
+fn project_reference(project_root: &Path, path: &Path) -> Result<String, String> {
+    let relative = path.strip_prefix(project_root).map_err(|error| {
+        format!(
+            "IDE path '{}' is outside project root '{}': {error}",
+            path.display(),
+            project_root.display()
+        )
+    })?;
+    if relative.as_os_str().is_empty() {
+        Ok("$PROJECT_DIR$".to_owned())
+    } else {
+        Ok(format!(
+            "$PROJECT_DIR$/{}",
+            relative.to_string_lossy().replace('\\', "/")
+        ))
+    }
 }
 
 fn xml_option(name: &str, path: Option<&Path>) -> String {

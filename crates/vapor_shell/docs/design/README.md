@@ -18,6 +18,10 @@ alignment.
   direction for SteamUGC, Workshop-backed custom content lifecycle, source
   command unification, script authority boundaries, and README/agent-doc
   alignment.
+- [Workflow and control surface doctrine](workflow-control-surface.md) —
+  owner-aligned direction for unifying Steam Play/Shell, RustRover,
+  SuperWorkspace source membership, precompiled app-root tooling, provider
+  readiness, operation sessions, scripts, publishing authority, and logs.
 
 User guides and reference documentation should cite a checkpoint only when the
 corresponding behavior is either implemented or explicitly labeled as planned.

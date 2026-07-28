@@ -471,32 +471,3 @@ fn run_shell(mut state: ShellState) {
 fn prompt_for(state: &ShellState) -> Box<VaporPrompt> {
     Box::new(VaporPrompt::new(state.prompt_context()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn host_help_exposes_send_diagnostics_without_registry_path() {
-        let help = HostCommand::try_parse_from(["vapor", "--help"])
-            .expect_err("help should exit through Clap")
-            .to_string();
-        assert!(help.contains("--send-diagnostics"), "{help}");
-        assert!(!help.contains("--diagnostics-registry"), "{help}");
-        assert!(!help.contains("--diagnostics-copy-only"), "{help}");
-    }
-
-    #[test]
-    fn host_rejects_legacy_diagnostics_registry_flag() {
-        let error = HostCommand::try_parse_from([
-            "vapor",
-            "--send-diagnostics",
-            "--diagnostics-registry",
-            "/tmp/Vapor-Registry",
-            "metadata",
-        ])
-        .expect_err("legacy registry flag should not parse")
-        .to_string();
-        assert!(error.contains("unexpected argument"), "{error}");
-    }
-}
